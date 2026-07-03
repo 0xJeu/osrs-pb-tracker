@@ -24,10 +24,19 @@
     </section>
 
     <section class="boss-select-card">
-      <label for="boss-select">Or browse a leaderboard:</label>
-      <select id="boss-select">
-        <option value="">Loading bosses...</option>
-      </select>
+      <label for="boss-search">Or browse a leaderboard</label>
+      <div class="combobox" id="boss-combobox">
+        <button type="button" id="boss-search" class="combobox-trigger">
+          <span id="boss-search-label" class="placeholder">Select a boss...</span>
+          <svg class="combobox-chevron" width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="combobox-panel" id="boss-panel">
+          <input type="text" id="boss-filter" class="combobox-filter" placeholder="Type to filter..." autocomplete="off" />
+          <div id="boss-options" class="combobox-options"></div>
+        </div>
+      </div>
     </section>
 
     <section id="results"></section>
