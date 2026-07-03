@@ -1,8 +1,15 @@
 const resultsEl = document.getElementById('results');
-const bossSelect = document.getElementById('boss-select');
 const searchForm = document.getElementById('search-form');
 const searchInput = document.getElementById('search-input');
 const suggestionsEl = document.getElementById('search-suggestions');
+
+const bossCombobox = document.getElementById('boss-combobox');
+const bossTrigger = document.getElementById('boss-search');
+const bossLabel = document.getElementById('boss-search-label');
+const bossFilterInput = document.getElementById('boss-filter');
+const bossOptionsEl = document.getElementById('boss-options');
+
+let allBossNames = [];
 
 function formatTime(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
@@ -55,27 +62,88 @@ function setUrl(params) {
   window.history.pushState({}, '', url);
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// --- Boss combobox ---------------------------------------------------------
+
+function renderBossOptions(list) {
+  if (!list.length) {
+    bossOptionsEl.innerHTML = '<div class="combobox-empty">No matches</div>';
+    return;
+  }
+  bossOptionsEl.innerHTML = list
+    .map((boss) => `<div class="combobox-option" data-boss="${escapeHtml(boss)}">${escapeHtml(titleCase(boss))}</div>`)
+    .join('');
+}
+
 async function loadBossList() {
   try {
     const res = await fetch('/api/bosses');
     const allBosses = await res.json();
-    const bosses = hideAmbiguousBaseEntries(allBosses, (boss) => boss);
+    allBossNames = hideAmbiguousBaseEntries(allBosses, (boss) => boss);
+    renderBossOptions(allBossNames);
 
-    bossSelect.innerHTML = '<option value="">Select a boss...</option>';
-    bosses.forEach((boss) => {
-      const opt = document.createElement('option');
-      opt.value = boss;
-      opt.textContent = titleCase(boss);
-      bossSelect.appendChild(opt);
-    });
-
-    if (bosses.length === 0) {
-      bossSelect.innerHTML = '<option value="">No PB data synced yet</option>';
+    if (!allBossNames.length) {
+      bossLabel.textContent = 'No PB data synced yet';
     }
   } catch (err) {
-    bossSelect.innerHTML = '<option value="">Could not load bosses</option>';
+    bossLabel.textContent = 'Could not load bosses';
   }
 }
+
+function openBossPanel() {
+  bossCombobox.classList.add('open');
+  bossFilterInput.value = '';
+  renderBossOptions(allBossNames);
+  bossFilterInput.focus();
+}
+
+function closeBossPanel() {
+  bossCombobox.classList.remove('open');
+}
+
+function selectBoss(boss) {
+  bossLabel.textContent = titleCase(boss);
+  bossLabel.classList.remove('placeholder');
+  closeBossPanel();
+  setUrl({ boss });
+  showLeaderboard(boss);
+}
+
+bossTrigger.addEventListener('click', () => {
+  if (bossCombobox.classList.contains('open')) {
+    closeBossPanel();
+  } else {
+    openBossPanel();
+  }
+});
+
+bossFilterInput.addEventListener('input', () => {
+  const q = bossFilterInput.value.toLowerCase();
+  renderBossOptions(allBossNames.filter((b) => b.toLowerCase().includes(q)));
+});
+
+bossOptionsEl.addEventListener('click', (e) => {
+  const opt = e.target.closest('.combobox-option');
+  if (!opt) return;
+  selectBoss(opt.getAttribute('data-boss'));
+});
+
+document.addEventListener('click', (e) => {
+  if (!bossCombobox.contains(e.target)) {
+    closeBossPanel();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeBossPanel();
+});
+
+// --- Player + leaderboard views ---------------------------------------------
 
 async function showPlayer(name) {
   resultsEl.innerHTML = '<div class="empty-state">Loading...</div>';
@@ -121,7 +189,8 @@ async function showPlayer(name) {
 
 async function showLeaderboard(boss) {
   resultsEl.innerHTML = '<div class="empty-state">Loading...</div>';
-  bossSelect.value = boss;
+  bossLabel.textContent = titleCase(boss);
+  bossLabel.classList.remove('placeholder');
 
   try {
     const res = await fetch(`/api/leaderboard/${encodeURIComponent(boss)}?limit=25`);
@@ -139,6 +208,7 @@ async function showLeaderboard(boss) {
           <td class="rank">${i + 1}</td>
           <td>${escapeHtml(r.displayName)}</td>
           <td>${formatTime(r.timeSeconds)}</td>
+          <td>${formatDate(r.updatedAt)}</td>
         </tr>`
       )
       .join('');
@@ -146,7 +216,7 @@ async function showLeaderboard(boss) {
     resultsEl.innerHTML = `
       <h2 class="result-title">${escapeHtml(titleCase(boss))} &mdash; Top times</h2>
       <table>
-        <thead><tr><th>#</th><th>Player</th><th>Personal Best</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th><th>Personal Best</th><th>Recorded</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
     `;
@@ -155,11 +225,7 @@ async function showLeaderboard(boss) {
   }
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+// --- Search ------------------------------------------------------------
 
 searchForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -193,13 +259,6 @@ suggestionsEl.addEventListener('click', (e) => {
   suggestionsEl.innerHTML = '';
   setUrl({ player: name });
   showPlayer(name);
-});
-
-bossSelect.addEventListener('change', () => {
-  if (bossSelect.value) {
-    setUrl({ boss: bossSelect.value });
-    showLeaderboard(bossSelect.value);
-  }
 });
 
 // --- Initial load ---------------------------------------------------------
