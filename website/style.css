@@ -264,6 +264,36 @@ tr:last-child td { border-bottom: none; }
   width: 32px;
 }
 
+.match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.match-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: #100d09;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-weight: 400;
+  padding: 12px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.match-option:hover { border-color: var(--orange); color: var(--orange-light); }
+
+.match-meta {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
 .site-footer {
   border-top: 1px solid var(--panel-border);
   padding: 20px 0;

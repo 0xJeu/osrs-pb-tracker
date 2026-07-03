@@ -16,9 +16,21 @@ async function init() {
       account_hash TEXT UNIQUE NOT NULL,
       display_name TEXT NOT NULL,
       display_name_lower TEXT NOT NULL,
+      install_secret_hash TEXT,
       updated_at TEXT NOT NULL
     )
   `);
+
+  // Pre-existing databases (created before install_secret_hash existed) need
+  // the column added; SQLite has no "ADD COLUMN IF NOT EXISTS", so just
+  // swallow the "duplicate column" error on a fresh table that already has it.
+  try {
+    await db.execute('ALTER TABLE players ADD COLUMN install_secret_hash TEXT');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message || '')) {
+      throw err;
+    }
+  }
 
   await db.execute(`
     CREATE INDEX IF NOT EXISTS idx_players_name_lower ON players (display_name_lower)

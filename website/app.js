@@ -145,6 +145,76 @@ document.addEventListener('keydown', (e) => {
 
 // --- Player + leaderboard views ---------------------------------------------
 
+function renderPlayerData(data) {
+  if (!data.pbs.length) {
+    resultsEl.innerHTML = `<div class="empty-state">${escapeHtml(data.displayName)} has synced, but has no recorded PBs yet.</div>`;
+    return;
+  }
+
+  const visiblePbs = hideAmbiguousBaseEntries(data.pbs, (pb) => pb.boss);
+
+  const rows = visiblePbs
+    .map(
+      (pb) => `
+      <tr>
+        <td>${escapeHtml(titleCase(pb.boss))}</td>
+        <td>${formatTime(pb.timeSeconds)}</td>
+        <td>${formatDate(pb.updatedAt)}</td>
+      </tr>`
+    )
+    .join('');
+
+  resultsEl.innerHTML = `
+    <h2 class="result-title">${escapeHtml(data.displayName)}</h2>
+    <div class="result-meta">Last synced ${formatDate(data.updatedAt)} &middot; ${visiblePbs.length} PB(s) recorded</div>
+    <table>
+      <thead><tr><th>Boss</th><th>Personal Best</th><th>Recorded</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+// More than one player can share a display name (renames, reused names), so
+// the lookup can come back ambiguous - list the candidates and let the user
+// pick which account they meant, rather than silently guessing one.
+function renderAmbiguousMatches(name, matches) {
+  const items = matches
+    .map(
+      (m) => `
+      <button type="button" class="match-option" data-id="${escapeHtml(String(m.id))}">
+        <span>${escapeHtml(m.displayName)}</span>
+        <span class="match-meta">last synced ${formatDate(m.updatedAt)}</span>
+      </button>`
+    )
+    .join('');
+
+  resultsEl.innerHTML = `
+    <div class="empty-state">
+      Multiple synced players are using the name <strong>${escapeHtml(name)}</strong>
+      (renames happen). Pick the one you meant:
+    </div>
+    <div class="match-list">${items}</div>
+  `;
+
+  resultsEl.querySelectorAll('.match-option').forEach((btn) => {
+    btn.addEventListener('click', () => showPlayerById(btn.getAttribute('data-id')));
+  });
+}
+
+async function showPlayerById(id) {
+  resultsEl.innerHTML = '<div class="empty-state">Loading...</div>';
+  try {
+    const res = await fetch(`/api/players/by-id/${encodeURIComponent(id)}`);
+    if (res.status === 404) {
+      resultsEl.innerHTML = '<div class="empty-state">That player no longer exists.</div>';
+      return;
+    }
+    renderPlayerData(await res.json());
+  } catch (err) {
+    resultsEl.innerHTML = '<div class="error-state">Could not reach the server. Is the backend running?</div>';
+  }
+}
+
 async function showPlayer(name) {
   resultsEl.innerHTML = '<div class="empty-state">Loading...</div>';
 
@@ -156,32 +226,12 @@ async function showPlayer(name) {
     }
     const data = await res.json();
 
-    if (!data.pbs.length) {
-      resultsEl.innerHTML = `<div class="empty-state">${escapeHtml(data.displayName)} has synced, but has no recorded PBs yet.</div>`;
+    if (data.ambiguous) {
+      renderAmbiguousMatches(name, data.matches);
       return;
     }
 
-    const visiblePbs = hideAmbiguousBaseEntries(data.pbs, (pb) => pb.boss);
-
-    const rows = visiblePbs
-      .map(
-        (pb) => `
-        <tr>
-          <td>${escapeHtml(titleCase(pb.boss))}</td>
-          <td>${formatTime(pb.timeSeconds)}</td>
-          <td>${formatDate(pb.updatedAt)}</td>
-        </tr>`
-      )
-      .join('');
-
-    resultsEl.innerHTML = `
-      <h2 class="result-title">${escapeHtml(data.displayName)}</h2>
-      <div class="result-meta">Last synced ${formatDate(data.updatedAt)} &middot; ${visiblePbs.length} PB(s) recorded</div>
-      <table>
-        <thead><tr><th>Boss</th><th>Personal Best</th><th>Recorded</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
+    renderPlayerData(data);
   } catch (err) {
     resultsEl.innerHTML = '<div class="error-state">Could not reach the server. Is the backend running?</div>';
   }

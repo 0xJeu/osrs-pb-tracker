@@ -29,13 +29,20 @@ Two sync paths, both implemented in `PbTrackerPlugin.java`:
   players don't need to re-kill every boss for the site to have data.
 
 Each sync is tagged with the player's **account hash** (`client.getAccountHash()`),
-a stable per-Jagex-account ID that isn't publicly discoverable — the backend
-uses it as the real identity key, and just tracks display name alongside it
-for lookups/renames. This stops someone from trivially spoofing another
-player's name in a request; they'd need that account's hash, which the
-attacker doesn't have. It is not full authentication (nothing is, without
-Jagex OAuth support for third parties), but it matches what collectionlog.net
-and RuneProfile do today.
+a stable per-Jagex-account ID — the backend uses it as the real identity key,
+and just tracks display name alongside it for lookups/renames.
+
+RuneLite gives plugins no way to cryptographically prove account identity to
+a third-party server, so on top of the account hash the plugin also generates
+a random **install secret** the first time it runs (stored via `ConfigManager`
+under the `pbtracker` config group, never shown in the UI) and sends it with
+every sync. The backend binds that secret to an account hash on the first
+sync it sees for it, and rejects any later sync for that same account hash
+that presents a different secret (`409 Conflict`). This isn't full
+authentication — whoever syncs an account hash first "claims" it — but it
+stops anyone else from later overwriting an already-claimed account's data,
+and `/api/sync` also rate-limits per account hash (30 requests / 10 min) to
+blunt casual spam.
 
 ## 1. Run the backend + website
 
@@ -49,12 +56,14 @@ This starts an Express server on `http://localhost:3000` that both serves
 the API and hosts the website (`GET /` → `website/index.html`). SQLite data
 is stored in `backend/data.db`, created automatically on first run.
 
-Quick smoke test once it's running:
+Quick smoke test once it's running (`installSecret` just needs to be a
+stable, ≥16-character string per "install" - the real plugin generates and
+persists a random one automatically, see below):
 
 ```bash
 curl -X POST http://localhost:3000/api/sync \
   -H "Content-Type: application/json" \
-  -d '{"accountHash":"12345","displayName":"Blitzen","pbs":{"Nex":214,"Zulrah":118.4}}'
+  -d '{"accountHash":"12345","displayName":"Blitzen","installSecret":"local-smoke-test-secret","pbs":{"Nex":214,"Zulrah":118.4}}'
 
 curl http://localhost:3000/api/players/Blitzen
 ```
@@ -117,9 +126,7 @@ default at your real deployed backend URL instead of localhost.
   profile later, you'll need a real auth layer on top of the account-hash
   model.
 - **SQLite is fine for a prototype**, but for a public production site
-  you'll want a hosted Postgres/MySQL instance, plus basic rate limiting on
-  `/api/sync` (right now anything that knows an account hash can spam
-  updates).
+  you'll want a hosted Postgres/MySQL instance.
 - **Deployment**: the backend is a plain Node/Express app — deploys as-is to
   Render, Railway, Fly.io, a VPS, etc. Point the plugin's `apiBaseUrl` at
   wherever you host it (must be HTTPS if you want it broadly trusted).
