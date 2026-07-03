@@ -72,7 +72,7 @@ function escapeHtml(str) {
 
 function renderBossOptions(list) {
   if (!list.length) {
-    bossOptionsEl.innerHTML = '<div class="combobox-empty">No matches</div>';
+    bossOptionsEl.innerHTML = '<div class="combobox-empty">No bosses yet</div>';
     return;
   }
   bossOptionsEl.innerHTML = list
