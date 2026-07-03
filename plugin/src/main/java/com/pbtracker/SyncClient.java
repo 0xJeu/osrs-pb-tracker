@@ -30,14 +30,14 @@ class SyncClient
 		this.config = config;
 	}
 
-	void sync(String accountHash, String displayName, Map<String, Double> pbs, Callback callback)
+	void sync(String accountHash, String displayName, Map<String, Double> pbs, String installSecret, Callback callback)
 	{
 		if (pbs.isEmpty())
 		{
 			return;
 		}
 
-		SyncPayload payload = new SyncPayload(accountHash, displayName, pbs);
+		SyncPayload payload = new SyncPayload(accountHash, displayName, pbs, installSecret);
 		String json = gson.toJson(payload);
 
 		String base = config.apiBaseUrl() == null ? "" : config.apiBaseUrl().replaceAll("/+$", "");
@@ -56,12 +56,14 @@ class SyncClient
 		final String accountHash;
 		final String displayName;
 		final Map<String, Double> pbs;
+		final String installSecret;
 
-		SyncPayload(String accountHash, String displayName, Map<String, Double> pbs)
+		SyncPayload(String accountHash, String displayName, Map<String, Double> pbs, String installSecret)
 		{
 			this.accountHash = accountHash;
 			this.displayName = displayName;
 			this.pbs = pbs;
+			this.installSecret = installSecret;
 		}
 	}
 }

@@ -39,4 +39,28 @@ public interface PbTrackerConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "syncNow",
+		name = "Sync all PBs now",
+		description = "Toggle this (either direction) to trigger an immediate bulk sync.",
+		position = 3
+	)
+	default boolean syncNow()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "syncStatus",
+		name = "Last synced",
+		description = "For display only - RuneLite doesn't support a true read-only field here, "
+			+ "so this is technically editable, but it's overwritten on every sync and typing in "
+			+ "it has no other effect.",
+		position = 4
+	)
+	default String syncStatus()
+	{
+		return "Never";
+	}
 }

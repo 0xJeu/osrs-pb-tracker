@@ -14,25 +14,20 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.Text;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.Response;
 
 import javax.inject.Inject;
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.time.LocalTime;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,11 +45,12 @@ import java.util.regex.Pattern;
  * Three sync paths:
  *  - Live: on every ConfigChanged event in the "personalbest" group (i.e.
  *    the moment you get a new PB), we push just that one value.
- *  - Bulk: on login (and via the sidebar button) we ask ConfigManager for
- *    every key that actually exists under the "personalbest" group for this
- *    account and push all of them, rather than matching against a hardcoded
- *    boss name list. This is what fixes bosses silently going missing due to
- *    a name not matching RuneLite's internal key exactly.
+ *  - Bulk: on login (and via the "Sync all PBs now" checkbox in the plugin's
+ *    own Configuration panel) we ask ConfigManager for every key that
+ *    actually exists under the "personalbest" group for this account and
+ *    push all of them, rather than matching against a hardcoded boss name
+ *    list. This is what fixes bosses silently going missing due to a name
+ *    not matching RuneLite's internal key exactly.
  *  - Adventure Log: RuneLite's core Chat Commands plugin captures data from
  *    your Adventure Log's Counters page too, but it collapses "fastest room
  *    time" records into the same key as full-completion times, which is
@@ -72,6 +68,15 @@ public class PbTrackerPlugin extends Plugin
 {
 	private static final String CONFIG_GROUP = "personalbest";
 
+	// Our own plugin's config group (matches @ConfigGroup on PbTrackerConfig) -
+	// used to persist a per-install secret that isn't exposed as a visible
+	// setting.
+	private static final String SETTINGS_GROUP = "pbtracker";
+	private static final String INSTALL_SECRET_KEY = "installSecret";
+	private static final String SYNC_NOW_KEY = "syncNow";
+	private static final String SYNC_STATUS_KEY = "syncStatus";
+	private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
 	// Matches any "Fastest <descriptor>: <value>" line on the Adventure Log
 	// Counters page, e.g. "Fastest kill: 3:34", "Fastest run: -",
 	// "Fastest Room time - (Team size: 3 player): 18:34". The descriptor is
@@ -85,13 +90,22 @@ public class PbTrackerPlugin extends Plugin
 	// A few activities are stored under a different internal name in
 	// RuneLite's raw "personalbest" config than the heading the Adventure Log
 	// actually displays for them, so they'd otherwise show up as duplicate
-	// rows under two different labels for the same record.
-	private static final Set<String> KNOWN_DUPLICATE_RAW_KEYS = new HashSet<>(Arrays.asList(
-		"tztok-jad",   // Adventure Log calls this "TzHaar Fight Cave"
-		"tzkal-zuk",   // Adventure Log calls this "Inferno"
-		"sol heredit", // Adventure Log calls this "Fortis Colosseum"
-		"hueycoatl"    // Adventure Log calls this "The Hueycoatl"
-	));
+	// rows under two different labels for the same record. Live/bulk sync
+	// skips the raw key and waits for the Adventure Log parser to supply the
+	// properly-labelled version instead - mapped here to the heading text so
+	// we can tell whether that's actually happened yet, and nudge the user to
+	// open the Adventure Log if not (see syncedAdventureLogHeadings below).
+	private static final Map<String, String> KNOWN_DUPLICATE_RAW_KEYS = new HashMap<>();
+	static
+	{
+		KNOWN_DUPLICATE_RAW_KEYS.put("tztok-jad", "TzHaar Fight Cave");
+		KNOWN_DUPLICATE_RAW_KEYS.put("tzkal-zuk", "Inferno");
+		KNOWN_DUPLICATE_RAW_KEYS.put("sol heredit", "Fortis Colosseum");
+		KNOWN_DUPLICATE_RAW_KEYS.put("hueycoatl", "The Hueycoatl");
+		KNOWN_DUPLICATE_RAW_KEYS.put("gauntlet", "The Gauntlet");
+		KNOWN_DUPLICATE_RAW_KEYS.put("corrupted gauntlet", "The Corrupted Gauntlet");
+		KNOWN_DUPLICATE_RAW_KEYS.put("nightmare", "The Nightmare");
+	}
 
 	@Inject
 	private Client client;
@@ -103,18 +117,20 @@ public class PbTrackerPlugin extends Plugin
 	private ConfigManager configManager;
 
 	@Inject
-	private ClientToolbar clientToolbar;
-
-	@Inject
 	private SyncClient syncClient;
 
 	@Inject
 	private ScheduledExecutorService executor;
 
-	private PbTrackerPanel panel;
-	private NavigationButton navButton;
 	private String accountHash;
+	private String installSecret;
 	private boolean journalScrollLoaded;
+
+	// Adventure Log headings (lowercased) we've successfully parsed a record
+	// for this session - lets us tell whether a KNOWN_DUPLICATE_RAW_KEYS boss
+	// has actually been synced yet, so we can nudge the user instead of
+	// silently dropping it forever.
+	private final Set<String> syncedAdventureLogHeadings = new LinkedHashSet<>();
 
 	@Provides
 	PbTrackerConfig provideConfig(ConfigManager configManager)
@@ -125,22 +141,45 @@ public class PbTrackerPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		panel = new PbTrackerPanel(e -> executor.execute(this::syncAll));
+		installSecret = getOrCreateInstallSecret();
+	}
 
-		navButton = NavigationButton.builder()
-			.tooltip("PB Tracker Sync")
-			.icon(createIcon())
-			.priority(6)
-			.panel(panel)
-			.build();
+	/**
+	 * RuneLite gives plugins no way to prove account identity to a
+	 * third-party server, so this doesn't authenticate the player - it's a
+	 * per-install credential the backend uses to bind (on first sync) and
+	 * verify (on every sync after) that updates for a given account are
+	 * coming from the same install, rather than accepting anyone who guesses
+	 * or observes that account's hash.
+	 */
+	private String getOrCreateInstallSecret()
+	{
+		String existing = configManager.getConfiguration(SETTINGS_GROUP, INSTALL_SECRET_KEY);
+		if (existing != null && !existing.isEmpty())
+		{
+			return existing;
+		}
 
-		clientToolbar.addNavigation(navButton);
+		byte[] randomBytes = new byte[32];
+		new SecureRandom().nextBytes(randomBytes);
+		String generated = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+		configManager.setConfiguration(SETTINGS_GROUP, INSTALL_SECRET_KEY, generated);
+		return generated;
 	}
 
 	@Override
 	protected void shutDown()
 	{
-		clientToolbar.removeNavigation(navButton);
+	}
+
+	/**
+	 * Everything the plugin has to say lives in its Configuration panel
+	 * rather than a separate sidebar panel - this just persists the given
+	 * text as the read-only-ish "Last sync status" field.
+	 */
+	private void setStatus(String text)
+	{
+		configManager.setConfiguration(SETTINGS_GROUP, SYNC_STATUS_KEY, text);
 	}
 
 	@Subscribe
@@ -161,6 +200,23 @@ public class PbTrackerPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
+		if (SETTINGS_GROUP.equals(event.getGroup()))
+		{
+			// The config panel has no notion of a "button" - toggling a
+			// checkbox to trigger an action is the usual RuneLite idiom for
+			// this. We deliberately don't reset it back programmatically:
+			// the config panel doesn't repaint from a programmatic change
+			// until the panel is closed and reopened, which made the box
+			// look "stuck" checked. Triggering on either direction of the
+			// toggle avoids that entirely - whatever you clicked is what's
+			// actually stored, so there's nothing for the UI to get stale on.
+			if (SYNC_NOW_KEY.equals(event.getKey()))
+			{
+				executor.execute(this::syncAll);
+			}
+			return;
+		}
+
 		if (!config.autoSync() || !CONFIG_GROUP.equals(event.getGroup()))
 		{
 			return;
@@ -180,6 +236,11 @@ public class PbTrackerPlugin extends Plugin
 			// synced with proper Room/Overall labels from the Adventure Log
 			// parser instead - skip the raw, differently-named version here
 			// so the two don't show up as duplicate entries on the site.
+			String heading = KNOWN_DUPLICATE_RAW_KEYS.get(boss.toLowerCase());
+			if (heading != null && !syncedAdventureLogHeadings.contains(heading.toLowerCase()))
+			{
+				setStatus("New " + heading + " PB detected but not synced yet - open Adventure Log > Counters once to sync it.");
+			}
 			return;
 		}
 
@@ -207,7 +268,7 @@ public class PbTrackerPlugin extends Plugin
 	private static boolean looksLikeRaidVariant(String key)
 	{
 		String lower = key.toLowerCase();
-		if (KNOWN_DUPLICATE_RAW_KEYS.contains(lower))
+		if (KNOWN_DUPLICATE_RAW_KEYS.containsKey(lower))
 		{
 			return true;
 		}
@@ -311,6 +372,7 @@ public class PbTrackerPlugin extends Plugin
 			}
 
 			pbs.put(buildKey(currentHeading, descriptor), seconds);
+			syncedAdventureLogHeadings.add(currentHeading.toLowerCase());
 		}
 
 		if (!pbs.isEmpty())
@@ -407,7 +469,7 @@ public class PbTrackerPlugin extends Plugin
 		String profileKey = configManager.getRSProfileKey();
 		if (profileKey == null)
 		{
-			panel.setStatus("Not logged in yet - log in, then try again.");
+			setStatus("Not logged in yet - log in, then try again.");
 			return;
 		}
 
@@ -437,17 +499,55 @@ public class PbTrackerPlugin extends Plugin
 			}
 		}
 
+		String unsyncedNote = buildUnsyncedDuplicatesNote(raw);
+
 		if (pbs.isEmpty())
 		{
-			panel.setStatus("No personal bests found yet - go kill something!");
+			setStatus(unsyncedNote != null
+				? "No personal bests found yet. " + unsyncedNote
+				: "No personal bests found yet - go kill something!");
 			return;
 		}
 
-		panel.setStatus("Syncing " + pbs.size() + " PB(s)...");
-		syncPbs(pbs);
+		setStatus("Syncing " + pbs.size() + " PB(s)...");
+		syncPbs(pbs, unsyncedNote);
+	}
+
+	/**
+	 * Jad/Zuk/Colosseum/Hueycoatl are deliberately excluded from live and bulk
+	 * sync (see looksLikeRaidVariant) so the Adventure Log parser can supply
+	 * them with a properly-labelled name instead. But that parser only runs
+	 * when the player manually opens the in-game Adventure Log Counters page
+	 * - if they never do, those records would otherwise just never sync.
+	 * Returns a status note listing any such records that are sitting unsynced
+	 * right now, or null if there's nothing to flag.
+	 */
+	private String buildUnsyncedDuplicatesNote(Map<String, Double> raw)
+	{
+		List<String> unsynced = new ArrayList<>();
+		for (Map.Entry<String, String> entry : KNOWN_DUPLICATE_RAW_KEYS.entrySet())
+		{
+			String heading = entry.getValue();
+			if (raw.containsKey(entry.getKey()) && !syncedAdventureLogHeadings.contains(heading.toLowerCase()))
+			{
+				unsynced.add(heading);
+			}
+		}
+
+		if (unsynced.isEmpty())
+		{
+			return null;
+		}
+
+		return "Not synced yet: " + String.join(", ", unsynced) + " - open Adventure Log > Counters once to sync.";
 	}
 
 	private void syncPbs(Map<String, Double> pbs)
+	{
+		syncPbs(pbs, null);
+	}
+
+	private void syncPbs(Map<String, Double> pbs, String statusNote)
 	{
 		if (client.getLocalPlayer() == null || client.getLocalPlayer().getName() == null)
 		{
@@ -456,14 +556,15 @@ public class PbTrackerPlugin extends Plugin
 
 		String name = client.getLocalPlayer().getName();
 		String hash = accountHash != null ? accountHash : String.valueOf(client.getAccountHash());
+		String suffix = statusNote != null ? " " + statusNote : "";
 
-		syncClient.sync(hash, name, pbs, new Callback()
+		syncClient.sync(hash, name, pbs, installSecret, new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
 				log.warn("PB sync failed", e);
-				panel.setStatus("Sync failed: " + e.getMessage());
+				setStatus("Sync failed: " + e.getMessage());
 			}
 
 			@Override
@@ -473,11 +574,15 @@ public class PbTrackerPlugin extends Plugin
 				{
 					if (response.isSuccessful())
 					{
-						panel.setStatus("Synced " + pbs.size() + " PB(s) at " + LocalTime.now().withNano(0));
+						setStatus("Last updated: " + TIMESTAMP_FORMAT.format(LocalDateTime.now()) + suffix);
+					}
+					else if (response.code() == 409)
+					{
+						setStatus("Sync rejected: this account is already synced from a different install.");
 					}
 					else
 					{
-						panel.setStatus("Server responded with error " + response.code());
+						setStatus("Server responded with error " + response.code());
 					}
 				}
 				finally
@@ -486,20 +591,5 @@ public class PbTrackerPlugin extends Plugin
 				}
 			}
 		});
-	}
-
-	private static BufferedImage createIcon()
-	{
-		BufferedImage icon = new BufferedImage(24, 24, BufferedImage.TYPE_INT_ARGB);
-		Graphics2D g = icon.createGraphics();
-		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-		g.setColor(new Color(255, 152, 31));
-		g.fillOval(2, 2, 20, 20);
-		g.setColor(Color.BLACK);
-		g.drawOval(2, 2, 20, 20);
-		g.setFont(g.getFont().deriveFont(Font.BOLD, 9f));
-		g.drawString("PB", 6, 16);
-		g.dispose();
-		return icon;
 	}
 }
