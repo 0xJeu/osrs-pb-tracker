@@ -33,7 +33,13 @@
           </svg>
         </button>
         <div class="combobox-panel" id="boss-panel">
-          <input type="text" id="boss-filter" class="combobox-filter" placeholder="Type to filter..." autocomplete="off" />
+          <div class="combobox-search">
+            <svg class="combobox-search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <input type="text" id="boss-filter" class="combobox-filter" placeholder="Search bosses..." autocomplete="off" />
+          </div>
           <div id="boss-options" class="combobox-options"></div>
         </div>
       </div>
