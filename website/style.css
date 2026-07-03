@@ -141,22 +141,38 @@ button:hover { background: var(--orange-light); }
 
 .combobox.open .combobox-panel { display: block; }
 
+.combobox-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.combobox-search-icon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.combobox-search:focus-within .combobox-search-icon { color: var(--orange); }
+
 .combobox-filter {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--panel-border);
   color: var(--text);
-  padding: 10px 12px;
   font-size: 0.92rem;
   font-family: inherit;
 }
 
-.combobox-filter:focus { outline: none; border-bottom-color: var(--orange); }
+.combobox-filter:focus { outline: none; }
+.combobox-filter::placeholder { color: var(--text-dim); }
 
 .combobox-options {
-  max-height: 260px;
+  max-height: 280px;
   overflow-y: auto;
+  padding: 6px;
 }
 
 .combobox-options::-webkit-scrollbar { width: 8px; }
@@ -167,6 +183,7 @@ button:hover { background: var(--orange-light); }
   font-size: 0.9rem;
   cursor: pointer;
   color: var(--text);
+  border-radius: 5px;
 }
 
 .combobox-option:hover, .combobox-option.active {
