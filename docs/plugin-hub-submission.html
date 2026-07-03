@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PB Tracker Sync — Plugin Hub Submission Plan</title>
+<style>
+  :root {
+    --bg: #14100c;
+    --panel: #1f1912;
+    --panel-border: #3d2f1f;
+    --orange: #ff981f;
+    --orange-light: #ffb84d;
+    --text: #e8ded0;
+    --text-dim: #a89c8a;
+    --green: #7ec488;
+    --red: #e88;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { color: var(--orange); font-size: 1.9rem; margin-bottom: 4px; }
+  .subtitle { color: var(--text-dim); margin-top: 0; margin-bottom: 32px; }
+  h2 {
+    color: var(--orange-light);
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 8px;
+    margin-top: 44px;
+  }
+  h3 { color: var(--text); margin-bottom: 6px; }
+  code, pre {
+    font-family: 'SF Mono', Consolas, Menlo, monospace;
+    background: #100d09;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+  }
+  code { padding: 2px 6px; font-size: 0.88em; }
+  pre { padding: 14px 16px; overflow-x: auto; }
+  a { color: var(--orange-light); }
+  .gate {
+    background: var(--panel);
+    border: 1px solid var(--orange);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin: 20px 0;
+  }
+  .gate h3 { color: var(--orange); margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--panel-border); vertical-align: top; }
+  th { background: #241b10; color: var(--orange); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+  .status { font-weight: 600; }
+  .status.done { color: var(--green); }
+  .status.todo { color: var(--red); }
+  .status.blocked { color: var(--text-dim); }
+  ol, ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .callout {
+    background: var(--panel);
+    border-left: 3px solid var(--orange);
+    padding: 12px 16px;
+    margin: 16px 0;
+    color: var(--text-dim);
+    font-size: 0.92rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>PB Tracker Sync — Plugin Hub Submission Plan</h1>
+  <p class="subtitle">Concrete steps to get <code>plugin/</code> ready for RuneLite Plugin Hub peer review.</p>
+
+  <div class="gate">
+    <h3>Submission gate</h3>
+    <p>
+      We do <strong>not</strong> open the Plugin Hub PR until plugin-side testing
+      passes locally (<code>gradle run</code>, logging in, generating/loading PBs,
+      confirming syncs fire and the panel behaves correctly). Formal backend
+      hosting, database choice, and server-side test coverage are explicitly
+      <strong>out of scope</strong> for this gate — development targets a local
+      backend (<code>http://localhost:3000</code>) the whole time. Plugin Hub
+      review only looks at the plugin's own code and behavior anyway, not
+      whatever backend a user points it at.
+    </p>
+  </div>
+
+  <h2>1. Repo readiness checklist</h2>
+  <table>
+    <thead><tr><th>Item</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>LICENSE</code> (BSD 2-Clause)</td>
+        <td class="status done">Done</td>
+        <td>Added at <code>plugin/LICENSE</code> — required license text for Plugin Hub.</td>
+      </tr>
+      <tr>
+        <td><code>runelite-plugin.properties</code> — real author</td>
+        <td class="status done">Done</td>
+        <td><code>author=YourNameHere</code> replaced with <code>author=georgeparamore</code>.</td>
+      </tr>
+      <tr>
+        <td><code>plugin/README.md</code></td>
+        <td class="status done">Done</td>
+        <td>Plugin-only README (features, config, privacy note) so it reads correctly once split out of the monorepo.</td>
+      </tr>
+      <tr>
+        <td>Extract <code>plugin/</code> into its own public repo</td>
+        <td class="status todo">To do</td>
+        <td>Plugin Hub submissions point at an external repo + commit hash, not a subfolder of a monorepo. See §2.</td>
+      </tr>
+      <tr>
+        <td>Plugin-side manual test pass (<code>gradle run</code>)</td>
+        <td class="status todo">To do — gating</td>
+        <td>Log in, get/simulate a PB, confirm live sync + bulk sync + Adventure Log parsing all work against local backend.</td>
+      </tr>
+      <tr>
+        <td>Backend hosting / DB choice</td>
+        <td class="status blocked">Deferred</td>
+        <td>Explicitly not required for submission. Plugin ships with <code>apiBaseUrl</code> defaulting to <code>localhost:3000</code>; point it at a real host later.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>2. Extracting the plugin into its own repo</h2>
+  <ol>
+    <li>Create a new public GitHub repo (e.g. <code>pb-tracker-sync-plugin</code>) from the official template: <a href="https://github.com/runelite/example-plugin/generate">runelite/example-plugin</a>.</li>
+    <li>Copy everything under <code>plugin/</code> in this repo into it: <code>build.gradle</code>, <code>settings.gradle</code>, <code>runelite-plugin.properties</code>, <code>LICENSE</code>, <code>README.md</code>, and <code>src/</code>.</li>
+    <li>Push to <code>main</code>, confirm <code>gradle build</code> passes clean in the new repo (no relative paths back into the old monorepo).</li>
+    <li>Note the resulting repo's HTTPS clone URL — needed for the manifest in step 3 below.</li>
+  </ol>
+
+  <h2>3. Opening the Plugin Hub PR</h2>
+  <ol>
+    <li>Fork <a href="https://github.com/runelite/plugin-hub">runelite/plugin-hub</a>.</li>
+    <li>Create a branch, add a manifest file under <code>plugins/pb-tracker-sync</code> containing:
+      <pre>repository=https://github.com/&lt;you&gt;/pb-tracker-sync-plugin
+commit=&lt;full 40-character commit hash&gt;</pre>
+    </li>
+    <li>Push and open a PR against <code>runelite/plugin-hub</code>.</li>
+    <li>CI runs automatically. If it fails on a build error, fix it in the plugin repo, then update the <code>commit=</code> hash and push again — multiple iterations within the same PR are normal and expected.</li>
+  </ol>
+
+  <h2>4. What gets reviewed (and what doesn't)</h2>
+  <p>Per RuneLite's own <a href="https://github.com/runelite/runelite/wiki/Plugin-Hub-Review">Plugin Hub Review</a> docs, the process focuses on exactly two things:</p>
+  <ul>
+    <li><strong>Security</strong> — no reflection abuse, no native code, dependency scanning on anything beyond the standard RuneLite/OkHttp/Gson stack we already use.</li>
+    <li><strong>Game rule compliance</strong> — doesn't reproduce a previously-rejected or rolled-back feature, doesn't violate Jagex's rules.</li>
+  </ul>
+  <p>Explicitly <strong>not</strong> reviewed: whether the plugin is useful, performant, bug-free, or factually accurate. That's on us to get right independently — it just won't block the PR.</p>
+  <div class="callout">
+    As of April 2026, RuneLite runs an automated review bot capable of auto-approving simple, low-risk updates; anything more involved still goes to a human. New third-party dependencies always require manual vetting and add meaningfully to turnaround — this plugin only uses RuneLite's already-bundled OkHttp + Gson, so that shouldn't apply to us.
+  </div>
+
+  <h2>5. Timeline expectations</h2>
+  <p>
+    RuneLite doesn't publish a fixed SLA — official guidance is just "be patient."
+    Realistically: anywhere from a few days to a few weeks for a plugin with no
+    novel dependencies and clean CI. Worth a sanity check in the RuneLite
+    Discord for current queue depth before opening the PR.
+  </p>
+
+  <h2>6. Sync auth (resolved)</h2>
+  <p>
+    <code>/api/sync</code> previously had no authentication — anyone who knew
+    a server's URL could POST a fake PB under any display name. This is now
+    fixed: the plugin generates a random per-install secret on first run
+    (stored via <code>ConfigManager</code> under the <code>pbtracker</code>
+    group, never shown in the UI) and sends it with every sync. The backend
+    binds that secret to an account hash the first time it's seen, and
+    rejects (<code>409</code>) any later sync for the same account hash
+    presenting a different secret — plus a 30-requests/10-minute rate limit
+    per account hash. This isn't full identity proof (nothing is, without
+    Jagex OAuth for third parties) — whoever syncs an account hash first
+    claims it — but it closes the "anyone can spoof anyone" gap. Not a Plugin
+    Hub blocker either way, since review doesn't audit whatever backend a
+    user points the plugin at.
+  </p>
+
+</div>
+</body>
+</html>
