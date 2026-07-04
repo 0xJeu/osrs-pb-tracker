@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import bossesRoute from './routes/bosses';
-import leaderboardRoute from './routes/leaderboard';
-import playersRoute from './routes/players';
-import searchRoute from './routes/search';
-import syncRoute from './routes/sync';
+import bossesRoute from './routes/bosses.js';
+import leaderboardRoute from './routes/leaderboard.js';
+import playersRoute from './routes/players.js';
+import searchRoute from './routes/search.js';
+import syncRoute from './routes/sync.js';
 
 export const app = new Hono();
 

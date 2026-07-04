@@ -1,7 +1,7 @@
 import { like } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { db } from '../db/client';
-import { players } from '../db/schema';
+import { db } from '../db/client.js';
+import { players } from '../db/schema.js';
 
 const search = new Hono();
 

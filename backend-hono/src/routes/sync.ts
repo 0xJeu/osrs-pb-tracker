@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { db } from '../db/client';
-import { personalBests, players } from '../db/schema';
-import { hashSecret, isRateLimited } from '../lib/secret';
+import { db } from '../db/client.js';
+import { personalBests, players } from '../db/schema.js';
+import { hashSecret, isRateLimited } from '../lib/secret.js';
 
 const sync = new Hono();
 

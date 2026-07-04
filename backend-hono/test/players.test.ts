@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { app } from '../src/app';
-import { insertTestPlayerWithPb, truncateAll } from './helpers';
+import { app } from '../src/app.js';
+import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
 
 describe('GET /api/players/:name', () => {
   beforeEach(async () => {

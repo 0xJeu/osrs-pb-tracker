@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { app } from './app';
+import { app } from './app.js';
 
 // Serve the existing static website during local dev, matching Express.
 app.use('/*', serveStatic({ root: '../website' }));

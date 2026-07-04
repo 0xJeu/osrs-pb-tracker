@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { app } from '../src/app';
-import { resetRateLimiter } from '../src/lib/secret';
-import { truncateAll } from './helpers';
+import { app } from '../src/app.js';
+import { resetRateLimiter } from '../src/lib/secret.js';
+import { truncateAll } from './helpers.js';
 
 function syncRequest(body: unknown) {
   return app.request('/api/sync', {

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { db } from '../db/client';
-import { personalBests } from '../db/schema';
+import { db } from '../db/client.js';
+import { personalBests } from '../db/schema.js';
 
 const bosses = new Hono();
 

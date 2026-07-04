@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { db } from '../db/client';
-import { personalBests, players } from '../db/schema';
+import { db } from '../db/client.js';
+import { personalBests, players } from '../db/schema.js';
 
 const leaderboard = new Hono();
 
