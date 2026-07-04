@@ -20,4 +20,12 @@ describe('GET /api/bosses', () => {
     const res = await app.request('/api/bosses');
     expect(await res.json()).toEqual(['vorkath', 'zulrah']);
   });
+
+  it('lists a boss only once even when multiple players have a PB for it', async () => {
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'PlayerA' });
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 95, displayName: 'PlayerB' });
+
+    const res = await app.request('/api/bosses');
+    expect(await res.json()).toEqual(['zulrah']);
+  });
 });
