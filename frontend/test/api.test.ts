@@ -1,0 +1,73 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createApiClient } from '../src/lib/api';
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+describe('createApiClient', () => {
+  it('strips trailing slashes from the base URL', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = createApiClient('http://api.test///', fetchFn);
+    await api.getBosses();
+    expect(fetchFn).toHaveBeenCalledWith('http://api.test/api/bosses');
+  });
+
+  it('uses same-origin relative paths for an empty base URL', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = createApiClient('', fetchFn);
+    await api.getBosses();
+    expect(fetchFn).toHaveBeenCalledWith('/api/bosses');
+  });
+
+  it('maps a 404 player lookup to notFound', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Player not found' }, 404));
+    const api = createApiClient('', fetchFn);
+    expect(await api.lookupPlayer('Nobody')).toEqual({ kind: 'notFound' });
+  });
+
+  it('maps an ambiguous response to its matches', async () => {
+    const matches = [{ id: 1, displayName: 'Blitzen', updatedAt: '2026-07-04T00:00:00Z' }];
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ ambiguous: true, matches }));
+    const api = createApiClient('', fetchFn);
+    expect(await api.lookupPlayer('Blitzen')).toEqual({ kind: 'ambiguous', matches });
+  });
+
+  it('maps a full payload to a player result', async () => {
+    const player = {
+      id: 1,
+      displayName: 'Blitzen',
+      updatedAt: '2026-07-04T00:00:00Z',
+      pbs: [{ boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z' }],
+    };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(player));
+    const api = createApiClient('', fetchFn);
+    expect(await api.lookupPlayer('Blitzen')).toEqual({ kind: 'player', player });
+  });
+
+  it('URL-encodes names and bosses', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = createApiClient('', fetchFn);
+    await api.getLeaderboard('theatre of blood - fastest room (4 player)');
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/leaderboard/theatre%20of%20blood%20-%20fastest%20room%20(4%20player)?limit=25'
+    );
+  });
+
+  it('loads recent sync summaries with a clamped default limit', async () => {
+    const rows = [{ id: 5, displayName: 'ChampSide', updatedAt: '2026-07-05T19:35:04Z', pbCount: 24 }];
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(rows));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getRecentSyncs()).toEqual(rows);
+    expect(fetchFn).toHaveBeenCalledWith('/api/recent-syncs?limit=10');
+  });
+
+  it('throws on unexpected server errors', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
+    const api = createApiClient('', fetchFn);
+    await expect(api.getBosses()).rejects.toThrow();
+  });
+});
