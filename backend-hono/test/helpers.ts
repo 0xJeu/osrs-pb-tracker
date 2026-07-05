@@ -13,6 +13,7 @@ export async function insertTestPlayerWithPb(opts: {
   timeSeconds: number;
   displayName?: string;
   accountHash?: string;
+  updatedAt?: Date;
 }) {
   counter += 1;
   const displayName = opts.displayName ?? `TestPlayer${counter}`;
@@ -23,7 +24,7 @@ export async function insertTestPlayerWithPb(opts: {
       displayName,
       displayNameLower: displayName.toLowerCase(),
       installSecretHash: 'test-secret-hash',
-      updatedAt: new Date(),
+      updatedAt: opts.updatedAt ?? new Date(),
     })
     .returning();
 
