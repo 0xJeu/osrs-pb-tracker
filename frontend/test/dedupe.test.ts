@@ -14,6 +14,14 @@ describe('hideAmbiguousBaseEntries', () => {
     expect(hideAmbiguousBaseEntries(items, (x) => x)).toEqual(['zulrah', 'vorkath']);
   });
 
+  it('keeps parenthetical variants alongside the base boss', () => {
+    const items = ['duke sucellus', 'duke sucellus (awakened)'];
+    expect(hideAmbiguousBaseEntries(items, (x) => x)).toEqual([
+      'duke sucellus',
+      'duke sucellus (awakened)',
+    ]);
+  });
+
   it('compares case-insensitively', () => {
     const items = ['Theatre Of Blood', 'theatre of blood - fastest room'];
     expect(hideAmbiguousBaseEntries(items, (x) => x)).toEqual([

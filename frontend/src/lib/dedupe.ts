@@ -6,7 +6,7 @@ export function hideAmbiguousBaseEntries<T>(items: T[], getName: (item: T) => st
   const names = items.map((item) => getName(item).toLowerCase());
   return items.filter((item) => {
     const lower = getName(item).toLowerCase();
-    const hasMoreSpecificVariant = names.some((n) => n !== lower && n.startsWith(`${lower} `));
+    const hasMoreSpecificVariant = names.some((n) => n !== lower && n.startsWith(`${lower} - `));
     return !hasMoreSpecificVariant;
   });
 }
