@@ -10,12 +10,12 @@ public interface PbTrackerConfig extends Config
 	@ConfigItem(
 		keyName = "apiBaseUrl",
 		name = "API base URL",
-		description = "Base URL of your PB tracker backend, e.g. http://localhost:3000 or https://pbs.example.com",
+		description = "Base URL of your PB tracker backend, e.g. https://osrs-pb-tracker-backend.vercel.app",
 		position = 0
 	)
 	default String apiBaseUrl()
 	{
-		return "http://localhost:3000";
+		return "https://osrs-pb-tracker-backend.vercel.app";
 	}
 
 	@ConfigItem(
@@ -43,7 +43,7 @@ public interface PbTrackerConfig extends Config
 	@ConfigItem(
 		keyName = "syncNow",
 		name = "Sync all PBs now",
-		description = "Toggle this (either direction) to trigger an immediate bulk sync.",
+		description = "Check to trigger an immediate bulk sync. Uncheck and check again to trigger another one.",
 		position = 3
 	)
 	default boolean syncNow()

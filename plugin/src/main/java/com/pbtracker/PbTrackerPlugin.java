@@ -202,15 +202,14 @@ public class PbTrackerPlugin extends Plugin
 	{
 		if (SETTINGS_GROUP.equals(event.getGroup()))
 		{
-			// The config panel has no notion of a "button" - toggling a
-			// checkbox to trigger an action is the usual RuneLite idiom for
-			// this. We deliberately don't reset it back programmatically:
-			// the config panel doesn't repaint from a programmatic change
-			// until the panel is closed and reopened, which made the box
-			// look "stuck" checked. Triggering on either direction of the
-			// toggle avoids that entirely - whatever you clicked is what's
-			// actually stored, so there's nothing for the UI to get stale on.
-			if (SYNC_NOW_KEY.equals(event.getKey()))
+			// Note: we deliberately do NOT reset this checkbox back to false
+			// programmatically after triggering a sync. RuneLite's config
+			// panel doesn't repaint from a programmatic change until the
+			// panel is closed and reopened, so resetting it here made the
+			// box look "stuck" checked even though the stored value was
+			// already false. Leaving it checked keeps the displayed state
+			// truthful - you'd need to manually uncheck it to trigger again.
+			if (SYNC_NOW_KEY.equals(event.getKey()) && shouldTriggerSyncNow(event.getNewValue()))
 			{
 				executor.execute(this::syncAll);
 			}
@@ -273,6 +272,11 @@ public class PbTrackerPlugin extends Plugin
 			return true;
 		}
 		return lower.matches(".*\\d.*") || lower.endsWith(" solo") || lower.contains(" mode");
+	}
+
+	static boolean shouldTriggerSyncNow(String newValue)
+	{
+		return Boolean.parseBoolean(newValue);
 	}
 
 	@Subscribe
