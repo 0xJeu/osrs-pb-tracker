@@ -60,9 +60,11 @@ Required user-facing flows:
    rows.
 4. Browse the available boss list.
 5. Show a top-times leaderboard for a selected boss.
-6. Support URL-driven states for shared links, equivalent to today's
+6. Show a compact recent-sync surface so the project owner and visitors can
+   tell whether players have been syncing recently.
+7. Support URL-driven states for shared links, equivalent to today's
    `?player=` and `?boss=` behavior.
-7. Show useful loading, empty, not-found, and backend-unreachable states.
+8. Show useful loading, empty, not-found, and backend-unreachable states.
 
 The app should preserve the existing public nature of the project: no login is
 required to view synced PBs.
@@ -96,6 +98,7 @@ GET /api/players/by-id/:id
 GET /api/search?q=<query>
 GET /api/leaderboard/:boss?limit=<n>
 GET /api/bosses
+GET /api/recent-syncs?limit=<n>
 ```
 
 `POST /api/sync` is used by the RuneLite plugin and should not be called by the
@@ -134,6 +137,20 @@ The frontend should handle these response shapes:
 - `GET /api/leaderboard/:boss` returns an array sorted fastest first.
 - `GET /api/bosses` returns an array of boss names.
 - `GET /api/search` returns an array of matching display names.
+- `GET /api/recent-syncs` returns recent player sync summaries ordered newest
+  first. Each row should include `id`, `displayName`, `updatedAt`, and `pbCount`.
+  The endpoint should clamp `limit` to a small public maximum such as `25`.
+
+```json
+[
+  {
+    "id": 5,
+    "displayName": "ChampSide",
+    "updatedAt": "2026-07-05T19:35:04.453Z",
+    "pbCount": 24
+  }
+]
+```
 
 ## Information Architecture
 
@@ -146,6 +163,8 @@ view states:
    visible PBs, and a PB table/list.
 3. **Boss Leaderboard:** boss title, top times table/list, and a clear path back
    to search.
+4. **Recent Syncs:** a small home-page panel or section listing the newest
+   synced players, their latest sync time, and how many PBs they have synced.
 
 The ambiguous-name picker is a sub-state of player lookup. It should explain
 that display names are not unique due to renames/reused names, then let the user
@@ -172,6 +191,7 @@ Interaction requirements:
 
 - Search suggestions should remain debounced.
 - Boss selection should be searchable.
+- Recent-sync rows should link into the same player result state as search.
 - Shared URLs should restore the selected player or boss. When both `?player=`
   and `?boss=` are present, `?player=` takes precedence, matching today's
   behavior.
@@ -242,13 +262,14 @@ core public flows:
 
 - Unit tests for formatting helpers such as PB time formatting.
 - Unit tests for API response handling, especially unknown player,
-  ambiguous-name, and leaderboard responses.
+  ambiguous-name, leaderboard responses, and recent-sync responses.
 - Browser or component-level smoke tests for:
   - initial load
   - player search success
   - unknown player state
   - ambiguous player picker
   - boss leaderboard load
+  - recent-sync list load
   - URL restoration for `?player=` and `?boss=`
 
 Manual verification before calling the frontend ready:
@@ -258,8 +279,9 @@ Manual verification before calling the frontend ready:
 3. Run the frontend locally against that backend.
 4. Search a known player.
 5. Open a boss leaderboard.
-6. Open direct URLs for `?player=<name>` and `?boss=<boss>`.
-7. Build the frontend and preview the production output.
+6. Confirm the recent-sync panel shows the latest seeded or live player.
+7. Open direct URLs for `?player=<name>` and `?boss=<boss>`.
+8. Build the frontend and preview the production output.
 
 ## Roadmap
 
