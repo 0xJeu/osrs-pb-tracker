@@ -1,12 +1,6 @@
-// Raids report multiple records under a shared base name (e.g. "Theatre of
-// Blood", "Theatre of Blood - Fastest Room (4 player)"). The bare base entry
-// is ambiguous once a more specific variant exists, so we hide it rather than
-// show a number that might be misleading. Ported from website/app.js.
+// The backend stores every synced PB key verbatim. Earlier builds hid base raid
+// names when variants existed, but that dropped real regular-mode records from
+// both player tables and boss search. Preserve all entries for accuracy.
 export function hideAmbiguousBaseEntries<T>(items: T[], getName: (item: T) => string): T[] {
-  const names = items.map((item) => getName(item).toLowerCase());
-  return items.filter((item) => {
-    const lower = getName(item).toLowerCase();
-    const hasMoreSpecificVariant = names.some((n) => n !== lower && n.startsWith(`${lower} - `));
-    return !hasMoreSpecificVariant;
-  });
+  return items;
 }
