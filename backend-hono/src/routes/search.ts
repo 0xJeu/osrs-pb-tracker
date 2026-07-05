@@ -1,7 +1,7 @@
-import { Hono } from 'hono';
 import { like } from 'drizzle-orm';
-import { db } from '../db/client';
-import { players } from '../db/schema';
+import { Hono } from 'hono';
+import { db } from '../db/client.js';
+import { players } from '../db/schema.js';
 
 const search = new Hono();
 
@@ -18,7 +18,7 @@ search.get('/', async (c) => {
     .orderBy(players.displayNameLower)
     .limit(10);
 
-  return c.json(rows.map((r) => r.displayName));
+  return c.json(rows.map((row) => row.displayName));
 });
 
 export default search;

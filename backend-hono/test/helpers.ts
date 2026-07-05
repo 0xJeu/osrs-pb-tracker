@@ -1,5 +1,5 @@
-import { db } from '../src/db/client';
-import { players, personalBests } from '../src/db/schema';
+import { db } from '../src/db/client.js';
+import { players, personalBests } from '../src/db/schema.js';
 
 export async function truncateAll() {
   await db.delete(personalBests);

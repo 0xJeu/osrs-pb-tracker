@@ -1,7 +1,7 @@
-import { Hono } from 'hono';
 import { count, desc, eq } from 'drizzle-orm';
-import { db } from '../db/client';
-import { players, personalBests } from '../db/schema';
+import { Hono } from 'hono';
+import { db } from '../db/client.js';
+import { personalBests, players } from '../db/schema.js';
 
 const recentSyncs = new Hono();
 

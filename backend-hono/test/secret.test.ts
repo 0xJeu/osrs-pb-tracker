@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashSecret, isRateLimited, resetRateLimiter } from '../src/lib/secret';
+import { hashSecret, isRateLimited, resetRateLimiter } from '../src/lib/secret.js';
 
 describe('hashSecret', () => {
   it('produces a stable sha256 hex digest', () => {
