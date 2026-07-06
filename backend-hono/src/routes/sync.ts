@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
+import { isTrackedBoss } from '../lib/trackedBosses.js';
 
 const sync = new Hono();
 
@@ -114,6 +115,9 @@ sync.post('/', async (c) => {
     const boss = rawBoss.trim().toLowerCase();
     const timeSeconds = Number(seconds);
     if (!boss || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+      continue;
+    }
+    if (!isTrackedBoss(boss)) {
       continue;
     }
     if (await upsertPb(playerId, boss, timeSeconds)) {

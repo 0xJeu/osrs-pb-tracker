@@ -9,5 +9,5 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src", "api", "test", "drizzle.config.ts", "vitest.config.ts"]
+  "include": ["src", "api", "test", "scripts", "drizzle.config.ts", "vitest.config.ts"]
 }
