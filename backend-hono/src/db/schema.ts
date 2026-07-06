@@ -34,3 +34,23 @@ export const personalBests = pgTable(
     bossIdx: index('idx_pb_boss').on(table.boss),
   })
 );
+
+// Deliberately minimal - just enough to triage. No IP/user-agent/account
+// linkage is stored, both to keep row size small (site is in beta, feedback
+// volume is unpredictable) and to avoid collecting more than we need from
+// anonymous submitters. Read directly from the database when it's time to
+// review (no admin API endpoint exposes this table).
+export const feedback = pgTable(
+  'feedback',
+  {
+    id: serial('id').primaryKey(),
+    message: text('message').notNull(),
+    // Optional short freeform tag for where the feedback came from, e.g. the
+    // boss or player page the user was viewing - not a foreign key, just context.
+    context: text('context'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    createdAtIdx: index('idx_feedback_created_at').on(table.createdAt),
+  })
+);
