@@ -1,3 +1,5 @@
+import { isTrackedBoss } from './trackedBosses';
+
 export interface PbEntry {
   boss: string;
   timeSeconds: number;
@@ -63,7 +65,8 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     if (data.ambiguous) {
       return { kind: 'ambiguous', matches: data.matches as AmbiguousMatch[] };
     }
-    return { kind: 'player', player: data as PlayerPayload };
+    const player = data as PlayerPayload;
+    return { kind: 'player', player: { ...player, pbs: player.pbs.filter((pb) => isTrackedBoss(pb.boss)) } };
   }
 
   return {
@@ -76,8 +79,9 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     search(q: string): Promise<string[]> {
       return getJson(`/api/search?q=${encodeURIComponent(q)}`);
     },
-    getBosses(): Promise<string[]> {
-      return getJson('/api/bosses');
+    async getBosses(): Promise<string[]> {
+      const bosses = await getJson<string[]>('/api/bosses');
+      return bosses.filter(isTrackedBoss);
     },
     getLeaderboard(boss: string, limit = 25): Promise<LeaderboardRow[]> {
       return getJson(`/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}`);
