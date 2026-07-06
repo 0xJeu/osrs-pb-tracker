@@ -32,3 +32,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local agent brainstorming/mockup artifacts
+.superpowers/
