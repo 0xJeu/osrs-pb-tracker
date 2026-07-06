@@ -10,6 +10,7 @@ import { Leaderboard } from './components/Leaderboard';
 import { RecentSyncs } from './components/RecentSyncs';
 import { EmptyState } from './components/States';
 import { FaqPage } from './components/FaqPage';
+import { FeedbackButton } from './components/FeedbackButton';
 
 type View =
   | { name: 'home' }
@@ -25,6 +26,21 @@ function viewFromLocation(): View {
   if (bossMatch) return { name: 'boss', boss: decodeURIComponent(bossMatch[1]) };
   if (path === '/faq') return { name: 'faq' };
   return { name: 'home' };
+}
+
+// Short freeform tag sent along with feedback so we know roughly where the
+// user was - not a lookup key, purely context for triage.
+function feedbackContext(view: View): string {
+  switch (view.name) {
+    case 'player':
+      return `player:${view.player}`;
+    case 'boss':
+      return `boss:${view.boss}`;
+    case 'faq':
+      return 'page:faq';
+    default:
+      return 'page:home';
+  }
 }
 
 export default function App() {
@@ -147,6 +163,10 @@ export default function App() {
           </a>
         </div>
       </footer>
+
+      <div className="feedback-widget">
+        <FeedbackButton context={feedbackContext(view)} />
+      </div>
     </>
   );
 }

@@ -85,6 +85,16 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       return getJson(`/api/recent-syncs?limit=${limit}`);
     },
+    async submitFeedback(message: string, context?: string): Promise<void> {
+      const res = await fetchFn(`${base}/api/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(context ? { message, context } : { message }),
+      });
+      if (!res.ok) {
+        throw new ApiError(res.status);
+      }
+    },
   };
 }
 

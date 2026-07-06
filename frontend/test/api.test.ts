@@ -70,4 +70,32 @@ describe('createApiClient', () => {
     const api = createApiClient('', fetchFn);
     await expect(api.getBosses()).rejects.toThrow();
   });
+
+  it('posts feedback without a context field when none is given', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const api = createApiClient('', fetchFn);
+    await api.submitFeedback('Colosseum PB never synced.');
+    expect(fetchFn).toHaveBeenCalledWith('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Colosseum PB never synced.' }),
+    });
+  });
+
+  it('posts feedback with a context field when given', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const api = createApiClient('', fetchFn);
+    await api.submitFeedback('Wrong time shown.', 'boss:zulrah');
+    expect(fetchFn).toHaveBeenCalledWith('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Wrong time shown.', context: 'boss:zulrah' }),
+    });
+  });
+
+  it('throws when feedback submission fails', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Too many requests' }, 429));
+    const api = createApiClient('', fetchFn);
+    await expect(api.submitFeedback('spam')).rejects.toThrow();
+  });
 });
