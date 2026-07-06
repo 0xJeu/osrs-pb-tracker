@@ -39,7 +39,6 @@ const TRACKED_BOSS_PREFIXES = [
   'phantom muspah',
   'royal titans',
   'shellbane gryphon',
-  'tempoross',
   'theatre of blood',
   'tzhaar-ket-rak',
   'tzhaar fight cave',
