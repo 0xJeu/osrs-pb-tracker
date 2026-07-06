@@ -13,7 +13,7 @@ type State =
   | { s: 'ambiguous'; matches: AmbiguousMatch[] }
   | { s: 'loaded'; player: PlayerPayload };
 
-export function PlayerResult({ name }: { name: string }) {
+export function PlayerResult({ name, onFaqClick }: { name: string; onFaqClick?: () => void }) {
   const [state, setState] = useState<State>({ s: 'loading' });
 
   useEffect(() => {
@@ -74,6 +74,21 @@ export function PlayerResult({ name }: { name: string }) {
       <h2 className="result-title">{player.displayName}</h2>
       <div className="result-meta">
         Last synced {formatDate(player.updatedAt)} - {visiblePbs.length} PB(s) recorded
+        {onFaqClick && (
+          <>
+            {' '}
+            -{' '}
+            <a
+              href="/?page=faq"
+              onClick={(e) => {
+                e.preventDefault();
+                onFaqClick();
+              }}
+            >
+              Times look wrong? See our FAQ
+            </a>
+          </>
+        )}
       </div>
       <table>
         <thead>

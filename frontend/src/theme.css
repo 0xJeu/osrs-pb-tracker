@@ -10,6 +10,8 @@
 
 * { box-sizing: border-box; }
 
+a { color: var(--gold-light); }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -30,6 +32,7 @@ body {
 }
 
 .site-header h1 { margin: 0; font-size: 2rem; letter-spacing: 0.5px; }
+.logo-link { display: inline-block; text-decoration: none; color: inherit; }
 .accent { color: var(--gold); }
 .subtitle { margin: 4px 0 0; color: var(--text-dim); }
 
@@ -244,6 +247,12 @@ tr:last-child td { border-bottom: none; }
 .recent-row span:first-child { display: flex; flex-direction: column; gap: 2px; }
 .recent-row small { color: var(--text-dim); }
 .pb-count { color: var(--gold-light); white-space: nowrap; }
+
+.faq-entry { margin-bottom: 24px; }
+.faq-entry h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.faq-entry p, .faq-entry li { color: var(--text-dim); line-height: 1.5; }
+.faq-entry ul { margin: 8px 0 0; padding-left: 20px; }
+.faq-entry li + li { margin-top: 8px; }
 
 .site-footer {
   border-top: 1px solid var(--panel-border);
