@@ -97,6 +97,7 @@ test('boss leaderboard loads via the combobox', async ({ page }) => {
 test('grouped boss picker opens raid variants and restores the selected mode from the URL', async ({ page }) => {
   const groupedBosses = [
     'zulrah',
+    'chambers of xeric',
     'chambers of xeric - fastest overall (solo)',
     'chambers of xeric - fastest room (solo)',
     'chambers of xeric - challenge mode - fastest overall (3 players)',
@@ -123,8 +124,13 @@ test('grouped boss picker opens raid variants and restores the selected mode fro
   await page.getByRole('option', { name: /Chambers Of Xeric/ }).click();
 
   await expect(page.getByRole('button', { name: 'Normal', exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole('button', { name: 'Overall', exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole('button', { name: 'Solo', exact: true })).toHaveClass(/active/);
+  await expect(page.locator('.raid-kind-tab', { hasText: 'Overall' })).toHaveClass(/active/);
+  await expect(page.locator('.raid-variant-button', { hasText: 'Solo' })).toHaveClass(/active/);
+
+  await page.locator('.raid-variant-button', { hasText: 'Overall' }).click();
+
+  await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === '/boss/chambers of xeric');
+  await expect(page.getByRole('heading', { name: /Chambers Of Xeric - Top times/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'Challenge Mode', exact: true }).click();
   await page.getByRole('button', { name: 'Trio', exact: true }).click();
@@ -135,8 +141,8 @@ test('grouped boss picker opens raid variants and restores the selected mode fro
   await page.reload();
 
   await expect(page.getByRole('button', { name: 'Challenge Mode', exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole('button', { name: 'Overall', exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole('button', { name: 'Trio', exact: true })).toHaveClass(/active/);
+  await expect(page.locator('.raid-kind-tab', { hasText: 'Overall' })).toHaveClass(/active/);
+  await expect(page.locator('.raid-variant-button', { hasText: 'Trio' })).toHaveClass(/active/);
 });
 
 test('recent sync rows navigate to player results', async ({ page }) => {

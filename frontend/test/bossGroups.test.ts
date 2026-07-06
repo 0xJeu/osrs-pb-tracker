@@ -112,7 +112,7 @@ describe('groupBosses', () => {
     expect(labels).toEqual([...labels].sort((a, b) => a.localeCompare(b)));
   });
 
-  it('drops the bare no-team-size key for a raid+mode once a real labeled sibling exists', () => {
+  it('keeps the bare no-team-size key reachable alongside labeled raid variants', () => {
     const keys = [
       'chambers of xeric',
       'chambers of xeric - fastest overall (solo)',
@@ -124,11 +124,13 @@ describe('groupBosses', () => {
     const raids = groups.find((g) => g.category === 'Raids');
 
     const cox = raids?.raidGroups?.find((r) => r.heading === 'Chambers Of Xeric');
-    expect(cox?.variants.map((v) => v.label)).toEqual(['Fastest Overall (Solo)', 'Fastest Overall (3 Players)']);
-    expect(cox?.variants.some((v) => v.label === 'Overall')).toBe(false);
+    expect(cox?.variants.map((v) => v.label)).toEqual(['Fastest Overall (Solo)', 'Fastest Overall (3 Players)', 'Overall']);
 
     const tob = raids?.raidGroups?.find((r) => r.heading === 'Theatre Of Blood');
-    expect(tob?.variants).toEqual([{ key: 'theatre of blood - fastest overall (3 player)', label: 'Fastest Overall (3 Player)' }]);
+    expect(tob?.variants).toEqual([
+      { key: 'theatre of blood - fastest overall (3 player)', label: 'Fastest Overall (3 Player)' },
+      { key: 'theatre of blood', label: 'Overall' },
+    ]);
   });
 
   it('keeps a bare no-team-size key when it is the only variant for that raid+mode', () => {
@@ -227,6 +229,16 @@ describe('isGroupedVariant', () => {
 });
 
 describe('groupVariantsByKind', () => {
+  it('keeps bare Overall raid keys in the Overall type group', () => {
+    const groups = groupVariantsByKind([
+      { key: 'k1', label: 'Fastest Overall (Solo)' },
+      { key: 'k2', label: 'Overall' },
+    ]);
+
+    expect(groups.map((g) => g.kind)).toEqual(['Overall']);
+    expect(groups[0].variants.map((v) => v.sizeLabel)).toEqual(['Solo', 'Overall']);
+  });
+
   it('splits Overall/Room into their own groups, sorted and relabeled by team size', () => {
     const variants = [
       { key: 'k1', label: 'Fastest Overall (Solo)' },

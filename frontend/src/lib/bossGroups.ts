@@ -152,15 +152,6 @@ interface RaidVariant {
   mode: string;
   heading: string;
   subLabel: string;
-  // True only for a bare raid key with no " - " suffix at all (e.g. plain
-  // "chambers of xeric"). That shape comes from RuneLite's live chat-capture
-  // sync path, which doesn't attach a team size - unlike every other variant,
-  // which is parsed from the Adventure Log and always has one. It's not a
-  // distinct record type, just an artifact of which sync path wrote it, so
-  // it gets dropped from the picker whenever a real, better-labeled sibling
-  // exists for the same raid + mode (see groupBosses below). Never dropped
-  // from the underlying data/API - only from this curated UI grouping.
-  isBareOverall: boolean;
 }
 
 function parseRaidVariant(bossKey: string): RaidVariant {
@@ -170,7 +161,7 @@ function parseRaidVariant(bossKey: string): RaidVariant {
   const heading = mode ? `${titleCase(base)} - ${titleCase(mode)}` : titleCase(base);
   const isBareOverall = segments.length === 1;
   const subLabel = isBareOverall ? 'Overall' : titleCase(segments[segments.length - 1]);
-  return { key: bossKey, base, mode, heading, subLabel, isBareOverall };
+  return { key: bossKey, base, mode, heading, subLabel };
 }
 
 function teamSizeRank(subLabel: string): number {
@@ -212,6 +203,7 @@ function variantKind(label: string): VariantKind {
   // belong mixed into Room/Overall - keep them together and clearly set apart
   // instead of splitting them across Room/Other by whatever word comes first.
   if (lower.includes('(former)')) return 'Legacy';
+  if (lower === 'overall') return 'Overall';
   if (lower.startsWith('fastest overall')) return 'Overall';
   if (lower.startsWith('fastest room')) return 'Room';
   return 'Other';
@@ -291,15 +283,11 @@ export function groupBosses(bosses: string[]): CategoryGroup[] {
         const sorted = variants.sort(
           (a, b) => teamSizeRank(a.subLabel) - teamSizeRank(b.subLabel) || variantRank(a.subLabel) - variantRank(b.subLabel)
         );
-        // Only drop the bare "Overall" entry when a real, better-labeled
-        // sibling exists for this exact heading - if it's the only variant
-        // we have for this raid+mode, still show it rather than an empty group.
-        const kept = sorted.length > 1 ? sorted.filter((v) => !v.isBareOverall) : sorted;
         return {
           heading: variants[0].heading,
           base: variants[0].base,
           mode: variants[0].mode,
-          variants: kept.map((v) => ({ key: v.key, label: v.subLabel })),
+          variants: sorted.map((v) => ({ key: v.key, label: v.subLabel })),
         };
       })
       .sort((a, b) => a.base.localeCompare(b.base) || (MODE_PRIORITY[a.mode] ?? (a.mode ? 50 : 0)) - (MODE_PRIORITY[b.mode] ?? (b.mode ? 50 : 0)))
