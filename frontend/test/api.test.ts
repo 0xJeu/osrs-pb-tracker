@@ -48,6 +48,31 @@ describe('createApiClient', () => {
     expect(await api.lookupPlayer('Blitzen')).toEqual({ kind: 'player', player });
   });
 
+  it('drops PBs for bosses with no official Jagex personal best', async () => {
+    const player = {
+      id: 1,
+      displayName: 'Blitzen',
+      updatedAt: '2026-07-04T00:00:00Z',
+      pbs: [
+        { boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z' },
+        { boss: 'dagannoth prime', timeSeconds: 60, updatedAt: '2026-07-04T00:00:00Z' },
+      ],
+    };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(player));
+    const api = createApiClient('', fetchFn);
+    const result = await api.lookupPlayer('Blitzen');
+    expect(result).toEqual({
+      kind: 'player',
+      player: { ...player, pbs: [player.pbs[0]] },
+    });
+  });
+
+  it('drops untracked bosses from the boss list', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(['zulrah', 'dagannoth prime', 'vorkath']));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getBosses()).toEqual(['zulrah', 'vorkath']);
+  });
+
   it('URL-encodes names and bosses', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
     const api = createApiClient('', fetchFn);
