@@ -94,6 +94,51 @@ test('boss leaderboard loads via the combobox', async ({ page }) => {
   await expect(page.getByText('Fast')).toBeVisible();
 });
 
+test('grouped boss picker opens raid variants and restores the selected mode from the URL', async ({ page }) => {
+  const groupedBosses = [
+    'zulrah',
+    'chambers of xeric - fastest overall (solo)',
+    'chambers of xeric - fastest room (solo)',
+    'chambers of xeric - challenge mode - fastest overall (3 players)',
+    'chambers of xeric - challenge mode - fastest room (3 players)',
+    'chambers of xeric - fastest room (former)',
+    'the nightmare - fastest overall (solo)',
+    'the nightmare - fastest overall (2 players)',
+  ];
+  const challengeKey = 'chambers of xeric - challenge mode - fastest overall (3 players)';
+
+  await page.route('**/api/bosses', (route) => route.fulfill({ json: groupedBosses }));
+  await page.route('**/api/leaderboard/**', (route) => route.fulfill({ json: leaderboardRows }));
+
+  await page.goto('/');
+  await page.getByRole('button', { name: /Select a boss/ }).click();
+
+  await expect(page.getByText('Raids')).toBeVisible();
+  await expect(page.getByText('Bosses')).toBeVisible();
+  await expect(page.getByRole('option', { name: /Chambers Of Xeric/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /The Nightmare/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Zulrah' })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Challenge Mode/ })).toHaveCount(0);
+
+  await page.getByRole('option', { name: /Chambers Of Xeric/ }).click();
+
+  await expect(page.getByRole('button', { name: 'Normal', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: 'Overall', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: 'Solo', exact: true })).toHaveClass(/active/);
+
+  await page.getByRole('button', { name: 'Challenge Mode', exact: true }).click();
+  await page.getByRole('button', { name: 'Trio', exact: true }).click();
+
+  await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === `/boss/${challengeKey}`);
+  await expect(page.getByRole('heading', { name: /Chambers Of Xeric - Challenge Mode - Fastest Overall/ })).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByRole('button', { name: 'Challenge Mode', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: 'Overall', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: 'Trio', exact: true })).toHaveClass(/active/);
+});
+
 test('recent sync rows navigate to player results', async ({ page }) => {
   await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
   await page.goto('/');

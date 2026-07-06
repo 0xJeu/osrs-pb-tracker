@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getRaidModes, groupVariantsByKind } from '../lib/bossGroups';
 
 export function RaidVariantPicker({
@@ -12,13 +12,26 @@ export function RaidVariantPicker({
   selected?: string;
   onSelect: (boss: string) => void;
 }) {
-  const modes = getRaidModes(bosses, base);
+  const modes = useMemo(() => getRaidModes(bosses, base), [bosses, base]);
   const [modeIndex, setModeIndex] = useState(0);
   const mode = modes[modeIndex] ?? modes[0];
 
-  const kindGroups = groupVariantsByKind(mode?.variants ?? []);
+  const kindGroups = useMemo(() => groupVariantsByKind(mode?.variants ?? []), [mode]);
   const [kindIndex, setKindIndex] = useState(0);
   const kindGroup = kindGroups[kindIndex] ?? kindGroups[0];
+
+  useEffect(() => {
+    if (!selected) return;
+
+    const selectedModeIndex = modes.findIndex((m) => m.variants.some((v) => v.key === selected));
+    if (selectedModeIndex === -1) return;
+
+    const selectedKindGroups = groupVariantsByKind(modes[selectedModeIndex].variants);
+    const selectedKindIndex = selectedKindGroups.findIndex((kg) => kg.variants.some((v) => v.key === selected));
+
+    setModeIndex(selectedModeIndex);
+    setKindIndex(selectedKindIndex === -1 ? 0 : selectedKindIndex);
+  }, [modes, selected]);
 
   return (
     <section className="raid-variant-switcher">
