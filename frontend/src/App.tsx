@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from './lib/api';
 import { hideAmbiguousBaseEntries } from './lib/dedupe';
+import { getRaidModes, isGroupedVariant } from './lib/bossGroups';
 import { SearchBar } from './components/SearchBar';
-import { BossCombobox } from './components/BossCombobox';
+import { BossComboboxCollapsed } from './components/BossComboboxCollapsed';
+import { RaidVariantPicker } from './components/RaidVariantPicker';
 import { PlayerResult } from './components/PlayerResult';
 import { Leaderboard } from './components/Leaderboard';
 import { RecentSyncs } from './components/RecentSyncs';
@@ -88,10 +90,15 @@ export default function App() {
 
             <section className="boss-select-card">
               <label>Or browse a leaderboard</label>
-              <BossCombobox
+              <BossComboboxCollapsed
                 bosses={bosses}
                 selected={view.name === 'boss' ? view.boss : undefined}
                 onSelect={(boss) => navigate({ name: 'boss', boss })}
+                onSelectRaidBase={(base) => {
+                  const modes = getRaidModes(bosses, base);
+                  const firstKey = modes[0]?.variants[0]?.key;
+                  if (firstKey) navigate({ name: 'boss', boss: firstKey });
+                }}
               />
             </section>
 
@@ -108,7 +115,19 @@ export default function App() {
               {view.name === 'player' && (
                 <PlayerResult name={view.player} onFaqClick={() => navigate({ name: 'faq' })} />
               )}
-              {view.name === 'boss' && <Leaderboard boss={view.boss} />}
+              {view.name === 'boss' && (
+                <>
+                  {isGroupedVariant(view.boss) && (
+                    <RaidVariantPicker
+                      base={view.boss.split(' - ')[0]}
+                      bosses={bosses}
+                      selected={view.boss}
+                      onSelect={(key) => navigate({ name: 'boss', boss: key })}
+                    />
+                  )}
+                  <Leaderboard boss={view.boss} />
+                </>
+              )}
             </section>
           </>
         )}
