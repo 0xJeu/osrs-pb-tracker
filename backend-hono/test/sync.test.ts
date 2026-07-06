@@ -55,6 +55,23 @@ describe('POST /api/sync', () => {
     ]);
   });
 
+  it('silently drops bosses with no official Jagex personal best', async () => {
+    const res = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: 'a'.repeat(20),
+      pbs: { 'Dagannoth Prime': 60, Zulrah: 80 },
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, received: 2, updated: 1 });
+
+    const lookup = await app.request('/api/players/Blitzen');
+    expect((await lookup.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String) },
+    ]);
+  });
+
   it('only overwrites a PB when the new time is faster', async () => {
     const secret = 'a'.repeat(20);
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });

@@ -9,7 +9,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
   },
   "dependencies": {
     "hono": "^4.6.0",
