@@ -79,7 +79,7 @@ export function PlayerResult({ name, onFaqClick }: { name: string; onFaqClick?: 
             {' '}
             -{' '}
             <a
-              href="/?page=faq"
+              href="/faq"
               onClick={(e) => {
                 e.preventDefault();
                 onFaqClick();

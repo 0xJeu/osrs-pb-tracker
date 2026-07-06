@@ -74,7 +74,7 @@ test('ambiguous names show the picker and resolve by id', async ({ page }) => {
   );
   await page.route('**/api/players/by-id/1', (route) => route.fulfill({ json: player }));
 
-  await page.goto('/?player=Blitzen');
+  await page.goto('/player/Blitzen');
   await expect(page.getByText('Multiple synced players')).toBeVisible();
   await page.locator('.match-option').first().click();
 
@@ -100,18 +100,18 @@ test('recent sync rows navigate to player results', async ({ page }) => {
 
   await page.getByRole('button', { name: /Blitzen/ }).click();
 
-  await expect(page).toHaveURL(/player=Blitzen/);
+  await expect(page).toHaveURL(/\/player\/Blitzen/);
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
 });
 
 test('shared URLs restore player and boss views', async ({ page }) => {
   await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
-  await page.goto('/?player=Blitzen');
+  await page.goto('/player/Blitzen');
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
 
   await page.route('**/api/leaderboard/zulrah**', (route) =>
     route.fulfill({ json: leaderboardRows })
   );
-  await page.goto('/?boss=zulrah');
+  await page.goto('/boss/zulrah');
   await expect(page.getByRole('heading', { name: /Zulrah - Top times/ })).toBeVisible();
 });

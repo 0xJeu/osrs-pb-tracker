@@ -16,13 +16,12 @@ type View =
   | { name: 'faq' };
 
 function viewFromLocation(): View {
-  const params = new URLSearchParams(window.location.search);
-  const player = params.get('player');
-  const boss = params.get('boss');
-  const page = params.get('page');
-  if (player) return { name: 'player', player };
-  if (boss) return { name: 'boss', boss };
-  if (page === 'faq') return { name: 'faq' };
+  const path = window.location.pathname;
+  const playerMatch = path.match(/^\/player\/(.+)$/);
+  if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
+  const bossMatch = path.match(/^\/boss\/(.+)$/);
+  if (bossMatch) return { name: 'boss', boss: decodeURIComponent(bossMatch[1]) };
+  if (path === '/faq') return { name: 'faq' };
   return { name: 'home' };
 }
 
@@ -44,12 +43,15 @@ export default function App() {
   }, []);
 
   const navigate = (next: View) => {
-    const url = new URL(window.location.href);
-    url.search = '';
-    if (next.name === 'player') url.searchParams.set('player', next.player);
-    if (next.name === 'boss') url.searchParams.set('boss', next.boss);
-    if (next.name === 'faq') url.searchParams.set('page', 'faq');
-    window.history.pushState({}, '', url);
+    const path =
+      next.name === 'player'
+        ? `/player/${encodeURIComponent(next.player)}`
+        : next.name === 'boss'
+          ? `/boss/${encodeURIComponent(next.boss)}`
+          : next.name === 'faq'
+            ? '/faq'
+            : '/';
+    window.history.pushState({}, '', path);
     setView(next);
   };
 
@@ -116,7 +118,7 @@ export default function App() {
         <div className="wrap">
           Data synced from the <strong>PB Tracker Sync</strong> RuneLite plugin. -{' '}
           <a
-            href="/?page=faq"
+            href="/faq"
             onClick={(e) => {
               e.preventDefault();
               navigate({ name: 'faq' });
