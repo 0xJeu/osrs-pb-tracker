@@ -15,7 +15,7 @@ import { FeedbackButton } from './components/FeedbackButton';
 type View =
   | { name: 'home' }
   | { name: 'player'; player: string }
-  | { name: 'boss'; boss: string }
+  | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'faq' };
 
 function viewFromLocation(): View {
@@ -23,7 +23,10 @@ function viewFromLocation(): View {
   const playerMatch = path.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
   const bossMatch = path.match(/^\/boss\/(.+)$/);
-  if (bossMatch) return { name: 'boss', boss: decodeURIComponent(bossMatch[1]) };
+  if (bossMatch) {
+    const highlight = new URLSearchParams(window.location.search).get('highlight') ?? undefined;
+    return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
+  }
   if (path === '/faq') return { name: 'faq' };
   return { name: 'home' };
 }
@@ -65,7 +68,7 @@ export default function App() {
       next.name === 'player'
         ? `/player/${encodeURIComponent(next.player)}`
         : next.name === 'boss'
-          ? `/boss/${encodeURIComponent(next.boss)}`
+          ? `/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
           : next.name === 'faq'
             ? '/faq'
             : '/';
@@ -129,7 +132,11 @@ export default function App() {
                 </>
               )}
               {view.name === 'player' && (
-                <PlayerResult name={view.player} onFaqClick={() => navigate({ name: 'faq' })} />
+                <PlayerResult
+                  name={view.player}
+                  onFaqClick={() => navigate({ name: 'faq' })}
+                  onRankClick={(boss) => navigate({ name: 'boss', boss, highlight: view.player })}
+                />
               )}
               {view.name === 'boss' && (
                 <>
@@ -141,7 +148,7 @@ export default function App() {
                       onSelect={(key) => navigate({ name: 'boss', boss: key })}
                     />
                   )}
-                  <Leaderboard boss={view.boss} />
+                  <Leaderboard boss={view.boss} highlight={view.highlight} />
                 </>
               )}
             </section>

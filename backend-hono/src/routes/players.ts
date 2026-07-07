@@ -1,9 +1,12 @@
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 
 const playersRoute = new Hono();
+
+const otherPbs = alias(personalBests, 'other_pbs');
 
 async function playerWithPbs(player: typeof players.$inferSelect) {
   const pbs = await db
@@ -11,6 +14,13 @@ async function playerWithPbs(player: typeof players.$inferSelect) {
       boss: personalBests.boss,
       timeSeconds: personalBests.timeSeconds,
       updatedAt: personalBests.updatedAt,
+      // Rank on the boss's overall leaderboard: 1 + how many other players
+      // have a strictly faster time for the same boss.
+      rank: sql<number>`(
+        SELECT COUNT(*) + 1 FROM ${otherPbs}
+        WHERE ${otherPbs.boss} = ${personalBests.boss}
+        AND ${otherPbs.timeSeconds} < ${personalBests.timeSeconds}
+      )`,
     })
     .from(personalBests)
     .where(eq(personalBests.playerId, player.id))
@@ -20,7 +30,7 @@ async function playerWithPbs(player: typeof players.$inferSelect) {
     id: player.id,
     displayName: player.displayName,
     updatedAt: player.updatedAt,
-    pbs,
+    pbs: pbs.map((pb) => ({ ...pb, rank: Number(pb.rank) })),
   };
 }
 
