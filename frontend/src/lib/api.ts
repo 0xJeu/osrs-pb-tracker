@@ -4,6 +4,7 @@ export interface PbEntry {
   boss: string;
   timeSeconds: number;
   updatedAt: string;
+  rank: number;
 }
 
 export interface PlayerPayload {
@@ -83,8 +84,9 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       const bosses = await getJson<string[]>('/api/bosses');
       return bosses.filter(isTrackedBoss);
     },
-    getLeaderboard(boss: string, limit = 25): Promise<LeaderboardRow[]> {
-      return getJson(`/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}`);
+    getLeaderboard(boss: string, limit = 25, highlight?: string): Promise<LeaderboardRow[]> {
+      const highlightParam = highlight ? `&highlight=${encodeURIComponent(highlight)}` : '';
+      return getJson(`/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}${highlightParam}`);
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       return getJson(`/api/recent-syncs?limit=${limit}`);

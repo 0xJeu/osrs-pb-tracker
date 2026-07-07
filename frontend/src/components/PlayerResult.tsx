@@ -13,7 +13,15 @@ type State =
   | { s: 'ambiguous'; matches: AmbiguousMatch[] }
   | { s: 'loaded'; player: PlayerPayload };
 
-export function PlayerResult({ name, onFaqClick }: { name: string; onFaqClick?: () => void }) {
+export function PlayerResult({
+  name,
+  onFaqClick,
+  onRankClick,
+}: {
+  name: string;
+  onFaqClick?: () => void;
+  onRankClick?: (boss: string) => void;
+}) {
   const [state, setState] = useState<State>({ s: 'loading' });
 
   useEffect(() => {
@@ -93,6 +101,7 @@ export function PlayerResult({ name, onFaqClick }: { name: string; onFaqClick?: 
       <table>
         <thead>
           <tr>
+            <th>Rank</th>
             <th>Boss</th>
             <th>Personal Best</th>
             <th>Recorded</th>
@@ -101,7 +110,34 @@ export function PlayerResult({ name, onFaqClick }: { name: string; onFaqClick?: 
         <tbody>
           {visiblePbs.map((pb) => (
             <tr key={pb.boss}>
-              <td data-label="Boss">{titleCase(pb.boss)}</td>
+              <td className="rank" data-label="Rank">
+                {onRankClick ? (
+                  <button
+                    type="button"
+                    className="pb-rank-link"
+                    onClick={() => onRankClick(pb.boss)}
+                    title={`See ${player.displayName}'s spot on the ${titleCase(pb.boss)} leaderboard`}
+                  >
+                    #{pb.rank}
+                  </button>
+                ) : (
+                  `#${pb.rank}`
+                )}
+              </td>
+              <td data-label="Boss">
+                {onRankClick ? (
+                  <button
+                    type="button"
+                    className="pb-rank-link"
+                    onClick={() => onRankClick(pb.boss)}
+                    title={`See ${player.displayName}'s spot on the ${titleCase(pb.boss)} leaderboard`}
+                  >
+                    {titleCase(pb.boss)}
+                  </button>
+                ) : (
+                  titleCase(pb.boss)
+                )}
+              </td>
               <td data-label="Personal Best" className="time">
                 {formatTime(pb.timeSeconds)}
               </td>
