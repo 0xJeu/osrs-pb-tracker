@@ -51,7 +51,7 @@ describe('POST /api/sync', () => {
 
     const lookup = await app.request('/api/players/Blitzen');
     expect((await lookup.json()).pbs).toEqual([
-      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String) },
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
   });
 
@@ -68,7 +68,7 @@ describe('POST /api/sync', () => {
 
     const lookup = await app.request('/api/players/Blitzen');
     expect((await lookup.json()).pbs).toEqual([
-      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String) },
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
   });
 
