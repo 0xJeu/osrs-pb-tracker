@@ -126,7 +126,13 @@ function matchesCurated(key: string, curated: string[]): boolean {
 
 function isRaid(key: string): boolean {
   const lower = key.trim().toLowerCase();
-  return RAID_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} -`));
+  // A few synced keys arrive as one run-on phrase instead of using " - " to
+  // separate the raid name from a mode suffix (e.g. "theatre of blood entry
+  // mode", "tombs of amascut expert mode" - seen from an older/alternate sync
+  // path). Matching on a plain trailing space, not just " -", still
+  // recognizes these as belonging to the raid rather than falling through to
+  // "Other" - see categorize() below.
+  return RAID_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} -`) || lower.startsWith(`${p} `));
 }
 
 // Whether a key belongs to a multi-variant boss (raid or otherwise) that
@@ -143,6 +149,12 @@ export function categorize(bossKey: string): Category {
   if (matchesCurated(bossKey, SLAYER_MONSTERS)) return 'Slayer Monsters';
   if (matchesCurated(bossKey, MINIGAMES)) return 'Minigames & Challenges';
   if (matchesCurated(bossKey, KNOWN_BOSSES)) return 'Bosses';
+  // Same run-on-phrase issue as isRaid() above, but for The Nightmare's
+  // bare/no-"the" sync format (e.g. "nightmare 6+ players" instead of "the
+  // nightmare - fastest overall (6+ players)"). matchesCurated() can't catch
+  // this via the generic curated-list check without risking false matches
+  // for other curated names, so it's handled with its own narrow check here.
+  if (normalize(bossKey).startsWith('nightmare ')) return 'Bosses';
   return 'Other';
 }
 
