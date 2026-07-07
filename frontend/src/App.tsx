@@ -10,21 +10,27 @@ import { Leaderboard } from './components/Leaderboard';
 import { RecentSyncs } from './components/RecentSyncs';
 import { EmptyState } from './components/States';
 import { FaqPage } from './components/FaqPage';
+import { SetupGuidePage } from './components/SetupGuidePage';
 import { FeedbackButton } from './components/FeedbackButton';
 
 type View =
   | { name: 'home' }
   | { name: 'player'; player: string }
-  | { name: 'boss'; boss: string }
-  | { name: 'faq' };
+  | { name: 'boss'; boss: string; highlight?: string }
+  | { name: 'faq' }
+  | { name: 'setup' };
 
 function viewFromLocation(): View {
   const path = window.location.pathname;
   const playerMatch = path.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
   const bossMatch = path.match(/^\/boss\/(.+)$/);
-  if (bossMatch) return { name: 'boss', boss: decodeURIComponent(bossMatch[1]) };
+  if (bossMatch) {
+    const highlight = new URLSearchParams(window.location.search).get('highlight') ?? undefined;
+    return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
+  }
   if (path === '/faq') return { name: 'faq' };
+  if (path === '/setup') return { name: 'setup' };
   return { name: 'home' };
 }
 
@@ -38,6 +44,8 @@ function feedbackContext(view: View): string {
       return `boss:${view.boss}`;
     case 'faq':
       return 'page:faq';
+    case 'setup':
+      return 'page:setup';
     default:
       return 'page:home';
   }
@@ -65,10 +73,12 @@ export default function App() {
       next.name === 'player'
         ? `/player/${encodeURIComponent(next.player)}`
         : next.name === 'boss'
-          ? `/boss/${encodeURIComponent(next.boss)}`
+          ? `/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
           : next.name === 'faq'
             ? '/faq'
-            : '/';
+            : next.name === 'setup'
+              ? '/setup'
+              : '/';
     window.history.pushState({}, '', path);
     setView(next);
   };
@@ -96,6 +106,8 @@ export default function App() {
       <main className="wrap">
         {view.name === 'faq' ? (
           <FaqPage />
+        ) : view.name === 'setup' ? (
+          <SetupGuidePage />
         ) : (
           <>
             <SearchBar
@@ -123,13 +135,27 @@ export default function App() {
                 <>
                   <EmptyState>
                     Search a player above, or pick a boss to see the leaderboard. Data appears
-                    after a player syncs with the PB Tracker Sync RuneLite plugin.
+                    after a player syncs with the PB Tracker Sync RuneLite plugin. New here?{' '}
+                    <a
+                      href="/setup"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate({ name: 'setup' });
+                      }}
+                    >
+                      See how to set it up
+                    </a>
+                    .
                   </EmptyState>
                   <RecentSyncs onPickPlayer={(player) => navigate({ name: 'player', player })} />
                 </>
               )}
               {view.name === 'player' && (
-                <PlayerResult name={view.player} onFaqClick={() => navigate({ name: 'faq' })} />
+                <PlayerResult
+                  name={view.player}
+                  onFaqClick={() => navigate({ name: 'faq' })}
+                  onRankClick={(boss) => navigate({ name: 'boss', boss, highlight: view.player })}
+                />
               )}
               {view.name === 'boss' && (
                 <>
@@ -141,7 +167,7 @@ export default function App() {
                       onSelect={(key) => navigate({ name: 'boss', boss: key })}
                     />
                   )}
-                  <Leaderboard boss={view.boss} />
+                  <Leaderboard boss={view.boss} highlight={view.highlight} />
                 </>
               )}
             </section>
@@ -152,6 +178,16 @@ export default function App() {
       <footer className="site-footer">
         <div className="wrap">
           Data synced from the <strong>PB Tracker Sync</strong> RuneLite plugin. -{' '}
+          <a
+            href="/setup"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate({ name: 'setup' });
+            }}
+          >
+            How to Setup
+          </a>{' '}
+          -{' '}
           <a
             href="/faq"
             onClick={(e) => {

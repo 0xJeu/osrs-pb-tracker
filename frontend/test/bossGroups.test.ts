@@ -70,6 +70,15 @@ describe('categorize', () => {
   it('falls back to Other for unrecognized keys instead of dropping them', () => {
     expect(categorize('some brand new boss')).toBe('Other');
   });
+
+  it('buckets run-on-phrase raid/Nightmare keys correctly instead of falling to Other', () => {
+    // Real synced keys seen in production without the usual " - " separator
+    // (an older/alternate sync path) - these were landing in "Other" before
+    // isRaid()/categorize() learned to recognize the plain-space form.
+    expect(categorize('theatre of blood entry mode')).toBe('Raids');
+    expect(categorize('tombs of amascut expert mode')).toBe('Raids');
+    expect(categorize('nightmare 6+ players')).toBe('Bosses');
+  });
 });
 
 describe('groupBosses', () => {
@@ -225,6 +234,39 @@ describe('isGroupedVariant', () => {
     expect(isGroupedVariant('the nightmare - fastest overall (solo)')).toBe(true);
     expect(isGroupedVariant("phosani's nightmare")).toBe(false);
     expect(isGroupedVariant('zulrah')).toBe(false);
+  });
+
+  it('is false for the run-on-phrase raid/Nightmare keys - too ambiguous to place in the mode/size grid', () => {
+    // "theatre of blood entry mode" doesn't say whether "entry" is the mode
+    // or part of a variant label the way a real 3-segment key would, so
+    // rather than guess, these surface as their own flat item within the
+    // right category (see categorize() above) instead of being folded into
+    // the raid's drill-down.
+    expect(isGroupedVariant('theatre of blood entry mode')).toBe(false);
+    expect(isGroupedVariant('tombs of amascut expert mode')).toBe(false);
+    expect(isGroupedVariant('nightmare 6+ players')).toBe(false);
+  });
+});
+
+describe('groupBosses with run-on-phrase raid/Nightmare keys', () => {
+  it('surfaces them as flat items in the correct category instead of Other', () => {
+    const keys = [
+      'chambers of xeric - fastest overall (solo)',
+      'theatre of blood entry mode',
+      'tombs of amascut expert mode',
+      'the nightmare - fastest overall (solo)',
+      'nightmare 6+ players',
+    ];
+    const groups = groupBosses(keys);
+    expect(groups.find((g) => g.category === 'Other')).toBeUndefined();
+
+    const raids = groups.find((g) => g.category === 'Raids');
+    expect(raids?.items?.map((i) => i.label)).toEqual(
+      expect.arrayContaining(['Theatre Of Blood Entry Mode', 'Tombs Of Amascut Expert Mode'])
+    );
+
+    const bosses = groups.find((g) => g.category === 'Bosses');
+    expect(bosses?.items?.map((i) => i.label)).toEqual(['Nightmare 6+ Players']);
   });
 });
 

@@ -18,7 +18,28 @@ describe('GET /api/players/:name', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.displayName).toBe('Blitzen');
-    expect(json.pbs).toEqual([{ boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String) }]);
+    expect(json.pbs).toEqual([{ boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 }]);
+  });
+
+  it("includes each PB's rank on the boss leaderboard", async () => {
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 90, displayName: 'Slower', accountHash: 'a' });
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Middle', accountHash: 'b' });
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 70, displayName: 'Fastest', accountHash: 'c' });
+
+    const middle = await app.request('/api/players/middle');
+    expect((await middle.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 2 },
+    ]);
+
+    const fastest = await app.request('/api/players/fastest');
+    expect((await fastest.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 70, updatedAt: expect.any(String), rank: 1 },
+    ]);
+
+    const slower = await app.request('/api/players/slower');
+    expect((await slower.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 90, updatedAt: expect.any(String), rank: 3 },
+    ]);
   });
 
   it('returns an ambiguous match list when two players share a name', async () => {

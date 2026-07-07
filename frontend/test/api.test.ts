@@ -41,7 +41,7 @@ describe('createApiClient', () => {
       id: 1,
       displayName: 'Blitzen',
       updatedAt: '2026-07-04T00:00:00Z',
-      pbs: [{ boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z' }],
+      pbs: [{ boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z', rank: 1 }],
     };
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(player));
     const api = createApiClient('', fetchFn);
@@ -54,8 +54,8 @@ describe('createApiClient', () => {
       displayName: 'Blitzen',
       updatedAt: '2026-07-04T00:00:00Z',
       pbs: [
-        { boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z' },
-        { boss: 'dagannoth prime', timeSeconds: 60, updatedAt: '2026-07-04T00:00:00Z' },
+        { boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z', rank: 1 },
+        { boss: 'dagannoth prime', timeSeconds: 60, updatedAt: '2026-07-04T00:00:00Z', rank: 1 },
       ],
     };
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(player));
@@ -80,6 +80,13 @@ describe('createApiClient', () => {
     expect(fetchFn).toHaveBeenCalledWith(
       '/api/leaderboard/theatre%20of%20blood%20-%20fastest%20room%20(4%20player)?limit=25'
     );
+  });
+
+  it('forwards a highlight name as a query param when provided', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = createApiClient('', fetchFn);
+    await api.getLeaderboard('zulrah', 25, 'Blitzen');
+    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=25&highlight=Blitzen');
   });
 
   it('loads recent sync summaries with a clamped default limit', async () => {

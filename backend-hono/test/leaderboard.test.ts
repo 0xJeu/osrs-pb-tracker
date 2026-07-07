@@ -25,4 +25,35 @@ describe('GET /api/leaderboard/:boss', () => {
     const res = await app.request('/api/leaderboard/zulrah?limit=99999');
     expect(res.status).toBe(200);
   });
+
+  it('extends past the default limit to include a highlighted player beyond it', async () => {
+    for (let i = 0; i < 30; i++) {
+      await insertTestPlayerWithPb({
+        boss: 'zulrah',
+        timeSeconds: 80 + i,
+        displayName: `Player${i}`,
+        accountHash: `acct-${i}`,
+      });
+    }
+    // Player29 has the slowest time, so sits at rank 30 - past the default
+    // limit of 25.
+    const res = await app.request('/api/leaderboard/zulrah?highlight=Player29');
+    const json = (await res.json()) as Array<{ displayName: string }>;
+    expect(json).toHaveLength(30);
+    expect(json[29].displayName).toBe('Player29');
+  });
+
+  it('is case-insensitive when matching the highlighted player', async () => {
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
+    const res = await app.request('/api/leaderboard/zulrah?highlight=BLITZEN');
+    const json = (await res.json()) as Array<{ displayName: string }>;
+    expect(json.map((row) => row.displayName)).toEqual(['Blitzen']);
+  });
+
+  it('falls back to the plain limit when the highlighted player is not found', async () => {
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
+    const res = await app.request('/api/leaderboard/zulrah?highlight=Nobody');
+    const json = (await res.json()) as Array<{ displayName: string }>;
+    expect(json.map((row) => row.displayName)).toEqual(['Blitzen']);
+  });
 });
