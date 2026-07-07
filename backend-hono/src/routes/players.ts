@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
@@ -8,19 +8,22 @@ const playersRoute = new Hono();
 
 const otherPbs = alias(personalBests, 'other_pbs');
 
+// Rank on the boss's overall leaderboard: 1 + how many other players have a
+// strictly faster time for the same boss. Built via the query builder (not a
+// raw `sql` template referencing the alias directly) so drizzle actually
+// emits the `AS other_pbs` aliasing in the generated SQL.
+const rankSubquery = db
+  .select({ rank: sql<number>`count(*) + 1` })
+  .from(otherPbs)
+  .where(and(eq(otherPbs.boss, personalBests.boss), lt(otherPbs.timeSeconds, personalBests.timeSeconds)));
+
 async function playerWithPbs(player: typeof players.$inferSelect) {
   const pbs = await db
     .select({
       boss: personalBests.boss,
       timeSeconds: personalBests.timeSeconds,
       updatedAt: personalBests.updatedAt,
-      // Rank on the boss's overall leaderboard: 1 + how many other players
-      // have a strictly faster time for the same boss.
-      rank: sql<number>`(
-        SELECT COUNT(*) + 1 FROM ${otherPbs}
-        WHERE ${otherPbs.boss} = ${personalBests.boss}
-        AND ${otherPbs.timeSeconds} < ${personalBests.timeSeconds}
-      )`,
+      rank: sql<number>`(${rankSubquery})`,
     })
     .from(personalBests)
     .where(eq(personalBests.playerId, player.id))
