@@ -13,17 +13,17 @@
     "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
   },
   "dependencies": {
-    "hono": "^4.6.0",
     "@hono/node-server": "^1.13.0",
     "@neondatabase/serverless": "^0.10.0",
-    "drizzle-orm": "^0.36.0"
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.6.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.28.0",
-    "typescript": "^5.6.0",
-    "tsx": "^4.19.0",
-    "vitest": "^2.1.0",
+    "@types/node": "^22.7.0",
     "dotenv": "^16.4.0",
-    "@types/node": "^22.7.0"
+    "drizzle-kit": "^0.28.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   }
 }
