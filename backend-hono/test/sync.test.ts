@@ -75,6 +75,52 @@ describe('POST /api/sync', () => {
     ]);
   });
 
+  it('silently drops bare "mode" keys that duplicate an Adventure Log-labeled variant', async () => {
+    const res = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: 'a'.repeat(20),
+      pbs: {
+        'Theatre of Blood Hard Mode': 927,
+        'Theatre of Blood Entry Mode': 956,
+        'Chambers of Xeric Challenge Mode': 1462,
+        'Tombs of Amascut Expert Mode': 923,
+        'Tombs of Amascut Entry Mode': 800,
+        Zulrah: 80,
+      },
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, received: 6, updated: 1 });
+
+    const lookup = await app.request('/api/players/Blitzen');
+    expect((await lookup.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
+    ]);
+  });
+
+  it('silently drops bare "nightmare <team size>" keys that duplicate an Adventure Log-labeled variant', async () => {
+    const res = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: 'a'.repeat(20),
+      pbs: {
+        'Nightmare 6+ Players': 238,
+        'Nightmare Solo': 900,
+        'Nightmare 3 Players': 400,
+        Zulrah: 80,
+      },
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, received: 4, updated: 1 });
+
+    const lookup = await app.request('/api/players/Blitzen');
+    expect((await lookup.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
+    ]);
+  });
+
   it('only overwrites a PB when the new time is faster', async () => {
     const secret = 'a'.repeat(20);
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
@@ -128,6 +174,25 @@ describe('POST /api/sync', () => {
 
     const [after] = await db.select().from(players).where(eq(players.accountHash, 'acct-1'));
     expect(after.lastSyncedAt.getTime()).toBe(before.lastSyncedAt.getTime());
+  });
+
+  it('does not move the "Recorded" timestamp on an equal or slower resync, only on a faster one', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
+    const firstLookup = await app.request('/api/players/Blitzen');
+    const firstUpdatedAt = (await firstLookup.json()).pbs[0].updatedAt;
+
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 90 } });
+    const afterWorseLookup = await app.request('/api/players/Blitzen');
+    expect((await afterWorseLookup.json()).pbs[0].updatedAt).toBe(firstUpdatedAt);
+
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
+    const afterEqualLookup = await app.request('/api/players/Blitzen');
+    expect((await afterEqualLookup.json()).pbs[0].updatedAt).toBe(firstUpdatedAt);
+
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 75 } });
+    const afterFasterLookup = await app.request('/api/players/Blitzen');
+    expect((await afterFasterLookup.json()).pbs[0].updatedAt).not.toBe(firstUpdatedAt);
   });
 
   it('rejects a resync with a different secret', async () => {

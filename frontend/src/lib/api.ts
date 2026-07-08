@@ -58,6 +58,11 @@ export interface AdminCredentials {
   password: string;
 }
 
+export interface QuickStats {
+  trackedPlayers: number;
+  personalBestRecords: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number) {
     super(`API error ${status}`);
@@ -169,6 +174,9 @@ export function createApiClient(
     },
     getAdminStats(): Promise<AdminStats> {
       return getAdminJson('/api/admin/stats');
+    },
+    getStats(): Promise<QuickStats> {
+      return getJson('/api/stats');
     },
     async submitFeedback(message: string, context?: string): Promise<void> {
       const res = await fetchFn(`${base}/api/feedback`, {
