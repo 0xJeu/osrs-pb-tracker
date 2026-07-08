@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { truncateAll } from './helpers.js';
+import { db } from '../src/db/client.js';
+import { players } from '../src/db/schema.js';
 
 function syncRequest(body: unknown) {
   return app.request('/api/sync', {
@@ -90,6 +93,41 @@ describe('POST /api/sync', () => {
       pbs: { Zulrah: 75 },
     });
     expect((await better.json()).updated).toBe(1);
+  });
+
+  it('bumps lastSyncedAt on every sync, even a no-op resync', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
+    const [afterFirst] = await db.select().from(players).where(eq(players.accountHash, 'acct-1'));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
+    const [afterSecond] = await db.select().from(players).where(eq(players.accountHash, 'acct-1'));
+
+    expect(afterSecond.lastSyncedAt.getTime()).toBeGreaterThan(afterFirst.lastSyncedAt.getTime());
+    // updatedAt only changes on a display name edit - it should NOT move on
+    // this no-op resync, since that's the exact distinction this feature adds.
+    expect(afterSecond.updatedAt.getTime()).toBe(afterFirst.updatedAt.getTime());
+  });
+
+  it('does not bump lastSyncedAt on a rejected (wrong-secret) sync attempt', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
+    const [before] = await db.select().from(players).where(eq(players.accountHash, 'acct-1'));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const res = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: 'b'.repeat(20),
+      pbs: { Zulrah: 80 },
+    });
+    expect(res.status).toBe(409);
+
+    const [after] = await db.select().from(players).where(eq(players.accountHash, 'acct-1'));
+    expect(after.lastSyncedAt.getTime()).toBe(before.lastSyncedAt.getTime());
   });
 
   it('rejects a resync with a different secret', async () => {
