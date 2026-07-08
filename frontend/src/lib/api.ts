@@ -1,5 +1,7 @@
 import { isTrackedBoss } from './trackedBosses';
 
+const PRODUCTION_API_BASE_URL = 'https://osrs-pb-tracker-backend.vercel.app';
+
 export interface PbEntry {
   boss: string;
   timeSeconds: number;
@@ -112,6 +114,18 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   };
 }
 
-// VITE_API_BASE_URL unset -> same-origin /api/... paths, per the spec's
-// defined fallback behavior.
-export const api = createApiClient(import.meta.env.VITE_API_BASE_URL ?? '');
+export function resolveApiBaseUrl(
+  configuredBaseUrl: string | undefined,
+  locationLike: Pick<Location, 'hostname'> | undefined = typeof window === 'undefined' ? undefined : window.location
+) {
+  if (configuredBaseUrl !== undefined) return configuredBaseUrl;
+  if (locationLike?.hostname.startsWith('osrs-pb-tracker-frontend') && locationLike.hostname.endsWith('.vercel.app')) {
+    return PRODUCTION_API_BASE_URL;
+  }
+  return '';
+}
+
+// Local dev and integrated deployments keep same-origin /api/... paths when no
+// env is configured. Frontend-only Vercel previews fall back to production API
+// data so branch reviews are not blank.
+export const api = createApiClient(resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL));
