@@ -1,7 +1,12 @@
 # Admin panel design
 
 **Date:** 2026-07-07
-**Status:** Approved, not yet implemented
+**Status:** Implemented (see `docs/superpowers/plans/2026-07-07-admin-panel.md` for the as-built
+implementation, including one deliberate deviation: the drill-down view reuses
+the existing public `GET /api/players/by-id/:id` instead of adding a new
+`GET /api/admin/players/:id`, since the underlying data isn't sensitive).
+Production database migration and admin login provisioning are still pending
+(plan Task 11).
 
 ## Problem
 
@@ -60,9 +65,11 @@ middleware:
   `createdAt`, `lastSyncedAt`, `pbCount` (count of their `personal_bests`
   rows). Sorting happens client-side — the dataset is ~24 rows today, nowhere
   near needing server-side pagination/sorting.
-- **`GET /api/admin/players/:id`** — the player summary plus their full
-  `personal_bests` list (`boss`, `timeSeconds`, `updatedAt`), for the
-  drill-down view. 404s if the id doesn't exist.
+- **Drill-down** — as-built, this reuses the existing public
+  `GET /api/players/by-id/:id` (not a new admin-gated endpoint) for the
+  player's full `personal_bests` list (`boss`, `timeSeconds`, `updatedAt`).
+  404s if the id doesn't exist. No new backend route was added for this,
+  since the data isn't sensitive and duplicating it would be pure overhead.
 - **`GET /api/admin/stats`** — aggregate counters via simple SQL aggregates:
   `totalPlayers`, `totalPbs`, `playersSyncedLast24h` (`lastSyncedAt >= now()
   - interval '24 hours'`), `playersInactive7d` (`lastSyncedAt < now() -
