@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { categorize, getRaidBases, getRaidModes, groupBosses, groupVariantsByKind, isGroupedVariant } from '../src/lib/bossGroups';
+import {
+  categorize,
+  getRaidBases,
+  getRaidModes,
+  groupBosses,
+  groupPlayerRaidPbs,
+  groupVariantsByKind,
+  isGroupedVariant,
+} from '../src/lib/bossGroups';
 
 const ALL_KEYS = [
   'nex',
@@ -267,6 +275,125 @@ describe('groupBosses with run-on-phrase raid/Nightmare keys', () => {
 
     const bosses = groups.find((g) => g.category === 'Bosses');
     expect(bosses?.items?.map((i) => i.label)).toEqual(['Nightmare 6+ Players']);
+  });
+});
+
+describe('groupPlayerRaidPbs', () => {
+  function pb(boss: string, timeSeconds: number, rank = 1, updatedAt = '2026-07-08T00:00:00.000Z') {
+    return { boss, timeSeconds, rank, updatedAt };
+  }
+
+  it('summarizes a mode with only Overall variants by its fastest one', () => {
+    const pbs = [
+      pb('chambers of xeric - challenge mode - fastest overall (solo)', 2000, 3, '2026-07-01T00:00:00.000Z'),
+      pb('chambers of xeric - challenge mode - fastest overall (3 players)', 1000, 1, '2026-07-02T00:00:00.000Z'),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Chambers Of Xeric - Challenge Mode');
+    expect(group?.summary).toEqual({
+      key: 'chambers of xeric - challenge mode - fastest overall (3 players)',
+      label: 'Trio',
+      kind: 'Overall',
+      timeSeconds: 1000,
+      rank: 1,
+      updatedAt: '2026-07-02T00:00:00.000Z',
+    });
+  });
+
+  it('ignores faster Room times when an Overall variant is present, since Room is a different metric', () => {
+    const pbs = [
+      pb('theatre of blood - fastest room (3 player)', 500, 1),
+      pb('theatre of blood - fastest overall (3 player)', 1200, 2),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Theatre Of Blood');
+    expect(group?.summary.key).toBe('theatre of blood - fastest overall (3 player)');
+    expect(group?.summary.kind).toBe('Overall');
+  });
+
+  it('falls back to the fastest available kind when a mode has no Overall variant', () => {
+    const pbs = [
+      pb('tombs of amascut - fastest room (2 player)', 900, 4),
+      pb('tombs of amascut - fastest room (solo)', 1100, 2),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Tombs Of Amascut');
+    expect(group?.summary.kind).toBe('Room');
+    expect(group?.summary.key).toBe('tombs of amascut - fastest room (2 player)');
+  });
+
+  it('groups The Nightmare the same as a raid, even though it is not categorized as one', () => {
+    const pbs = [
+      pb('the nightmare - fastest overall (solo)', 900, 1),
+      pb('the nightmare - fastest overall (2 players)', 700, 1),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'The Nightmare');
+    expect(group?.summary.key).toBe('the nightmare - fastest overall (2 players)');
+    expect(group?.variants.map((v) => v.label)).toEqual(['Solo', 'Duo']);
+  });
+
+  it('passes non-grouped bosses through untouched as flat entries', () => {
+    const pbs = [pb('zulrah', 80, 1), pb('vorkath', 143, 5)];
+    const { groups, flat } = groupPlayerRaidPbs(pbs);
+    expect(groups).toEqual([]);
+    expect(flat).toEqual(pbs);
+  });
+
+  it('disambiguates Room vs Overall labels when a mode has both for the same team size', () => {
+    // Real bug seen on production: Tombs of Amascut - Expert tracks both a
+    // Room time and an Overall time per team size, so without
+    // disambiguation two different times both render as the bare size
+    // nickname (e.g. two unlabeled "4-Man" rows), indistinguishable in the
+    // UI.
+    const pbs = [
+      pb('tombs of amascut - expert - fastest overall (4 player)', 2002, 8),
+      pb('tombs of amascut - expert - fastest room (4 player)', 1745, 8),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Tombs Of Amascut - Expert');
+    const labels = group?.variants.map((v) => v.label);
+    expect(new Set(labels).size).toBe(labels?.length);
+    // Dash-separated rather than "4-Man (Overall)" - the summary row already
+    // wraps this label in its own parens ("29:58 (...)"), and nesting a
+    // second pair inside it read as a doubled/broken-looking parenthetical.
+    expect(labels).toEqual(['4-Man - Overall', '4-Man - Room']);
+    // The summary row is a single number with no adjacent counterpart to
+    // confuse it with, so it keeps the plain size label rather than also
+    // getting the disambiguation suffix (which read as redundant: "8-Man -
+    // Overall" when Overall is already the expected/default kind).
+    expect(group?.summary.label).toBe('4-Man');
+  });
+
+  it('does not add a kind suffix when a mode only has one kind of variant', () => {
+    const pbs = [
+      pb('chambers of xeric - challenge mode - fastest overall (solo)', 2000, 3),
+      pb('chambers of xeric - challenge mode - fastest overall (3 players)', 1000, 1),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Chambers Of Xeric - Challenge Mode');
+    expect(group?.variants.map((v) => v.label)).toEqual(['Solo', 'Trio']);
+  });
+
+  it('does not suffix labels that do not actually collide, even in a group that mixes kinds', () => {
+    // Real bug seen on production: disambiguating whenever a group merely
+    // *contained* more than one kind (rather than only when two labels
+    // actually collide) produced silly-looking results - a lone bare
+    // "Overall" entry became "Overall - Overall", and a Legacy "(Former)"
+    // entry (already a unique, self-describing label) became
+    // "Fastest Room (Former) - Legacy" for no reason.
+    const pbs = [
+      pb('theatre of blood', 1200, 1), // bare Overall - unique, no Room counterpart
+      pb('theatre of blood - fastest overall (3 player)', 1100, 2),
+      pb('theatre of blood - fastest room (3 player)', 500, 1), // collides with the line above
+      pb('theatre of blood - fastest room (former)', 900, 3), // unique Legacy label
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Theatre Of Blood');
+    const labels = group?.variants.map((v) => v.label);
+    // Sorted by team size first, so the sized Trio pair comes before the
+    // team-size-less bare Overall/Legacy entries.
+    expect(labels).toEqual(['Trio - Overall', 'Trio - Room', 'Overall', 'Fastest Room (Former)']);
   });
 });
 
