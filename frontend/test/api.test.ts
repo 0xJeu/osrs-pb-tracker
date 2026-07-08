@@ -113,6 +113,15 @@ describe('createApiClient', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/admin/stats');
   });
 
+  it('sends explicit Basic Auth credentials on admin requests when provided', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = createApiClient('', fetchFn, () => ({ username: 'steph', password: 'secret pass' }));
+    await api.getAdminPlayers();
+    expect(fetchFn).toHaveBeenCalledWith('/api/admin/players', {
+      headers: { Authorization: `Basic ${btoa('steph:secret pass')}` },
+    });
+  });
+
   it('throws on an unauthorized admin request', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Unauthorized' }, 401));
     const api = createApiClient('', fetchFn);

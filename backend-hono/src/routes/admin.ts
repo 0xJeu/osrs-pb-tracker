@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { admins, personalBests, players } from '../db/schema.js';
 import { verifyPassword } from '../lib/adminPassword.js';
-import { isRateLimited } from '../lib/secret.js';
+import { isRateLimitExceeded, recordRateLimitAttempt } from '../lib/secret.js';
 
 const admin = new Hono();
 
@@ -32,9 +32,12 @@ admin.use('*', async (c, next) => {
     return c.json({ error: 'Unauthorized' }, 401, { 'WWW-Authenticate': 'Basic realm="admin"' });
   }
 
-  // Reuses the same throttling used for sync abuse, keyed by username
-  // instead of accountHash, so brute-forcing a password is rate-limited too.
-  if (isRateLimited(`admin-login:${credentials.username}`)) {
+  // Reuses the same throttling window as sync abuse, keyed by username.
+  // Only failed auth attempts are recorded below, so normal admin usage does
+  // not burn through the login quota. A guessed username can still be locked
+  // temporarily; acceptable for this small internal tool.
+  const rateLimitKey = `admin-login:${credentials.username}`;
+  if (isRateLimitExceeded(rateLimitKey)) {
     return c.json({ error: 'Too many login attempts, slow down.' }, 429);
   }
 
@@ -43,6 +46,7 @@ admin.use('*', async (c, next) => {
   // Fails closed: no matching admin row is treated identically to a wrong
   // password, not as "no auth required."
   if (!account || !verifyPassword(credentials.password, account.passwordHash, account.passwordSalt)) {
+    recordRateLimitAttempt(rateLimitKey);
     return c.json({ error: 'Unauthorized' }, 401, { 'WWW-Authenticate': 'Basic realm="admin"' });
   }
 

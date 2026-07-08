@@ -475,6 +475,34 @@ tr:last-child td { border-bottom: none; }
 
 .admin-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 
+.admin-login {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  max-width: 360px;
+}
+
+.admin-login label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.admin-login input {
+  background: #100d09;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.admin-login-error { color: #e88; margin: 0; font-size: 0.85rem; }
+
 .admin-stat {
   background: var(--panel);
   border: 1px solid var(--panel-border);

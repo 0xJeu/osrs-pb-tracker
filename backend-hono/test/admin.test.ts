@@ -41,6 +41,15 @@ describe('/api/admin', () => {
       });
       expect(res.status).toBe(200);
     });
+
+    it('does not rate-limit repeated successful admin requests', async () => {
+      for (let i = 0; i < 31; i += 1) {
+        const res = await app.request('/api/admin/players', {
+          headers: { Authorization: basicAuthHeader('steph', 'correct horse battery staple') },
+        });
+        expect(res.status).toBe(200);
+      }
+    }, 20_000);
   });
 
   describe('GET /players', () => {

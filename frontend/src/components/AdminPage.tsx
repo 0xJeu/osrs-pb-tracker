@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { ApiError, api, clearStoredAdminCredentials, hasStoredAdminCredentials, setStoredAdminCredentials } from '../lib/api';
 import type { AdminPlayerSummary, AdminStats } from '../lib/api';
 import { formatDate } from '../lib/format';
 import { EmptyState, ErrorState, Loading } from './States';
@@ -8,6 +8,7 @@ type SortKey = 'displayName' | 'createdAt' | 'lastSyncedAt' | 'pbCount';
 type SortDir = 'asc' | 'desc';
 
 type State =
+  | { s: 'login'; message?: string }
   | { s: 'loading' }
   | { s: 'error' }
   | { s: 'loaded'; players: AdminPlayerSummary[]; stats: AdminStats };
@@ -25,20 +26,38 @@ function sortPlayers(rows: AdminPlayerSummary[], key: SortKey, dir: SortDir): Ad
 }
 
 export function AdminPage({ onSelectPlayer }: { onSelectPlayer: (id: number) => void }) {
-  const [state, setState] = useState<State>({ s: 'loading' });
+  const [state, setState] = useState<State>(() => (hasStoredAdminCredentials() ? { s: 'loading' } : { s: 'login' }));
   const [sortKey, setSortKey] = useState<SortKey>('lastSyncedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  useEffect(() => {
+  const loadAdminData = () => {
     let alive = true;
+    setState({ s: 'loading' });
     Promise.all([api.getAdminPlayers(), api.getAdminStats()])
       .then(([players, stats]) => alive && setState({ s: 'loaded', players, stats }))
-      .catch(() => alive && setState({ s: 'error' }));
+      .catch((error) => {
+        if (!alive) return;
+        if (error instanceof ApiError && error.status === 401) {
+          clearStoredAdminCredentials();
+          setState({ s: 'login', message: 'Invalid admin credentials.' });
+          return;
+        }
+        setState({ s: 'error' });
+      });
     return () => {
       alive = false;
     };
+  };
+
+  useEffect(() => {
+    if (!hasStoredAdminCredentials()) {
+      setState({ s: 'login' });
+      return;
+    }
+    return loadAdminData();
   }, []);
 
+  if (state.s === 'login') return <AdminLogin message={state.message} onLogin={loadAdminData} />;
   if (state.s === 'loading') return <Loading />;
   if (state.s === 'error') return <ErrorState />;
 
@@ -109,6 +128,47 @@ export function AdminPage({ onSelectPlayer }: { onSelectPlayer: (id: number) => 
           </tbody>
         </table>
       )}
+    </section>
+  );
+}
+
+function AdminLogin({ message, onLogin }: { message?: string; onLogin: () => void }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  return (
+    <section>
+      <h2 className="result-title">Admin</h2>
+      <form
+        className="admin-login"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setStoredAdminCredentials({ username, password });
+          onLogin();
+        }}
+      >
+        <label>
+          <span>Username</span>
+          <input
+            autoComplete="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            required
+          />
+        </label>
+        <label>
+          <span>Password</span>
+          <input
+            autoComplete="current-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+        </label>
+        <button type="submit">Log in</button>
+        {message ? <p className="admin-login-error">{message}</p> : null}
+      </form>
     </section>
   );
 }
