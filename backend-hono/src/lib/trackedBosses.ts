@@ -84,6 +84,18 @@ const REDUNDANT_BARE_MODE_KEYS = new Set([
   'tombs of amascut entry mode',
 ]);
 
-export function isRedundantBareModeKey(boss: string): boolean {
-  return REDUNDANT_BARE_MODE_KEYS.has(normalize(boss));
+/**
+ * Mirrors the plugin's looksLikeRaidVariant() "nightmare solo" / "nightmare
+ * 2 players" / "nightmare 6+ players" pattern. Unlike the bare mode keys
+ * above, this one's regex does require the team-size suffix, so it should
+ * already be gated client-side - but real production data showed it landing
+ * anyway (e.g. an older/unpatched plugin install), duplicating the Adventure
+ * Log-labeled "the nightmare - fastest overall (6+ players)" row. Rejected
+ * here too as defense in depth, regardless of plugin version.
+ */
+const NIGHTMARE_TEAM_SIZE_PATTERN = /^nightmare (solo|\d+ players|\d\+ players|\d+-\d+ players)$/;
+
+export function isRedundantDuplicateKey(boss: string): boolean {
+  const normalized = normalize(boss);
+  return REDUNDANT_BARE_MODE_KEYS.has(normalized) || NIGHTMARE_TEAM_SIZE_PATTERN.test(normalized);
 }

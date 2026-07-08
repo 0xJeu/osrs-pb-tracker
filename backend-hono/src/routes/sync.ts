@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
-import { isRedundantBareModeKey, isTrackedBoss } from '../lib/trackedBosses.js';
+import { isRedundantDuplicateKey, isTrackedBoss } from '../lib/trackedBosses.js';
 
 const sync = new Hono();
 
@@ -125,7 +125,7 @@ sync.post('/', async (c) => {
     if (!isTrackedBoss(boss)) {
       continue;
     }
-    if (isRedundantBareModeKey(boss)) {
+    if (isRedundantDuplicateKey(boss)) {
       continue;
     }
     if (await upsertPb(playerId, boss, timeSeconds)) {

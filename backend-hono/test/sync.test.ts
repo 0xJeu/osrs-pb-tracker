@@ -96,6 +96,28 @@ describe('POST /api/sync', () => {
     ]);
   });
 
+  it('silently drops bare "nightmare <team size>" keys that duplicate an Adventure Log-labeled variant', async () => {
+    const res = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: 'a'.repeat(20),
+      pbs: {
+        'Nightmare 6+ Players': 238,
+        'Nightmare Solo': 900,
+        'Nightmare 3 Players': 400,
+        Zulrah: 80,
+      },
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, received: 4, updated: 1 });
+
+    const lookup = await app.request('/api/players/Blitzen');
+    expect((await lookup.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
+    ]);
+  });
+
   it('only overwrites a PB when the new time is faster', async () => {
     const secret = 'a'.repeat(20);
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });

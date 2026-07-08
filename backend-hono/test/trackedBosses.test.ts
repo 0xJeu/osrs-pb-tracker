@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRedundantBareModeKey, isTrackedBoss } from '../src/lib/trackedBosses.js';
+import { isRedundantDuplicateKey, isTrackedBoss } from '../src/lib/trackedBosses.js';
 
 describe('isTrackedBoss', () => {
   it('accepts bosses with an official Jagex personal best', () => {
@@ -34,23 +34,32 @@ describe('isTrackedBoss', () => {
   });
 });
 
-describe('isRedundantBareModeKey', () => {
+describe('isRedundantDuplicateKey', () => {
   it('rejects bare "mode" keys with no team-size suffix', () => {
-    expect(isRedundantBareModeKey('theatre of blood hard mode')).toBe(true);
-    expect(isRedundantBareModeKey('Theatre of Blood Entry Mode')).toBe(true);
-    expect(isRedundantBareModeKey('chambers of xeric challenge mode')).toBe(true);
-    expect(isRedundantBareModeKey('tombs of amascut expert mode')).toBe(true);
-    expect(isRedundantBareModeKey('tombs of amascut entry mode')).toBe(true);
+    expect(isRedundantDuplicateKey('theatre of blood hard mode')).toBe(true);
+    expect(isRedundantDuplicateKey('Theatre of Blood Entry Mode')).toBe(true);
+    expect(isRedundantDuplicateKey('chambers of xeric challenge mode')).toBe(true);
+    expect(isRedundantDuplicateKey('tombs of amascut expert mode')).toBe(true);
+    expect(isRedundantDuplicateKey('tombs of amascut entry mode')).toBe(true);
   });
 
   it('accepts the same modes once a team-size suffix is present', () => {
-    expect(isRedundantBareModeKey('theatre of blood hard mode solo')).toBe(false);
-    expect(isRedundantBareModeKey('tombs of amascut expert mode 4 players')).toBe(false);
+    expect(isRedundantDuplicateKey('theatre of blood hard mode solo')).toBe(false);
+    expect(isRedundantDuplicateKey('tombs of amascut expert mode 4 players')).toBe(false);
+  });
+
+  it('rejects bare "nightmare <team size>" keys', () => {
+    expect(isRedundantDuplicateKey('nightmare solo')).toBe(true);
+    expect(isRedundantDuplicateKey('Nightmare 2 Players')).toBe(true);
+    expect(isRedundantDuplicateKey('nightmare 6+ players')).toBe(true);
+    expect(isRedundantDuplicateKey('nightmare 3-4 players')).toBe(true);
   });
 
   it('does not reject unrelated tracked bosses', () => {
-    expect(isRedundantBareModeKey('zulrah')).toBe(false);
-    expect(isRedundantBareModeKey('theatre of blood')).toBe(false);
-    expect(isRedundantBareModeKey('chambers of xeric')).toBe(false);
+    expect(isRedundantDuplicateKey('zulrah')).toBe(false);
+    expect(isRedundantDuplicateKey('theatre of blood')).toBe(false);
+    expect(isRedundantDuplicateKey('chambers of xeric')).toBe(false);
+    expect(isRedundantDuplicateKey('the nightmare')).toBe(false);
+    expect(isRedundantDuplicateKey("phosani's nightmare")).toBe(false);
   });
 });
