@@ -47,6 +47,31 @@ export async function insertTestPlayerWithPb(opts: {
   return player;
 }
 
+export async function insertTestPlayer(opts: {
+  displayName?: string;
+  accountHash?: string;
+  updatedAt?: Date;
+  createdAt?: Date;
+  lastSyncedAt?: Date;
+}) {
+  counter += 1;
+  const displayName = opts.displayName ?? `TestPlayer${counter}`;
+  const now = new Date();
+  const [player] = await db
+    .insert(players)
+    .values({
+      accountHash: opts.accountHash ?? `test-hash-${counter}`,
+      displayName,
+      displayNameLower: displayName.toLowerCase(),
+      installSecretHash: 'test-secret-hash',
+      updatedAt: opts.updatedAt ?? now,
+      createdAt: opts.createdAt ?? now,
+      lastSyncedAt: opts.lastSyncedAt ?? now,
+    })
+    .returning();
+  return player;
+}
+
 export async function insertTestAdmin(username: string, password: string) {
   const { hash, salt } = hashPassword(password);
   await db.insert(admins).values({ username, passwordHash: hash, passwordSalt: salt });
