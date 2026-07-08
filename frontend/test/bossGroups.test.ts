@@ -339,6 +339,41 @@ describe('groupPlayerRaidPbs', () => {
     expect(groups).toEqual([]);
     expect(flat).toEqual(pbs);
   });
+
+  it('disambiguates Room vs Overall labels when a mode has both for the same team size', () => {
+    // Real bug seen on production: Tombs of Amascut - Expert tracks both a
+    // Room time and an Overall time per team size, so without
+    // disambiguation two different times both render as the bare size
+    // nickname (e.g. two unlabeled "4-Man" rows), indistinguishable in the
+    // UI.
+    const pbs = [
+      pb('tombs of amascut - expert - fastest overall (4 player)', 2002, 8),
+      pb('tombs of amascut - expert - fastest room (4 player)', 1745, 8),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Tombs Of Amascut - Expert');
+    const labels = group?.variants.map((v) => v.label);
+    expect(new Set(labels).size).toBe(labels?.length);
+    // Dash-separated rather than "4-Man (Overall)" - the summary row already
+    // wraps this label in its own parens ("29:58 (...)"), and nesting a
+    // second pair inside it read as a doubled/broken-looking parenthetical.
+    expect(labels).toEqual(['4-Man - Overall', '4-Man - Room']);
+    // The summary row is a single number with no adjacent counterpart to
+    // confuse it with, so it keeps the plain size label rather than also
+    // getting the disambiguation suffix (which read as redundant: "8-Man -
+    // Overall" when Overall is already the expected/default kind).
+    expect(group?.summary.label).toBe('4-Man');
+  });
+
+  it('does not add a kind suffix when a mode only has one kind of variant', () => {
+    const pbs = [
+      pb('chambers of xeric - challenge mode - fastest overall (solo)', 2000, 3),
+      pb('chambers of xeric - challenge mode - fastest overall (3 players)', 1000, 1),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Chambers Of Xeric - Challenge Mode');
+    expect(group?.variants.map((v) => v.label)).toEqual(['Solo', 'Trio']);
+  });
 });
 
 describe('groupVariantsByKind', () => {

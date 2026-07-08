@@ -341,12 +341,6 @@ export interface RaidMode {
   variants: { key: string; label: string }[];
 }
 
-// All modes (Entry, Normal, Hard/Challenge Mode/Expert) for a single grouped
-// boss base, each with its own list of room/overall/team-size variants.
-// "Normal" matches the in-game difficulty label (as opposed to Hard
-// Mode/Challenge Mode/Expert Mode), rather than an internal placeholder like
-// "Regular". Bosses with no mode split (e.g. The Nightmare) just get one
-// "Normal" entry.
 export interface PlayerRaidVariant {
   key: string;
   label: string;
@@ -419,13 +413,32 @@ export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]
       const sorted = variants
         .sort((a, b) => teamSizeRank(a.subLabel) - teamSizeRank(b.subLabel) || variantRank(a.subLabel) - variantRank(b.subLabel))
         .map(({ subLabel: _subLabel, ...rest }) => rest);
-      return { heading, summary: pickSummary(sorted), variants: sorted };
+      // A mode that tracks both a Room time and an Overall time per team
+      // size (e.g. Tombs of Amascut - Expert) would otherwise render two
+      // different times under the exact same bare size label (two
+      // indistinguishable "4-Man" rows) - only add a "- Overall"/"- Room"
+      // suffix when a group actually mixes kinds, so unambiguous groups
+      // (most raid modes) keep the plain "Trio"/"Solo" nicknames.
+      const summary = pickSummary(sorted);
+      const kinds = new Set(sorted.map((v) => v.kind));
+      const labeled = kinds.size > 1 ? sorted.map((v) => ({ ...v, label: `${v.label} - ${v.kind}` })) : sorted;
+      // The summary is a single number with no adjacent counterpart to
+      // confuse it with, so it keeps the plain size label - the suffix only
+      // earns its keep in the expanded list, where two same-size rows would
+      // otherwise be indistinguishable.
+      return { heading, summary, variants: labeled };
     })
     .sort((a, b) => a.heading.localeCompare(b.heading));
 
   return { groups, flat };
 }
 
+// All modes (Entry, Normal, Hard/Challenge Mode/Expert) for a single grouped
+// boss base, each with its own list of room/overall/team-size variants.
+// "Normal" matches the in-game difficulty label (as opposed to Hard
+// Mode/Challenge Mode/Expert Mode), rather than an internal placeholder like
+// "Regular". Bosses with no mode split (e.g. The Nightmare) just get one
+// "Normal" entry.
 export function getRaidModes(bosses: string[], base: string): RaidMode[] {
   const allGroups = groupBosses(bosses).flatMap((g) => g.raidGroups ?? []);
   const baseLabel = titleCase(base);
