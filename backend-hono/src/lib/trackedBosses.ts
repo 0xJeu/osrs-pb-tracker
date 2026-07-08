@@ -63,3 +63,27 @@ export function isTrackedBoss(boss: string): boolean {
   const normalized = normalize(boss);
   return TRACKED_BOSS_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
+
+/**
+ * RuneLite exposes a bare "mode" personalbest key for these raid modes
+ * (e.g. "theatre of blood hard mode") with no team-size suffix, representing
+ * an ambiguous "best across any team size" value. The plugin's own
+ * looksLikeRaidVariant() is meant to filter these client-side so the
+ * Adventure Log parser's properly-labelled version (e.g. "theatre of blood -
+ * hard - fastest room (5 player hard mode)") is used instead, but its regexes
+ * only catch the suffixed forms ("... hard mode solo"), not the bare ones -
+ * so an unpatched/older plugin install can still send them. Reject them here
+ * too so they don't land as a duplicate row with a falsely "fresh" Recorded
+ * timestamp.
+ */
+const REDUNDANT_BARE_MODE_KEYS = new Set([
+  'theatre of blood hard mode',
+  'theatre of blood entry mode',
+  'chambers of xeric challenge mode',
+  'tombs of amascut expert mode',
+  'tombs of amascut entry mode',
+]);
+
+export function isRedundantBareModeKey(boss: string): boolean {
+  return REDUNDANT_BARE_MODE_KEYS.has(normalize(boss));
+}

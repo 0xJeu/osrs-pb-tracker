@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
-import { isTrackedBoss } from '../lib/trackedBosses.js';
+import { isRedundantBareModeKey, isTrackedBoss } from '../lib/trackedBosses.js';
 
 const sync = new Hono();
 
@@ -49,6 +49,11 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
   return { playerId: existing.id, authorized: true };
 }
 
+// Invariant: `updated_at` must only move on insert or a strictly faster time.
+// The frontend's "Recorded" column reads this column directly, so an equal
+// or slower resync must leave the existing row (including its timestamp)
+// completely untouched - see sync.test.ts's "only overwrites a PB when the
+// new time is faster" test, which locks this in.
 async function upsertPb(playerId: number, boss: string, timeSeconds: number) {
   const existingRows = await db
     .select()
@@ -118,6 +123,9 @@ sync.post('/', async (c) => {
       continue;
     }
     if (!isTrackedBoss(boss)) {
+      continue;
+    }
+    if (isRedundantBareModeKey(boss)) {
       continue;
     }
     if (await upsertPb(playerId, boss, timeSeconds)) {
