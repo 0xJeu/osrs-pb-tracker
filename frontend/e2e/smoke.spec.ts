@@ -25,6 +25,9 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/bosses', (route) => route.fulfill({ json: ['vorkath', 'zulrah'] }));
   await page.route('**/api/search**', (route) => route.fulfill({ json: ['Blitzen'] }));
   await page.route('**/api/recent-syncs**', (route) => route.fulfill({ json: recentSyncs }));
+  await page.route('**/api/stats', (route) =>
+    route.fulfill({ json: { trackedPlayers: 1284, personalBestRecords: 18492 } })
+  );
 });
 
 test('initial load shows the search experience and recent syncs', async ({ page }) => {
@@ -32,6 +35,10 @@ test('initial load shows the search experience and recent syncs', async ({ page 
 
   await expect(page.getByLabel('Player name')).toBeVisible();
   await expect(page.getByText('Search a player above')).toBeVisible();
+  const quickStats = page.getByRole('region', { name: 'Quick stats' });
+  await expect(quickStats.getByRole('heading', { name: 'Quick Stats' })).toBeVisible();
+  await expect(quickStats.getByText('1,284')).toBeVisible();
+  await expect(quickStats.getByText('18,492')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Recent Syncs' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Blitzen/ })).toBeVisible();
 });

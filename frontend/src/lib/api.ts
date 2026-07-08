@@ -38,6 +38,11 @@ export interface RecentSync {
   pbCount: number;
 }
 
+export interface QuickStats {
+  trackedPlayers: number;
+  personalBestRecords: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number) {
     super(`API error ${status}`);
@@ -90,6 +95,9 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       return getJson(`/api/recent-syncs?limit=${limit}`);
+    },
+    getStats(): Promise<QuickStats> {
+      return getJson('/api/stats');
     },
     async submitFeedback(message: string, context?: string): Promise<void> {
       const res = await fetchFn(`${base}/api/feedback`, {

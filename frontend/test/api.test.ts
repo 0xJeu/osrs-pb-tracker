@@ -97,6 +97,14 @@ describe('createApiClient', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/recent-syncs?limit=10');
   });
 
+  it('loads quick stats for the home page panel', async () => {
+    const stats = { trackedPlayers: 1284, personalBestRecords: 18492 };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(stats));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getStats()).toEqual(stats);
+    expect(fetchFn).toHaveBeenCalledWith('/api/stats');
+  });
+
   it('throws on unexpected server errors', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
     const api = createApiClient('', fetchFn);
