@@ -323,6 +323,20 @@ tr:last-child td { border-bottom: none; }
 }
 .pb-rank-link:hover { color: var(--gold); }
 
+.group-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 2px;
+  font: inherit;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.group-toggle:hover { color: var(--gold-light); }
+
+.group-variant-row td { background: rgba(255, 255, 255, 0.02); }
+.group-variant-row td[data-label='Boss'] { padding-left: 30px; color: var(--text-dim); }
+
 .section-heading {
   display: flex;
   align-items: baseline;

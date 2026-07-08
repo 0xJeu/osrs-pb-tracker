@@ -166,3 +166,40 @@ test('shared URLs restore player and boss views', async ({ page }) => {
   await page.goto('/boss/zulrah');
   await expect(page.getByRole('heading', { name: /Zulrah - Top times/ })).toBeVisible();
 });
+
+test('raid variants collapse into one expandable row on a player page', async ({ page }) => {
+  const raidPlayer = {
+    id: 1,
+    displayName: 'Blitzen',
+    updatedAt: '2026-07-04T18:00:00.000Z',
+    pbs: [
+      { boss: 'zulrah', timeSeconds: 80, rank: 1, updatedAt: '2026-07-04T18:00:00.000Z' },
+      {
+        boss: 'chambers of xeric - fastest overall (solo)',
+        timeSeconds: 2000,
+        rank: 5,
+        updatedAt: '2026-07-04T18:00:00.000Z',
+      },
+      {
+        boss: 'chambers of xeric - fastest overall (3 players)',
+        timeSeconds: 1000,
+        rank: 2,
+        updatedAt: '2026-07-05T18:00:00.000Z',
+      },
+    ],
+  };
+  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: raidPlayer }));
+  await page.goto('/player/Blitzen');
+
+  await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
+  // Two raid variants collapse to one summary row (the faster Trio time),
+  // instead of two separate flat rows.
+  await expect(page.getByText('Chambers Of Xeric', { exact: true })).toBeVisible();
+  await expect(page.getByText('16:40 (Trio)')).toBeVisible();
+  await expect(page.getByText('Solo', { exact: true })).not.toBeVisible();
+
+  await page.locator('.group-toggle').click();
+
+  await expect(page.getByText('Solo', { exact: true })).toBeVisible();
+  await expect(page.getByText('Trio', { exact: true })).toBeVisible();
+});

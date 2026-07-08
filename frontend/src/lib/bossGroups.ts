@@ -347,6 +347,85 @@ export interface RaidMode {
 // Mode/Challenge Mode/Expert Mode), rather than an internal placeholder like
 // "Regular". Bosses with no mode split (e.g. The Nightmare) just get one
 // "Normal" entry.
+export interface PlayerRaidVariant {
+  key: string;
+  label: string;
+  kind: VariantKind;
+  timeSeconds: number;
+  rank: number;
+  updatedAt: string;
+}
+
+export interface PlayerRaidGroup {
+  heading: string;
+  summary: PlayerRaidVariant;
+  variants: PlayerRaidVariant[];
+}
+
+export interface PlayerPb {
+  boss: string;
+  timeSeconds: number;
+  rank: number;
+  updatedAt: string;
+}
+
+const KIND_PREFERENCE: VariantKind[] = ['Overall', 'Room', 'Other', 'Legacy'];
+
+// Picks the variant to show on a group's collapsed summary row: the fastest
+// Overall-kind variant if any exist (a Room split is a different, inherently
+// faster metric than a full clear, so it's never allowed to win here even if
+// numerically lower), otherwise the fastest variant of the next-preferred
+// kind present. Rank/Recorded always come from this same variant, so the
+// summary row's date never gets detached from the time it's paired with.
+function pickSummary(variants: PlayerRaidVariant[]): PlayerRaidVariant {
+  for (const kind of KIND_PREFERENCE) {
+    const ofKind = variants.filter((v) => v.kind === kind);
+    if (ofKind.length > 0) {
+      return ofKind.reduce((fastest, v) => (v.timeSeconds < fastest.timeSeconds ? v : fastest));
+    }
+  }
+  return variants[0];
+}
+
+// Groups a player's own synced PBs (not just boss-key strings, since the
+// summary row needs each variant's time/rank/date) into one entry per
+// raid+mode heading, for the player results page - see
+// docs/superpowers/specs/2026-07-08-player-page-raid-grouping-design.md.
+export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]; flat: PlayerPb[] } {
+  const groupedPbs = pbs.filter((pb) => isGroupedVariant(pb.boss));
+  const flat = pbs.filter((pb) => !isGroupedVariant(pb.boss));
+
+  // subLabel carries the raw parsed text (e.g. "Fastest Overall (3 Players)")
+  // needed for sorting/kind classification - the friendly `label` (nickname
+  // like "Trio") is derived from it but isn't itself sortable by team size.
+  const byHeading = new Map<string, (PlayerRaidVariant & { subLabel: string })[]>();
+  for (const pb of groupedPbs) {
+    const variant = parseRaidVariant(pb.boss);
+    const entry = {
+      key: pb.boss,
+      label: sizeLabel(variant.subLabel) ?? variant.subLabel,
+      kind: variantKind(variant.subLabel),
+      timeSeconds: pb.timeSeconds,
+      rank: pb.rank,
+      updatedAt: pb.updatedAt,
+      subLabel: variant.subLabel,
+    };
+    if (!byHeading.has(variant.heading)) byHeading.set(variant.heading, []);
+    byHeading.get(variant.heading)!.push(entry);
+  }
+
+  const groups = Array.from(byHeading.entries())
+    .map(([heading, variants]) => {
+      const sorted = variants
+        .sort((a, b) => teamSizeRank(a.subLabel) - teamSizeRank(b.subLabel) || variantRank(a.subLabel) - variantRank(b.subLabel))
+        .map(({ subLabel: _subLabel, ...rest }) => rest);
+      return { heading, summary: pickSummary(sorted), variants: sorted };
+    })
+    .sort((a, b) => a.heading.localeCompare(b.heading));
+
+  return { groups, flat };
+}
+
 export function getRaidModes(bosses: string[], base: string): RaidMode[] {
   const allGroups = groupBosses(bosses).flatMap((g) => g.raidGroups ?? []);
   const baseLabel = titleCase(base);

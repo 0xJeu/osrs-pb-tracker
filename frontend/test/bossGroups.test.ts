@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { categorize, getRaidBases, getRaidModes, groupBosses, groupVariantsByKind, isGroupedVariant } from '../src/lib/bossGroups';
+import {
+  categorize,
+  getRaidBases,
+  getRaidModes,
+  groupBosses,
+  groupPlayerRaidPbs,
+  groupVariantsByKind,
+  isGroupedVariant,
+} from '../src/lib/bossGroups';
 
 const ALL_KEYS = [
   'nex',
@@ -267,6 +275,69 @@ describe('groupBosses with run-on-phrase raid/Nightmare keys', () => {
 
     const bosses = groups.find((g) => g.category === 'Bosses');
     expect(bosses?.items?.map((i) => i.label)).toEqual(['Nightmare 6+ Players']);
+  });
+});
+
+describe('groupPlayerRaidPbs', () => {
+  function pb(boss: string, timeSeconds: number, rank = 1, updatedAt = '2026-07-08T00:00:00.000Z') {
+    return { boss, timeSeconds, rank, updatedAt };
+  }
+
+  it('summarizes a mode with only Overall variants by its fastest one', () => {
+    const pbs = [
+      pb('chambers of xeric - challenge mode - fastest overall (solo)', 2000, 3, '2026-07-01T00:00:00.000Z'),
+      pb('chambers of xeric - challenge mode - fastest overall (3 players)', 1000, 1, '2026-07-02T00:00:00.000Z'),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Chambers Of Xeric - Challenge Mode');
+    expect(group?.summary).toEqual({
+      key: 'chambers of xeric - challenge mode - fastest overall (3 players)',
+      label: 'Trio',
+      kind: 'Overall',
+      timeSeconds: 1000,
+      rank: 1,
+      updatedAt: '2026-07-02T00:00:00.000Z',
+    });
+  });
+
+  it('ignores faster Room times when an Overall variant is present, since Room is a different metric', () => {
+    const pbs = [
+      pb('theatre of blood - fastest room (3 player)', 500, 1),
+      pb('theatre of blood - fastest overall (3 player)', 1200, 2),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Theatre Of Blood');
+    expect(group?.summary.key).toBe('theatre of blood - fastest overall (3 player)');
+    expect(group?.summary.kind).toBe('Overall');
+  });
+
+  it('falls back to the fastest available kind when a mode has no Overall variant', () => {
+    const pbs = [
+      pb('tombs of amascut - fastest room (2 player)', 900, 4),
+      pb('tombs of amascut - fastest room (solo)', 1100, 2),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Tombs Of Amascut');
+    expect(group?.summary.kind).toBe('Room');
+    expect(group?.summary.key).toBe('tombs of amascut - fastest room (2 player)');
+  });
+
+  it('groups The Nightmare the same as a raid, even though it is not categorized as one', () => {
+    const pbs = [
+      pb('the nightmare - fastest overall (solo)', 900, 1),
+      pb('the nightmare - fastest overall (2 players)', 700, 1),
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'The Nightmare');
+    expect(group?.summary.key).toBe('the nightmare - fastest overall (2 players)');
+    expect(group?.variants.map((v) => v.label)).toEqual(['Solo', 'Duo']);
+  });
+
+  it('passes non-grouped bosses through untouched as flat entries', () => {
+    const pbs = [pb('zulrah', 80, 1), pb('vorkath', 143, 5)];
+    const { groups, flat } = groupPlayerRaidPbs(pbs);
+    expect(groups).toEqual([]);
+    expect(flat).toEqual(pbs);
   });
 });
 
