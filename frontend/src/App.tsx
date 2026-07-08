@@ -7,6 +7,7 @@ import { BossComboboxCollapsed } from './components/BossComboboxCollapsed';
 import { RaidVariantPicker } from './components/RaidVariantPicker';
 import { PlayerResult } from './components/PlayerResult';
 import { Leaderboard } from './components/Leaderboard';
+import { QuickStats } from './components/QuickStats';
 import { RecentSyncs } from './components/RecentSyncs';
 import { EmptyState } from './components/States';
 import { FaqPage } from './components/FaqPage';
@@ -147,6 +148,7 @@ export default function App() {
                     </a>
                     .
                   </EmptyState>
+                  <QuickStats />
                   <RecentSyncs onPickPlayer={(player) => navigate({ name: 'player', player })} />
                 </>
               )}

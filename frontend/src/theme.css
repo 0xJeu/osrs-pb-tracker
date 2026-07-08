@@ -38,7 +38,7 @@ body {
 
 main.wrap { padding-top: 24px; padding-bottom: 60px; }
 
-.search-card, .boss-select-card, .recent-syncs {
+.search-card, .boss-select-card, .quick-stats, .recent-syncs {
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 8px;
@@ -336,6 +336,34 @@ tr:last-child td { border-bottom: none; }
 
 .muted-panel { color: var(--text-dim); }
 
+.quick-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-stats-grid div {
+  min-height: 82px;
+  padding: 14px;
+  background: #100d09;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+}
+
+.quick-stats-grid span {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.quick-stats-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--gold-light);
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
 .recent-list { display: flex; flex-direction: column; gap: 8px; }
 
 .recent-row {
@@ -444,6 +472,7 @@ tr:last-child td { border-bottom: none; }
 @media (max-width: 560px) {
   .boss-select-card { flex-direction: column; align-items: stretch; }
   .search-card form { flex-direction: column; }
+  .quick-stats-grid { grid-template-columns: 1fr; }
 
   table, thead, tbody, tr, td { display: block; }
   thead { display: none; }
