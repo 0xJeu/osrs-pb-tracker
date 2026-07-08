@@ -416,12 +416,16 @@ export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]
       // A mode that tracks both a Room time and an Overall time per team
       // size (e.g. Tombs of Amascut - Expert) would otherwise render two
       // different times under the exact same bare size label (two
-      // indistinguishable "4-Man" rows) - only add a "- Overall"/"- Room"
-      // suffix when a group actually mixes kinds, so unambiguous groups
-      // (most raid modes) keep the plain "Trio"/"Solo" nicknames.
+      // indistinguishable "4-Man" rows). Only suffix labels that actually
+      // collide with another one in the same group - checking "does this
+      // group mix kinds at all" over-fired on labels that were already
+      // unique on their own (a lone bare "Overall" became "Overall -
+      // Overall"; a Legacy "(Former)" label, already self-describing, got a
+      // pointless "- Legacy" appended).
       const summary = pickSummary(sorted);
-      const kinds = new Set(sorted.map((v) => v.kind));
-      const labeled = kinds.size > 1 ? sorted.map((v) => ({ ...v, label: `${v.label} - ${v.kind}` })) : sorted;
+      const labelCounts = new Map<string, number>();
+      for (const v of sorted) labelCounts.set(v.label, (labelCounts.get(v.label) ?? 0) + 1);
+      const labeled = sorted.map((v) => (labelCounts.get(v.label)! > 1 ? { ...v, label: `${v.label} - ${v.kind}` } : v));
       // The summary is a single number with no adjacent counterpart to
       // confuse it with, so it keeps the plain size label - the suffix only
       // earns its keep in the expanded list, where two same-size rows would

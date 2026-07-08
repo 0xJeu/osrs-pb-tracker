@@ -374,6 +374,27 @@ describe('groupPlayerRaidPbs', () => {
     const group = groups.find((g) => g.heading === 'Chambers Of Xeric - Challenge Mode');
     expect(group?.variants.map((v) => v.label)).toEqual(['Solo', 'Trio']);
   });
+
+  it('does not suffix labels that do not actually collide, even in a group that mixes kinds', () => {
+    // Real bug seen on production: disambiguating whenever a group merely
+    // *contained* more than one kind (rather than only when two labels
+    // actually collide) produced silly-looking results - a lone bare
+    // "Overall" entry became "Overall - Overall", and a Legacy "(Former)"
+    // entry (already a unique, self-describing label) became
+    // "Fastest Room (Former) - Legacy" for no reason.
+    const pbs = [
+      pb('theatre of blood', 1200, 1), // bare Overall - unique, no Room counterpart
+      pb('theatre of blood - fastest overall (3 player)', 1100, 2),
+      pb('theatre of blood - fastest room (3 player)', 500, 1), // collides with the line above
+      pb('theatre of blood - fastest room (former)', 900, 3), // unique Legacy label
+    ];
+    const { groups } = groupPlayerRaidPbs(pbs);
+    const group = groups.find((g) => g.heading === 'Theatre Of Blood');
+    const labels = group?.variants.map((v) => v.label);
+    // Sorted by team size first, so the sized Trio pair comes before the
+    // team-size-less bare Overall/Legacy entries.
+    expect(labels).toEqual(['Trio - Overall', 'Trio - Room', 'Overall', 'Fastest Room (Former)']);
+  });
 });
 
 describe('groupVariantsByKind', () => {
