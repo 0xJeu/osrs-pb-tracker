@@ -97,6 +97,28 @@ describe('createApiClient', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/recent-syncs?limit=10');
   });
 
+  it('loads the admin player list', async () => {
+    const rows = [{ id: 5, displayName: 'ChampSide', createdAt: '2026-07-05T19:35:04Z', lastSyncedAt: '2026-07-05T19:35:04Z', pbCount: 24 }];
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(rows));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getAdminPlayers()).toEqual(rows);
+    expect(fetchFn).toHaveBeenCalledWith('/api/admin/players');
+  });
+
+  it('loads admin stats', async () => {
+    const stats = { totalPlayers: 24, totalPbs: 700, playersSyncedLast24h: 6, playersInactive7d: 3 };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(stats));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getAdminStats()).toEqual(stats);
+    expect(fetchFn).toHaveBeenCalledWith('/api/admin/stats');
+  });
+
+  it('throws on an unauthorized admin request', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Unauthorized' }, 401));
+    const api = createApiClient('', fetchFn);
+    await expect(api.getAdminPlayers()).rejects.toThrow();
+  });
+
   it('throws on unexpected server errors', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
     const api = createApiClient('', fetchFn);

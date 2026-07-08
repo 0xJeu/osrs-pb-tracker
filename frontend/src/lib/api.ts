@@ -38,6 +38,21 @@ export interface RecentSync {
   pbCount: number;
 }
 
+export interface AdminPlayerSummary {
+  id: number;
+  displayName: string;
+  createdAt: string;
+  lastSyncedAt: string;
+  pbCount: number;
+}
+
+export interface AdminStats {
+  totalPlayers: number;
+  totalPbs: number;
+  playersSyncedLast24h: number;
+  playersInactive7d: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number) {
     super(`API error ${status}`);
@@ -90,6 +105,12 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       return getJson(`/api/recent-syncs?limit=${limit}`);
+    },
+    getAdminPlayers(): Promise<AdminPlayerSummary[]> {
+      return getJson('/api/admin/players');
+    },
+    getAdminStats(): Promise<AdminStats> {
+      return getJson('/api/admin/stats');
     },
     async submitFeedback(message: string, context?: string): Promise<void> {
       const res = await fetchFn(`${base}/api/feedback`, {
