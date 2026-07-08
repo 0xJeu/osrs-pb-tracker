@@ -35,9 +35,10 @@ test('initial load shows the search experience and recent syncs', async ({ page 
 
   await expect(page.getByLabel('Player name')).toBeVisible();
   await expect(page.getByText('Search a player above')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Quick Stats' })).toBeVisible();
-  await expect(page.getByText('1,284')).toBeVisible();
-  await expect(page.getByText('18,492')).toBeVisible();
+  const quickStats = page.getByRole('region', { name: 'Quick stats' });
+  await expect(quickStats.getByRole('heading', { name: 'Quick Stats' })).toBeVisible();
+  await expect(quickStats.getByText('1,284')).toBeVisible();
+  await expect(quickStats.getByText('18,492')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Recent Syncs' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Blitzen/ })).toBeVisible();
 });
