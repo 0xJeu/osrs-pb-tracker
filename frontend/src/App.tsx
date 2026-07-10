@@ -13,13 +13,17 @@ import { EmptyState } from './components/States';
 import { FaqPage } from './components/FaqPage';
 import { SetupGuidePage } from './components/SetupGuidePage';
 import { FeedbackButton } from './components/FeedbackButton';
+import { AdminPage } from './components/AdminPage';
+import { AdminPlayerDetail } from './components/AdminPlayerDetail';
 
 type View =
   | { name: 'home' }
   | { name: 'player'; player: string }
   | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'faq' }
-  | { name: 'setup' };
+  | { name: 'setup' }
+  | { name: 'admin' }
+  | { name: 'adminPlayer'; playerId: number };
 
 function viewFromLocation(): View {
   const path = window.location.pathname;
@@ -30,6 +34,9 @@ function viewFromLocation(): View {
     const highlight = new URLSearchParams(window.location.search).get('highlight') ?? undefined;
     return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
   }
+  const adminPlayerMatch = path.match(/^\/admin\/players\/(\d+)$/);
+  if (adminPlayerMatch) return { name: 'adminPlayer', playerId: Number(adminPlayerMatch[1]) };
+  if (path === '/admin') return { name: 'admin' };
   if (path === '/faq') return { name: 'faq' };
   if (path === '/setup') return { name: 'setup' };
   return { name: 'home' };
@@ -79,10 +86,44 @@ export default function App() {
             ? '/faq'
             : next.name === 'setup'
               ? '/setup'
-              : '/';
+              : next.name === 'admin'
+                ? '/admin'
+                : next.name === 'adminPlayer'
+                  ? `/admin/players/${next.playerId}`
+                  : '/';
     window.history.pushState({}, '', path);
     setView(next);
   };
+
+  if (view.name === 'admin' || view.name === 'adminPlayer') {
+    return (
+      <>
+        <header className="site-header">
+          <div className="wrap">
+            <a
+              href="/"
+              className="logo-link"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate({ name: 'home' });
+              }}
+            >
+              <h1>
+                <span className="accent">PB</span> Tracker <span className="accent">Admin</span>
+              </h1>
+            </a>
+          </div>
+        </header>
+        <main className="wrap">
+          {view.name === 'admin' ? (
+            <AdminPage onSelectPlayer={(id) => navigate({ name: 'adminPlayer', playerId: id })} />
+          ) : (
+            <AdminPlayerDetail playerId={view.playerId} onBack={() => navigate({ name: 'admin' })} />
+          )}
+        </main>
+      </>
+    );
+  }
 
   return (
     <>

@@ -9,6 +9,11 @@ export const players = pgTable(
     displayNameLower: text('display_name_lower').notNull(),
     installSecretHash: text('install_secret_hash'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+    // Set once at insert, never rewritten again - the true "first sync" date.
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Rewritten on every successful sync call, whether or not anything else
+    // changed - unlike updatedAt, which only changes on a display name edit.
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     nameLowerIdx: index('idx_players_name_lower').on(table.displayNameLower),
@@ -54,3 +59,13 @@ export const feedback = pgTable(
     createdAtIdx: index('idx_feedback_created_at').on(table.createdAt),
   })
 );
+
+// Admin panel login credentials. One row per person (not a shared secret) so
+// access can be added/revoked per admin. Not exposed via any public route.
+export const admins = pgTable('admins', {
+  id: serial('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  passwordSalt: text('password_salt').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

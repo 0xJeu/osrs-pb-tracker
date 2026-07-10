@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import adminRoute from './routes/admin.js';
 import bossesRoute from './routes/bosses.js';
 import feedbackRoute from './routes/feedback.js';
 import leaderboardRoute from './routes/leaderboard.js';
@@ -13,6 +14,7 @@ export const app = new Hono();
 
 app.use('*', cors());
 
+app.route('/api/admin', adminRoute);
 app.route('/api/bosses', bossesRoute);
 app.route('/api/feedback', feedbackRoute);
 app.route('/api/leaderboard', leaderboardRoute);

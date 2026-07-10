@@ -13,15 +13,29 @@ const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 30;
 const syncRequestTimestamps = new Map<string, number[]>();
 
+function recentTimestamps(key: string, nowMs: number): number[] {
+  return (syncRequestTimestamps.get(key) ?? []).filter(
+    (t) => nowMs - t < RATE_LIMIT_WINDOW_MS
+  );
+}
+
 // nowMs is injectable so tests can simulate the window passing without
 // real sleeps.
 export function isRateLimited(key: string, nowMs: number = Date.now()): boolean {
-  const recent = (syncRequestTimestamps.get(key) ?? []).filter(
-    (t) => nowMs - t < RATE_LIMIT_WINDOW_MS
-  );
+  const recent = recentTimestamps(key, nowMs);
   recent.push(nowMs);
   syncRequestTimestamps.set(key, recent);
   return recent.length > RATE_LIMIT_MAX_REQUESTS;
+}
+
+export function isRateLimitExceeded(key: string, nowMs: number = Date.now()): boolean {
+  const recent = recentTimestamps(key, nowMs);
+  syncRequestTimestamps.set(key, recent);
+  return recent.length >= RATE_LIMIT_MAX_REQUESTS;
+}
+
+export function recordRateLimitAttempt(key: string, nowMs: number = Date.now()): boolean {
+  return isRateLimited(key, nowMs);
 }
 
 export function resetRateLimiter(): void {

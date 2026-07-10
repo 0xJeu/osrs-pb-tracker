@@ -38,6 +38,26 @@ export interface RecentSync {
   pbCount: number;
 }
 
+export interface AdminPlayerSummary {
+  id: number;
+  displayName: string;
+  createdAt: string;
+  lastSyncedAt: string;
+  pbCount: number;
+}
+
+export interface AdminStats {
+  totalPlayers: number;
+  totalPbs: number;
+  playersSyncedLast24h: number;
+  playersInactive7d: number;
+}
+
+export interface AdminCredentials {
+  username: string;
+  password: string;
+}
+
 export interface QuickStats {
   trackedPlayers: number;
   personalBestRecords: number;
@@ -49,11 +69,64 @@ export class ApiError extends Error {
   }
 }
 
-export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) {
+const ADMIN_CREDENTIALS_KEY = 'pb-tracker-admin-credentials';
+
+export function getStoredAdminCredentials(): AdminCredentials | null {
+  if (typeof sessionStorage === 'undefined') {
+    return null;
+  }
+  const raw = sessionStorage.getItem(ADMIN_CREDENTIALS_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<AdminCredentials>;
+    if (typeof parsed.username === 'string' && typeof parsed.password === 'string') {
+      return { username: parsed.username, password: parsed.password };
+    }
+  } catch {
+    // Ignore malformed session data and fall through to clearing it.
+  }
+  sessionStorage.removeItem(ADMIN_CREDENTIALS_KEY);
+  return null;
+}
+
+export function hasStoredAdminCredentials(): boolean {
+  return getStoredAdminCredentials() !== null;
+}
+
+export function setStoredAdminCredentials(credentials: AdminCredentials): void {
+  sessionStorage.setItem(ADMIN_CREDENTIALS_KEY, JSON.stringify(credentials));
+}
+
+export function clearStoredAdminCredentials(): void {
+  sessionStorage.removeItem(ADMIN_CREDENTIALS_KEY);
+}
+
+function basicAuthHeader(credentials: AdminCredentials): string {
+  return `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`;
+}
+
+export function createApiClient(
+  baseUrl: string,
+  fetchFn: typeof fetch = fetch,
+  getAdminCredentials: () => AdminCredentials | null = getStoredAdminCredentials
+) {
   const base = baseUrl.replace(/\/+$/, '');
 
   async function getJson<T>(path: string): Promise<T> {
     const res = await fetchFn(`${base}${path}`);
+    if (!res.ok) {
+      throw new ApiError(res.status);
+    }
+    return res.json() as Promise<T>;
+  }
+
+  async function getAdminJson<T>(path: string): Promise<T> {
+    const credentials = getAdminCredentials();
+    const res = credentials
+      ? await fetchFn(`${base}${path}`, { headers: { Authorization: basicAuthHeader(credentials) } })
+      : await fetchFn(`${base}${path}`);
     if (!res.ok) {
       throw new ApiError(res.status);
     }
@@ -95,6 +168,12 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       return getJson(`/api/recent-syncs?limit=${limit}`);
+    },
+    getAdminPlayers(): Promise<AdminPlayerSummary[]> {
+      return getAdminJson('/api/admin/players');
+    },
+    getAdminStats(): Promise<AdminStats> {
+      return getAdminJson('/api/admin/stats');
     },
     getStats(): Promise<QuickStats> {
       return getJson('/api/stats');

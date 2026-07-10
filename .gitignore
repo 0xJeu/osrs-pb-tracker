@@ -35,3 +35,4 @@ Thumbs.db
 
 # Local agent brainstorming/mockup artifacts
 .superpowers/
+.worktrees/

@@ -18,6 +18,7 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
   const displayNameLower = displayName.toLowerCase();
   const existingRows = await db.select().from(players).where(eq(players.accountHash, accountHash)).limit(1);
   const existing = existingRows[0];
+  const now = new Date();
 
   if (!existing) {
     const [inserted] = await db
@@ -27,7 +28,9 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
         displayName,
         displayNameLower,
         installSecretHash: secretHash,
-        updatedAt: new Date(),
+        updatedAt: now,
+        createdAt: now,
+        lastSyncedAt: now,
       })
       .returning();
     return { playerId: inserted.id, authorized: true };
@@ -42,8 +45,14 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
   if (existing.displayName !== displayName) {
     await db
       .update(players)
-      .set({ displayName, displayNameLower, updatedAt: new Date() })
+      .set({ displayName, displayNameLower, updatedAt: now, lastSyncedAt: now })
       .where(eq(players.id, existing.id));
+  } else {
+    // Every other successful sync (even one that changes nothing else)
+    // still updates lastSyncedAt - this is the signal the admin panel's
+    // "last sync" column depends on. updatedAt is deliberately left alone
+    // here; it tracks profile edits, not sync activity.
+    await db.update(players).set({ lastSyncedAt: now }).where(eq(players.id, existing.id));
   }
 
   return { playerId: existing.id, authorized: true };
