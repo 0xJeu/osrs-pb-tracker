@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
+    "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts",
+    "cleanup:poh-contaminated-pbs": "tsx scripts/remove-poh-contaminated-pbs.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
