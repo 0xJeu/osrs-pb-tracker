@@ -324,19 +324,6 @@ function LeaderboardView({
           </div>
         )}
 
-        <div style={{ maxWidth: 720, marginTop: 20 }}>
-          {isLoaded(bosses) ? (
-            <BossComboboxCollapsed
-              bosses={bosses.data}
-              selected={selectedBoss}
-              onSelect={setSelectedBoss}
-              onSelectRaidBase={setSelectedBoss}
-            />
-          ) : (
-            <div className="pbt-panel-state">{bosses.s === 'error' ? 'Boss list unavailable.' : 'Loading bosses...'}</div>
-          )}
-        </div>
-
         <div className="pbt-stats">
           <div className="pbt-stat">
             <span className="num">{isLoaded(stats) ? statValue(stats.data.trackedPlayers) : stats.s === 'error' ? '—' : '...'}</span>
@@ -412,6 +399,19 @@ function LeaderboardView({
           <h2 className="pbt-display pbt-h2">{titleParts.primary}</h2>
           <div className="rule" />
           {titleParts.secondary && <span className="meta">{titleParts.secondary}</span>}
+        </div>
+
+        <div style={{ maxWidth: 420, marginBottom: 20 }}>
+          {isLoaded(bosses) ? (
+            <BossComboboxCollapsed
+              bosses={bosses.data}
+              selected={selectedBoss}
+              onSelect={setSelectedBoss}
+              onSelectRaidBase={setSelectedBoss}
+            />
+          ) : (
+            <div className="pbt-panel-state">{bosses.s === 'error' ? 'Boss list unavailable.' : 'Loading bosses...'}</div>
+          )}
         </div>
 
         {showRaidPicker && isLoaded(bosses) && (

@@ -145,13 +145,21 @@
 .pbt-card .btime { font-size: 20px; margin-top: 8px; text-shadow: var(--pbt-shadow); }
 .pbt-card .brank { font-size: 12px; margin-top: 4px; opacity: .75; }
 
-/* ---- Arena cards (featured raid/challenge artwork) ---- */
-.pbt-arenas { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+/* ---- Arena cards (featured raid/challenge artwork) ----
+   Horizontal scroll strip rather than a grid, so this section stays a
+   fixed, compact height regardless of how many tiles there are. */
+.pbt-arenas {
+  display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px;
+  scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--pbt-line) transparent;
+}
+.pbt-arenas::-webkit-scrollbar { height: 8px; }
+.pbt-arenas::-webkit-scrollbar-thumb { background: var(--pbt-line); border-radius: 999px; }
 .pbt-arena {
   position: relative; overflow: hidden; cursor: pointer; border: 1px solid var(--pbt-line-soft); border-radius: 4px;
-  grid-column: span 2; aspect-ratio: 16 / 11; background: var(--pbt-bg-2); padding: 0; font-family: var(--pbt-font);
+  flex: 0 0 auto; width: 260px; aspect-ratio: 16 / 11; background: var(--pbt-bg-2); padding: 0;
+  font-family: var(--pbt-font); scroll-snap-align: start;
 }
-.pbt-arena.big { grid-column: span 3; aspect-ratio: 16 / 9; }
+.pbt-arena.big { width: 340px; aspect-ratio: 16 / 9; }
 .pbt-arena .img { position: absolute; inset: 0; background-size: cover; background-position: center 30%; filter: saturate(.92) brightness(.82); transition: transform .35s ease, filter .25s ease; }
 .pbt-arena:hover .img { transform: scale(1.04); filter: saturate(1) brightness(.95); }
 .pbt-arena::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.05) 40%, rgba(0,0,0,.9) 100%); }
@@ -222,8 +230,6 @@
   .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 40px 40px 1fr auto; }
   .pbt-thead .when, .pbt-row .when, .pbt-brow .when, .pbt-sub .when { display: none; }
   .pbt-cards { grid-template-columns: repeat(3, 1fr); }
-  .pbt-arenas { grid-template-columns: repeat(4, 1fr); }
-  .pbt-arena, .pbt-arena.big { grid-column: span 2; }
 }
 
 @media (max-width: 640px) {
@@ -241,8 +247,7 @@
   .pbt-row .name, .pbt-brow .bname { font-size: 15px; }
   .pbt-cards { grid-template-columns: repeat(2, 1fr); }
   .pbt-card .pbt-pet { margin-bottom: 18px; }
-  .pbt-arenas { grid-template-columns: repeat(2, 1fr); }
-  .pbt-arena, .pbt-arena.big { grid-column: span 2; aspect-ratio: 16 / 9; }
+  .pbt-arena, .pbt-arena.big { width: 78vw; max-width: 320px; aspect-ratio: 16 / 9; }
   .pbt-modes, .pbt-kind-tabs { gap: 8px; }
   .pbt-chip { padding: 5px 11px; font-size: 13px; }
   .pbt-banner { padding: 36px 20px 24px; }
