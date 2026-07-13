@@ -167,6 +167,9 @@ test('phase two modern preview renders live API data', async ({ page }) => {
     route.fulfill({ json: leaderboardRows })
   );
   await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
+  await page.route('**/api/players/Fast', (route) =>
+    route.fulfill({ json: { ...player, displayName: 'Fast' } })
+  );
 
   await page.goto('/phase-two-modern-preview');
 
@@ -175,6 +178,13 @@ test('phase two modern preview renders live API data', async ({ page }) => {
   await expect(page.getByText('18,492')).toBeVisible();
   await expect(page.getByRole('button', { name: /Fastest Fast/ })).toBeVisible();
   await expect(page.getByText('1:20')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Lookup' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Fastest Fast/ }).click();
+  await expect(page).toHaveURL(/\/phase-two-modern-preview\/player\/Fast/);
+  await expect(page.getByRole('heading', { name: 'Fast' })).toBeVisible();
+
+  await page.goto('/phase-two-modern-preview');
 
   await page.getByLabel('Player Lookup').fill('Blitzen');
   await page.getByRole('button', { name: 'Search' }).click();

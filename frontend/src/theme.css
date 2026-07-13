@@ -731,6 +731,10 @@ tr:last-child td { border-bottom: none; }
   align-items: start;
 }
 
+.phase2-modern-leaderboard-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .phase2-modern-card {
   overflow: hidden;
 }

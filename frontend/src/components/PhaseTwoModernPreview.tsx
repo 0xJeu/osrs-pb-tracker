@@ -106,7 +106,6 @@ export function PhaseTwoModernPreview() {
   const [selectedBoss, setSelectedBoss] = useState('');
   const [playerQuery, setPlayerQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [selectedPlayerState, setSelectedPlayerState] = useState<PlayerState>({ s: 'idle' });
   const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
   const [sortDesc, setSortDesc] = useState(false);
 
@@ -178,7 +177,7 @@ export function PhaseTwoModernPreview() {
     setView(next);
   };
 
-  const loadPlayer = (name: string, setter: (state: PlayerState) => void = setSelectedPlayerState) => {
+  const loadPlayer = (name: string, setter: (state: PlayerState) => void) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     setter({ s: 'loading', name: trimmed });
@@ -192,18 +191,17 @@ export function PhaseTwoModernPreview() {
       .catch(() => setter({ s: 'error', name: trimmed }));
   };
 
-  const lookupPlayer = (name: string, openProfile = false) => {
+  const lookupPlayer = (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     setPlayerQuery('');
     setSuggestions([]);
-    if (openProfile) navigate({ name: 'player', player: trimmed });
-    else loadPlayer(trimmed);
+    navigate({ name: 'player', player: trimmed });
   };
 
   const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    lookupPlayer(playerQuery, true);
+    lookupPlayer(playerQuery);
   };
 
   const rows = useMemo(() => {
@@ -215,8 +213,6 @@ export function PhaseTwoModernPreview() {
 
   const fastest = isLoaded(leaderboard) ? Math.min(...leaderboard.data.map((row) => row.timeSeconds)) : undefined;
   const titleParts = bossTitleParts(selectedBoss);
-  const selectedPlayer = selectedPlayerState.s === 'loaded' ? selectedPlayerState.player : undefined;
-  const selectedPlayerPbs = selectedPlayer ? visiblePbs(selectedPlayer) : [];
 
   return (
     <div className="phase2-modern">
@@ -247,10 +243,6 @@ export function PhaseTwoModernPreview() {
             sortDesc={sortDesc}
             setSortDesc={setSortDesc}
             lookupPlayer={lookupPlayer}
-            selectedPlayer={selectedPlayer}
-            selectedPlayerState={selectedPlayerState}
-            selectedBoss={selectedBoss}
-            selectedPlayerPbs={selectedPlayerPbs}
           />
         )}
         {view.name === 'player' && <PlayerProfilePage state={profileState} navigate={navigate} />}
@@ -281,7 +273,7 @@ function PreviewSidebar({
   setPlayerQuery: (value: string) => void;
   suggestions: string[];
   onPlayerSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  lookupPlayer: (name: string, openProfile?: boolean) => void;
+  lookupPlayer: (name: string) => void;
   navigate: (view: PreviewView) => void;
 }) {
   const nav = [
@@ -335,7 +327,7 @@ function PreviewSidebar({
         {suggestions.length > 0 && (
           <div className="phase2-modern-suggestions">
             {suggestions.slice(0, 6).map((name) => (
-              <button key={name} type="button" onClick={() => lookupPlayer(name, true)}>
+              <button key={name} type="button" onClick={() => lookupPlayer(name)}>
                 {name}
               </button>
             ))}
@@ -372,10 +364,6 @@ function LeaderboardPreview({
   sortDesc,
   setSortDesc,
   lookupPlayer,
-  selectedPlayer,
-  selectedPlayerState,
-  selectedBoss,
-  selectedPlayerPbs,
 }: {
   titleParts: { primary: string; secondary: string };
   stats: LoadState<QuickStats>;
@@ -384,11 +372,7 @@ function LeaderboardPreview({
   leaderboard: LoadState<LeaderboardRow[]>;
   sortDesc: boolean;
   setSortDesc: (fn: (value: boolean) => boolean) => void;
-  lookupPlayer: (name: string, openProfile?: boolean) => void;
-  selectedPlayer?: PlayerPayload;
-  selectedPlayerState: PlayerState;
-  selectedBoss: string;
-  selectedPlayerPbs: PbEntry[];
+  lookupPlayer: (name: string) => void;
 }) {
   return (
     <>
@@ -404,7 +388,7 @@ function LeaderboardPreview({
         </div>
       </section>
 
-      <div className="phase2-modern-content-grid">
+      <div className="phase2-modern-content-grid phase2-modern-leaderboard-grid">
         <section className="phase2-modern-card phase2-modern-records-card">
           <div className="phase2-modern-card-title">
             <div>
@@ -430,12 +414,9 @@ function LeaderboardPreview({
               {rows.map((row, index) => (
                 <button
                   type="button"
-                  className={`phase2-modern-record-row ${index === 0 ? 'first-place' : ''} ${
-                    selectedPlayer?.displayName.toLowerCase() === row.displayName.toLowerCase() ? 'selected' : ''
-                  }`}
+                  className={`phase2-modern-record-row ${index === 0 ? 'first-place' : ''}`}
                   key={`${row.displayName}-${index}`}
                   onClick={() => lookupPlayer(row.displayName)}
-                  onDoubleClick={() => lookupPlayer(row.displayName, true)}
                 >
                   <span className={`phase2-modern-medal rank-${index + 1}`}>{index + 1}</span>
                   <span className="phase2-modern-record-body">
@@ -450,16 +431,6 @@ function LeaderboardPreview({
               ))}
             </div>
           )}
-        </section>
-
-        <section className="phase2-modern-card phase2-modern-player-card">
-          <div className="phase2-modern-card-title">
-            <div>
-              <span>Player</span>
-              <h2>{selectedPlayer ? selectedPlayer.displayName : 'Lookup'}</h2>
-            </div>
-          </div>
-          <PlayerPreview state={selectedPlayerState} selectedBoss={selectedBoss} pbs={selectedPlayerPbs} />
         </section>
       </div>
     </>
@@ -479,49 +450,6 @@ function Hero({ eyebrow, title, subtitle }: { eyebrow: string; title: string; su
       </div>
       <div className="phase2-modern-live-pill">Synced live</div>
     </header>
-  );
-}
-
-function PlayerPreview({
-  state,
-  selectedBoss,
-  pbs,
-}: {
-  state: PlayerState;
-  selectedBoss: string;
-  pbs: PbEntry[];
-}) {
-  if (state.s === 'idle') return <div className="phase2-modern-panel-state">Search a player or pick a leaderboard row to inspect their PB profile.</div>;
-  if (state.s === 'loading') return <div className="phase2-modern-panel-state">Loading {state.name}...</div>;
-  if (state.s === 'error') return <div className="phase2-modern-panel-state">Could not load {state.name}.</div>;
-  if (state.s === 'notFound') return <div className="phase2-modern-panel-state">No synced profile found for {state.name}.</div>;
-  if (state.s === 'ambiguous') return <div className="phase2-modern-panel-state">{state.count} matching profiles found for {state.name}.</div>;
-
-  const selectedBossPb = pbs.find((pb) => pb.boss === selectedBoss);
-  const bestRank = pbs.length > 0 ? `#${Math.min(...pbs.map((pb) => pb.rank))}` : '-';
-  return (
-    <div className="phase2-modern-player">
-      <div className="phase2-modern-player-summary">
-        <div>
-          <span>Boss PBs held</span>
-          <strong>{pbs.length}</strong>
-        </div>
-        <div>
-          <span>Best rank</span>
-          <strong>{bestRank}</strong>
-        </div>
-      </div>
-
-      {selectedBossPb && (
-        <div className="phase2-modern-selected-pb">
-          <span>Current leaderboard</span>
-          <strong>{formatTime(selectedBossPb.timeSeconds)}</strong>
-          <small>Rank #{selectedBossPb.rank} - {formatDate(selectedBossPb.updatedAt)}</small>
-        </div>
-      )}
-
-      <BossPbList pbs={pbs.slice(0, 8)} />
-    </div>
   );
 }
 
