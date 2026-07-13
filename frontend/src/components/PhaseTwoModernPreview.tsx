@@ -246,8 +246,24 @@ export function PhaseTwoModernPreview() {
           />
         )}
         {view.name === 'player' && <PlayerProfilePage state={profileState} navigate={navigate} />}
-        {view.name === 'setup' && <DocumentPage eyebrow="Setup" title="How to set up PB Tracker Sync"><SetupGuidePage /></DocumentPage>}
-        {view.name === 'faq' && <DocumentPage eyebrow="Help" title="FAQ"><FaqPage /></DocumentPage>}
+        {view.name === 'setup' && (
+          <DocumentPage
+            eyebrow="Setup"
+            title="How to set up PB Tracker Sync"
+            description="Install the RuneLite plugin and confirm your in-game personal bests are ready to sync."
+          >
+            <SetupGuidePage />
+          </DocumentPage>
+        )}
+        {view.name === 'faq' && (
+          <DocumentPage
+            eyebrow="Help"
+            title="FAQ"
+            description="Answers for sync behavior, missing records, and how PB Tracker reads RuneLite data."
+          >
+            <FaqPage />
+          </DocumentPage>
+        )}
       </main>
     </div>
   );
@@ -376,7 +392,13 @@ function LeaderboardPreview({
 }) {
   return (
     <>
-      <Hero eyebrow="Live Leaderboard" title={titleParts.primary} subtitle={titleParts.secondary} />
+      <Hero
+        eyebrow="Live Leaderboard"
+        title={titleParts.primary}
+        subtitle={titleParts.secondary}
+        description="Community-submitted personal bests, synced automatically from in-game plugin data."
+        badge="Synced live"
+      />
       <section className="phase2-modern-stats" aria-label="Summary stats">
         <div>
           <span>Synced players</span>
@@ -437,7 +459,19 @@ function LeaderboardPreview({
   );
 }
 
-function Hero({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle?: string }) {
+function Hero({
+  eyebrow,
+  title,
+  subtitle,
+  description,
+  badge,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  badge?: string;
+}) {
   return (
     <header className="phase2-modern-hero">
       <div>
@@ -446,9 +480,9 @@ function Hero({ eyebrow, title, subtitle }: { eyebrow: string; title: string; su
           {title}
           {subtitle && <strong>{subtitle}</strong>}
         </h1>
-        <p>Community-submitted personal bests, synced automatically from in-game plugin data.</p>
+        {description && <p>{description}</p>}
       </div>
-      <div className="phase2-modern-live-pill">Synced live</div>
+      {badge && <div className="phase2-modern-live-pill">{badge}</div>}
     </header>
   );
 }
@@ -506,7 +540,6 @@ function PlayerProfilePage({ state, navigate }: { state: PlayerState; navigate: 
             <button type="button" className="phase2-modern-panel-action" onClick={() => navigate({ name: 'leaderboard' })}>
               Back to leaderboards
             </button>
-            <div className="phase2-modern-panel-state">Profile route uses the same live player lookup API as the current app.</div>
           </div>
         </section>
       </div>
@@ -533,10 +566,20 @@ function BossPbList({ pbs, large = false }: { pbs: PbEntry[]; large?: boolean })
   );
 }
 
-function DocumentPage({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
+function DocumentPage({
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
     <>
-      <Hero eyebrow={eyebrow} title={title} />
+      <Hero eyebrow={eyebrow} title={title} description={description} />
       <section className="phase2-modern-card phase2-modern-document">{children}</section>
     </>
   );

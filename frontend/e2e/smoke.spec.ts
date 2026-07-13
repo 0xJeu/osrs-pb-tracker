@@ -199,6 +199,8 @@ test('phase two modern preview exposes setup and player routes', async ({ page }
   await page.goto('/phase-two-modern-preview/setup');
   await expect(page.getByRole('heading', { name: 'How to set up PB Tracker Sync', level: 2 })).toBeVisible();
   await expect(page.getByText('Install the plugin')).toBeVisible();
+  await expect(page.getByText('Synced live')).toHaveCount(0);
+  await expect(page.getByText('Install the RuneLite plugin and confirm your in-game personal bests are ready to sync.')).toBeVisible();
 
   await page.goto('/phase-two-modern-preview/player/Blitzen');
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
