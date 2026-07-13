@@ -225,7 +225,12 @@
 }
 .pbt-brow:hover { background: var(--pbt-bg-2); }
 .pbt-brow .bname { font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 12px; }
-.pbt-brow .caret { font-size: 10px; transition: transform .15s; display: inline-block; opacity: .7; }
+.pbt-brow .caret {
+  font-size: 10px; transition: transform .15s; display: inline-flex; align-items: center; justify-content: center;
+  opacity: .7; background: none; border: none; color: inherit; font-family: inherit; cursor: pointer;
+  padding: 6px; margin: -6px; text-shadow: inherit;
+}
+.pbt-brow .caret:hover { opacity: 1; }
 .pbt-brow.open .caret { transform: rotate(90deg); }
 .pbt-sub {
   display: grid; grid-template-columns: 56px 48px 1fr auto auto; gap: 20px; align-items: center;

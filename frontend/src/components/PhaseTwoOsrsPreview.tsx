@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from 'react';
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import '../theme-osrs-preview.css';
 import { api } from '../lib/api';
 import type { LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync } from '../lib/api';
@@ -19,7 +19,10 @@ type PlayerState =
   | { s: 'notFound'; name: string }
   | { s: 'ambiguous'; name: string; count: number }
   | { s: 'loaded'; player: PlayerPayload };
-type PreviewView = { name: 'home' } | { name: 'boss'; boss: string } | { name: 'player'; player: string };
+type PreviewView =
+  | { name: 'home' }
+  | { name: 'boss'; boss: string; highlight?: string }
+  | { name: 'player'; player: string };
 
 const previewBase = '/phase-two-osrs-preview';
 const preferredBosses = [
@@ -54,7 +57,10 @@ function viewFromPreviewPath(): PreviewView {
   const playerMatch = rest.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
   const bossMatch = rest.match(/^\/boss\/(.+)$/);
-  if (bossMatch) return { name: 'boss', boss: decodeURIComponent(bossMatch[1]) };
+  if (bossMatch) {
+    const highlight = new URLSearchParams(window.location.search).get('highlight') ?? undefined;
+    return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
+  }
   return { name: 'home' };
 }
 
@@ -169,13 +175,15 @@ export function PhaseTwoOsrsPreview() {
     if (view.name === 'boss' && view.boss) setSelectedBoss(view.boss);
   }, [view]);
 
+  const highlight = view.name === 'boss' ? view.highlight : undefined;
+
   useEffect(() => {
     if (!selectedBoss) return;
     let alive = true;
     setLeaderboard({ s: 'loading' });
-    api.getLeaderboard(selectedBoss, 25).then((data) => alive && setLeaderboard({ s: 'loaded', data })).catch(() => alive && setLeaderboard({ s: 'error' }));
+    api.getLeaderboard(selectedBoss, 25, highlight).then((data) => alive && setLeaderboard({ s: 'loaded', data })).catch(() => alive && setLeaderboard({ s: 'error' }));
     return () => { alive = false; };
-  }, [selectedBoss]);
+  }, [selectedBoss, highlight]);
 
   useEffect(() => {
     const query = playerQuery.trim();
@@ -202,7 +210,7 @@ export function PhaseTwoOsrsPreview() {
       next.name === 'player'
         ? `${previewBase}/player/${encodeURIComponent(next.player)}`
         : next.name === 'boss'
-          ? `${previewBase}/boss/${encodeURIComponent(next.boss)}`
+          ? `${previewBase}/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
           : previewBase;
     window.history.pushState({}, '', path);
     setView(next);
@@ -279,6 +287,7 @@ export function PhaseTwoOsrsPreview() {
             titleParts={titleParts}
             bosses={bosses}
             selectedBoss={selectedBoss}
+            highlight={highlight}
             goToBoss={goToBoss}
             navigate={navigate}
             leaderboard={leaderboard}
@@ -454,6 +463,7 @@ function BossView({
   titleParts,
   bosses,
   selectedBoss,
+  highlight,
   goToBoss,
   navigate,
   leaderboard,
@@ -463,6 +473,7 @@ function BossView({
   titleParts: { primary: string; secondary: string };
   bosses: LoadState<string[]>;
   selectedBoss: string;
+  highlight?: string;
   goToBoss: (boss: string) => void;
   navigate: (view: PreviewView) => void;
   leaderboard: LoadState<LeaderboardRow[]>;
@@ -471,6 +482,14 @@ function BossView({
 }) {
   const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
   const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
+  const highlightLower = highlight?.toLowerCase();
+  const highlightRowRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlight, rows]);
 
   return (
     <div className="pbt-section" style={{ paddingTop: 40 }}>
@@ -518,27 +537,34 @@ function BossView({
             <span>Time</span>
             <span className="when">Synced</span>
           </div>
-          {rows.map((row, index) => (
-            <button
-              type="button"
-              className="pbt-row"
-              key={`${row.displayName}-${index}`}
-              onClick={() => lookupPlayer(row.displayName)}
-            >
-              <span className="rank">{String(index + 1).padStart(2, '0')}</span>
-              <PetIcon boss={selectedBoss} size="sm" />
-              <span className="name">{row.displayName}</span>
-              <span className="time">
-                {formatTime(row.timeSeconds)}
-                {fastest !== undefined && row.timeSeconds !== fastest && (
-                  <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>
-                    +{formatTime(row.timeSeconds - fastest)}
-                  </span>
-                )}
-              </span>
-              <span className="when">{formatDate(row.updatedAt)}</span>
-            </button>
-          ))}
+          {rows.map((row, index) => {
+            const isHighlighted = highlightLower !== undefined && row.displayName.toLowerCase() === highlightLower;
+            return (
+              <button
+                type="button"
+                className={`pbt-row${isHighlighted ? ' me' : ''}`}
+                key={`${row.displayName}-${index}`}
+                ref={isHighlighted ? highlightRowRef : undefined}
+                onClick={() => lookupPlayer(row.displayName)}
+              >
+                <span className="rank">{String(index + 1).padStart(2, '0')}</span>
+                <PetIcon boss={selectedBoss} size="sm" />
+                <span className="name">
+                  {row.displayName}
+                  {isHighlighted && <span className="pbt-tag">Here</span>}
+                </span>
+                <span className="time">
+                  {formatTime(row.timeSeconds)}
+                  {fastest !== undefined && row.timeSeconds !== fastest && (
+                    <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>
+                      +{formatTime(row.timeSeconds - fastest)}
+                    </span>
+                  )}
+                </span>
+                <span className="when">{formatDate(row.updatedAt)}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -560,6 +586,7 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
   if (state.s === 'ambiguous') return <div className="pbt-panel-state">{state.count} matching profiles found for "{state.name}".</div>;
 
   const bestRank = pbs.length > 0 ? Math.min(...pbs.map((pb) => pb.rank)) : undefined;
+  const goToBossHighlighted = (boss: string) => navigate({ name: 'boss', boss, highlight: state.player.displayName });
 
   return (
     <div className="pbt-section" style={{ paddingTop: 40 }}>
@@ -606,13 +633,13 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
               .slice()
               .sort((a, b) => titleCase(a.boss).localeCompare(titleCase(b.boss)))
               .map((pb) => (
-                <PbRow key={pb.boss} pb={pb} />
+                <PbRow key={pb.boss} pb={pb} onBossClick={goToBossHighlighted} />
               ))}
             {groups
               .slice()
               .sort((a, b) => a.heading.localeCompare(b.heading))
               .map((group) => (
-                <RaidGroupRows key={group.heading} group={group} />
+                <RaidGroupRows key={group.heading} group={group} onBossClick={goToBossHighlighted} />
               ))}
           </div>
         )}
@@ -621,27 +648,49 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
   );
 }
 
-function PbRow({ pb }: { pb: PbEntry }) {
+function PbRow({ pb, onBossClick }: { pb: PbEntry; onBossClick: (boss: string) => void }) {
   return (
-    <div className="pbt-row" style={{ cursor: 'default' }}>
+    <button type="button" className="pbt-row" onClick={() => onBossClick(pb.boss)}>
       <span className="rank">#{pb.rank}</span>
       <PetIcon boss={pb.boss} size="sm" />
       <span className="name">{titleCase(pb.boss)}</span>
       <span className="time">{formatTime(pb.timeSeconds)}</span>
       <span className="when">{formatDate(pb.updatedAt)}</span>
-    </div>
+    </button>
   );
 }
 
-function RaidGroupRows({ group }: { group: PlayerRaidGroup }) {
+function RaidGroupRows({ group, onBossClick }: { group: PlayerRaidGroup; onBossClick: (boss: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className={`pbt-brow raid${open ? ' open' : ''}`} onClick={() => setOpen((v) => !v)}>
+      {/* The row navigates to that mode's leaderboard on click; the caret is
+          its own nested button (stopping propagation) so expanding the
+          variant list doesn't fight with that - a real <button> can't
+          contain another, so the row itself is a div with a button role. */}
+      <div
+        className={`pbt-brow raid${open ? ' open' : ''}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => onBossClick(group.summary.key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onBossClick(group.summary.key);
+        }}
+      >
         <span className="rank">#{group.summary.rank}</span>
         <PetIcon boss={group.summary.key} size="sm" />
         <span className="bname">
-          <span className="caret" aria-hidden="true">▸</span>
+          <button
+            type="button"
+            className="caret"
+            aria-label={open ? 'Collapse variants' : `Show all ${group.variants.length} variants`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
+          >
+            ▸
+          </button>
           {group.heading}
         </span>
         <span className="time">
@@ -649,10 +698,10 @@ function RaidGroupRows({ group }: { group: PlayerRaidGroup }) {
           <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>({group.summary.label})</span>
         </span>
         <span className="when">{formatDate(group.summary.updatedAt)}</span>
-      </button>
+      </div>
       {open &&
         group.variants.map((variant) => (
-          <button type="button" className="pbt-sub" key={variant.key} style={{ cursor: 'default' }}>
+          <button type="button" className="pbt-sub" key={variant.key} onClick={() => onBossClick(variant.key)}>
             <span className="rank">#{variant.rank}</span>
             <span />
             <span className="variant">{variant.label}</span>
