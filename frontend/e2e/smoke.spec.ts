@@ -178,7 +178,8 @@ test('phase two modern preview renders live API data', async ({ page }) => {
   await expect(page.getByText('18,492')).toBeVisible();
   await expect(page.getByRole('button', { name: /Fastest Fast/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Live API' })).toHaveCount(0);
-  await expect(page.locator('[aria-label="Leaderboard data status"]').getByText('Live API')).toBeVisible();
+  await expect(page.getByText('Live API')).toHaveCount(0);
+  await expect(page.getByText('Top 25')).toHaveCount(0);
   await expect(page.getByText('1:20')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Lookup' })).toHaveCount(0);
 

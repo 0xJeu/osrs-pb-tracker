@@ -417,10 +417,6 @@ function LeaderboardPreview({
               <span>Top Times</span>
               <h2>Overall Records</h2>
             </div>
-            <div className="phase2-modern-data-status" aria-label="Leaderboard data status">
-              <span>Live API</span>
-              <strong>Top 25</strong>
-            </div>
           </div>
 
           <button type="button" className="phase2-modern-sortbar" onClick={() => setSortDesc((value) => !value)}>
