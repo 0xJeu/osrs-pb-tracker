@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { CSSProperties, FormEvent, useEffect, useMemo, useState } from 'react';
 import '../theme-osrs-preview.css';
 import { api } from '../lib/api';
 import type { LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { formatDate, formatTime, titleCase } from '../lib/format';
 import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
+import { bossAccentColor } from '../lib/bossColors';
 import { getRaidModes, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
@@ -208,9 +209,10 @@ export function PhaseTwoOsrsPreview() {
 
   const rows = useMemo(() => (isLoaded(leaderboard) ? leaderboard.data : []), [leaderboard]);
   const titleParts = bossTitleParts(selectedBoss);
+  const accentColor = selectedBoss ? bossAccentColor(selectedBoss) : undefined;
 
   return (
-    <div className="pbt">
+    <div className="pbt" style={accentColor ? ({ '--pbt-accent': accentColor } as CSSProperties) : undefined}>
       <div className="pbt-topbar">
         <div className="pbt-topbar-inner">
           <button type="button" className="pbt-logo" onClick={() => navigate({ name: 'leaderboard' })}>

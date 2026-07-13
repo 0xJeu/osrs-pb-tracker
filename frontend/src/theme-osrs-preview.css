@@ -16,14 +16,30 @@
   font-weight: 700; font-display: swap;
 }
 
+/* Registering --pbt-accent's type lets browsers that support @property
+   (Chrome/Edge, Safari 16.4+, Firefox 128+) smoothly interpolate every
+   border/background/gradient derived from it when a boss changes, instead
+   of the accent color hard-cutting. Falls back to an instant swap on older
+   engines - still correct, just not animated. */
+@property --pbt-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #ff981f;
+}
+
 .pbt {
+  /* --pbt-accent is the one knob a selected boss turns: everything else
+     below (borders, fills, hairlines) is derived from it via color-mix(),
+     so per-boss theming is just overriding this one variable inline rather
+     than touching every rule that used to hardcode orange. */
+  --pbt-accent:    #ff981f;
   --pbt-bg:        #000000;
   --pbt-bg-2:      #0b0b0b;
   --pbt-bg-3:      #141414;
-  --pbt-fill:      #2a1c05;
-  --pbt-line:      rgba(255,152,31,.22);
-  --pbt-line-soft: rgba(255,152,31,.12);
-  --pbt-orange:    #ff981f;
+  --pbt-fill:      color-mix(in srgb, var(--pbt-accent) 16%, #000);
+  --pbt-line:      color-mix(in srgb, var(--pbt-accent) 22%, transparent);
+  --pbt-line-soft: color-mix(in srgb, var(--pbt-accent) 12%, transparent);
+  --pbt-orange:    var(--pbt-accent);
   --pbt-yellow:    #ffff00;
   --pbt-shadow:    1px 1px 0 rgba(0,0,0,.9);
   --pbt-font:      'RuneScape Chat', 'Iowan Old Style', Georgia, serif;
@@ -36,9 +52,22 @@
   font-size: 16px;
   line-height: 1.5;
   text-shadow: var(--pbt-shadow);
+  transition: --pbt-accent .5s ease, background .5s ease;
 }
 .pbt a { color: inherit; text-decoration: none; }
 .pbt button { font-family: var(--pbt-font); }
+
+/* Elements whose border/background come from the accent-derived tokens get
+   an explicit transition too - the --pbt-accent transition above only
+   smooths the custom property itself, each consumer still needs its own
+   transitioned property to animate rather than snap. */
+.pbt-topbar-inner, .pbt-nav .active, .pbt-searchband, .pbt-searchband button,
+.pbt-chip, .pbt-row.me, .pbt-tag, .pbt-banner, .pbt-sec-head .rule, .pbt-kicker .rule,
+.pbt-topbar-rule, .pbt-stats, .pbt-cards, .pbt-arena, .pbt-pet,
+.pbt .raid-mode-tab, .pbt .raid-kind-tab, .pbt .raid-variant-button,
+.pbt .combobox-trigger, .pbt .combobox-panel {
+  transition: border-color .4s ease, background-color .4s ease, background .4s ease, box-shadow .4s ease;
+}
 
 .pbt-display { font-weight: 700; letter-spacing: 0; line-height: 1.04; margin: 0; color: var(--pbt-yellow); }
 .pbt-h1 { font-size: clamp(40px, 6vw, 88px); }
@@ -53,7 +82,11 @@
 .pbt-nav a, .pbt-nav button { font-family: var(--pbt-font); font-size: 16px; background: none; border: none; cursor: pointer; color: var(--pbt-yellow); padding: 2px 0; text-shadow: var(--pbt-shadow); }
 .pbt-nav .active { border-bottom: 1px solid var(--pbt-orange); }
 
-.pbt-page { max-width: 1280px; margin: 0 auto; padding: 0 40px 140px; }
+.pbt-page {
+  max-width: 1280px; margin: 0 auto; padding: 0 40px 140px;
+  background: radial-gradient(900px 520px at 50% 0%, color-mix(in srgb, var(--pbt-accent) 9%, transparent), transparent 70%);
+  transition: background .5s ease;
+}
 .pbt-section { padding: 64px 0 0; }
 .pbt-sec-head { display: flex; align-items: baseline; gap: 28px; margin-bottom: 36px; }
 .pbt-sec-head .rule { flex: 1; height: 1px; background: var(--pbt-line); position: relative; top: -6px; }
