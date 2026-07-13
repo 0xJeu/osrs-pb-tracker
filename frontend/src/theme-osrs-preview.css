@@ -33,9 +33,9 @@
      so per-boss theming is just overriding this one variable inline rather
      than touching every rule that used to hardcode orange. */
   --pbt-accent:    #ff981f;
-  --pbt-bg:        #000000;
-  --pbt-bg-2:      #0b0b0b;
-  --pbt-bg-3:      #141414;
+  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) 22%, #000);
+  --pbt-bg-2:      color-mix(in srgb, var(--pbt-accent) 27%, #0b0b0b);
+  --pbt-bg-3:      color-mix(in srgb, var(--pbt-accent) 32%, #141414);
   --pbt-fill:      color-mix(in srgb, var(--pbt-accent) 16%, #000);
   --pbt-line:      color-mix(in srgb, var(--pbt-accent) 22%, transparent);
   --pbt-line-soft: color-mix(in srgb, var(--pbt-accent) 12%, transparent);
@@ -84,7 +84,7 @@
 
 .pbt-page {
   max-width: 1280px; margin: 0 auto; padding: 0 40px 140px;
-  background: radial-gradient(900px 520px at 50% 0%, color-mix(in srgb, var(--pbt-accent) 9%, transparent), transparent 70%);
+  background: radial-gradient(900px 520px at 50% 0%, color-mix(in srgb, var(--pbt-accent) 18%, transparent), transparent 70%);
   transition: background .5s ease;
 }
 .pbt-section { padding: 64px 0 0; }
