@@ -24,7 +24,11 @@ type PreviewView =
   | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'player'; player: string };
 
-const previewBase = '/phase-two-osrs-preview';
+// Empty base: this preview owns the whole app on this branch (see App.tsx),
+// so its internal routes live at the root (/, /boss/<key>, /player/<name>)
+// instead of nested under a sub-path - a bare deployment link lands
+// straight on it.
+const previewBase = '';
 const preferredBosses = [
   'chambers of xeric - challenge mode - fastest overall (3 players)',
   'chambers of xeric',
@@ -211,7 +215,7 @@ export function PhaseTwoOsrsPreview() {
         ? `${previewBase}/player/${encodeURIComponent(next.player)}`
         : next.name === 'boss'
           ? `${previewBase}/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
-          : previewBase;
+          : previewBase || '/';
     window.history.pushState({}, '', path);
     setView(next);
     // Each of these is its own "page" - switching between them (or between
