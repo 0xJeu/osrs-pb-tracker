@@ -614,7 +614,6 @@ tr:last-child td { border-bottom: none; }
 }
 
 .phase2-modern-search button,
-.phase2-modern-tabs button,
 .phase2-modern-home-link {
   display: inline-flex;
   min-height: 40px;
@@ -752,22 +751,6 @@ tr:last-child td { border-bottom: none; }
   margin: 4px 0 0;
   font-size: 1.3rem;
   letter-spacing: 0;
-}
-
-.phase2-modern-tabs {
-  display: flex;
-  gap: 8px;
-}
-
-.phase2-modern-tabs button {
-  padding: 0 12px;
-  background: transparent;
-  color: var(--modern-muted);
-}
-
-.phase2-modern-tabs button.active {
-  background: rgba(228, 182, 76, 0.12);
-  color: var(--modern-gold);
 }
 
 .phase2-modern-table {
@@ -1233,23 +1216,42 @@ tr:last-child td { border-bottom: none; }
   letter-spacing: 0;
 }
 
-.phase2-modern-tabs {
+.phase2-modern-data-status {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  color: var(--phase2-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
-.phase2-modern-tabs button {
-  min-height: 34px;
+.phase2-modern-data-status span,
+.phase2-modern-data-status strong {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
   border-radius: 7px;
-  padding: 0 14px;
+  padding: 0 10px;
   border: 1px solid var(--phase2-border);
   background: oklch(0.93 0.015 78);
-  color: oklch(0.35 0.02 60);
-  font-size: 0.82rem;
-  font-weight: 700;
 }
 
-.phase2-modern-tabs button.active {
+.phase2-modern-data-status span {
+  gap: 6px;
+}
+
+.phase2-modern-data-status span::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--phase2-gold);
+  box-shadow: 0 0 0 3px oklch(0.7 0.12 80 / 0.18);
+}
+
+.phase2-modern-data-status strong {
   border-color: transparent;
   background: oklch(0.7 0.12 80);
   color: oklch(0.18 0.02 55);
@@ -1736,12 +1738,8 @@ tr:last-child td { border-bottom: none; }
     padding: 16px;
   }
 
-  .phase2-modern-tabs {
-    overflow-x: auto;
-  }
-
-  .phase2-modern-tabs button {
-    flex: 0 0 auto;
+  .phase2-modern-data-status {
+    flex-wrap: wrap;
   }
 
   .phase2-modern-sortbar {

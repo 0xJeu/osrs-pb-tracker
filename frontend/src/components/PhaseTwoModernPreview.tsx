@@ -417,9 +417,9 @@ function LeaderboardPreview({
               <span>Top Times</span>
               <h2>Overall Records</h2>
             </div>
-            <div className="phase2-modern-tabs" role="group" aria-label="Leaderboard scope">
-              <button type="button" className="active">Top 25</button>
-              <button type="button">Live API</button>
+            <div className="phase2-modern-data-status" aria-label="Leaderboard data status">
+              <span>Live API</span>
+              <strong>Top 25</strong>
             </div>
           </div>
 
