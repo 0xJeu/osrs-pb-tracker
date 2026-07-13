@@ -19,7 +19,7 @@ type PlayerState =
   | { s: 'notFound'; name: string }
   | { s: 'ambiguous'; name: string; count: number }
   | { s: 'loaded'; player: PlayerPayload };
-type PreviewView = { name: 'leaderboard' } | { name: 'player'; player: string };
+type PreviewView = { name: 'home' } | { name: 'boss'; boss: string } | { name: 'player'; player: string };
 
 const previewBase = '/phase-two-osrs-preview';
 const preferredBosses = [
@@ -53,7 +53,9 @@ function viewFromPreviewPath(): PreviewView {
   const rest = window.location.pathname.slice(previewBase.length);
   const playerMatch = rest.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
-  return { name: 'leaderboard' };
+  const bossMatch = rest.match(/^\/boss\/(.+)$/);
+  if (bossMatch) return { name: 'boss', boss: decodeURIComponent(bossMatch[1]) };
+  return { name: 'home' };
 }
 
 function isLoaded<T>(state: LoadState<T>): state is { s: 'loaded'; data: T } {
@@ -160,6 +162,13 @@ export function PhaseTwoOsrsPreview() {
     return () => { alive = false; };
   }, [bosses]);
 
+  // The boss page's selected boss is driven by the URL (view.boss), not the
+  // other way around - landing directly on /boss/<key>, following a link, or
+  // switching via the picker all just change view.boss and this follows.
+  useEffect(() => {
+    if (view.name === 'boss' && view.boss) setSelectedBoss(view.boss);
+  }, [view]);
+
   useEffect(() => {
     if (!selectedBoss) return;
     let alive = true;
@@ -189,9 +198,18 @@ export function PhaseTwoOsrsPreview() {
   }, [view]);
 
   const navigate = (next: PreviewView) => {
-    const path = next.name === 'player' ? `${previewBase}/player/${encodeURIComponent(next.player)}` : previewBase;
+    const path =
+      next.name === 'player'
+        ? `${previewBase}/player/${encodeURIComponent(next.player)}`
+        : next.name === 'boss'
+          ? `${previewBase}/boss/${encodeURIComponent(next.boss)}`
+          : previewBase;
     window.history.pushState({}, '', path);
     setView(next);
+    // Each of these is its own "page" - switching between them (or between
+    // two different bosses) should always land at the top, not wherever the
+    // previous page happened to be scrolled to.
+    window.scrollTo(0, 0);
   };
 
   const lookupPlayer = (name: string) => {
@@ -209,18 +227,32 @@ export function PhaseTwoOsrsPreview() {
 
   const rows = useMemo(() => (isLoaded(leaderboard) ? leaderboard.data : []), [leaderboard]);
   const titleParts = bossTitleParts(selectedBoss);
-  const accentColor = selectedBoss ? bossAccentColor(selectedBoss) : undefined;
+  // Only tint the page while actually looking at a boss's leaderboard - Home
+  // and player pages stay neutral so the accent reads as "this page is about
+  // this boss," not just "whatever was last clicked."
+  const accentColor = view.name === 'boss' && selectedBoss ? bossAccentColor(selectedBoss) : undefined;
+  const goToBoss = (boss: string) => navigate({ name: 'boss', boss });
 
   return (
-    <div className="pbt" style={accentColor ? ({ '--pbt-accent': accentColor } as CSSProperties) : undefined}>
+    <div
+      className="pbt"
+      style={accentColor ? ({ '--pbt-accent': accentColor, '--pbt-tint': '22%' } as CSSProperties) : undefined}
+    >
       <div className="pbt-topbar">
         <div className="pbt-topbar-inner">
-          <button type="button" className="pbt-logo" onClick={() => navigate({ name: 'leaderboard' })}>
+          <button type="button" className="pbt-logo" onClick={() => navigate({ name: 'home' })}>
             PB Tracker — OSRS
           </button>
           <div className="pbt-topbar-rule" />
           <nav className="pbt-nav" aria-label="Preview navigation">
-            <button type="button" className={view.name === 'leaderboard' ? 'active' : undefined} onClick={() => navigate({ name: 'leaderboard' })}>
+            <button type="button" className={view.name === 'home' ? 'active' : undefined} onClick={() => navigate({ name: 'home' })}>
+              Home
+            </button>
+            <button
+              type="button"
+              className={view.name === 'boss' ? 'active' : undefined}
+              onClick={() => goToBoss(selectedBoss || pickInitialBoss(isLoaded(bosses) ? bosses.data : []))}
+            >
               Leaderboards
             </button>
           </nav>
@@ -228,22 +260,30 @@ export function PhaseTwoOsrsPreview() {
       </div>
 
       <div className="pbt-page">
-        {view.name === 'leaderboard' && (
-          <LeaderboardView
-            titleParts={titleParts}
+        {view.name === 'home' && (
+          <HomeView
             stats={stats}
             recentSyncs={recentSyncs}
             topBosses={topBosses}
             bosses={bosses}
-            selectedBoss={selectedBoss}
-            setSelectedBoss={setSelectedBoss}
             playerQuery={playerQuery}
             setPlayerQuery={setPlayerQuery}
             suggestions={suggestions}
             onPlayerSubmit={onPlayerSubmit}
             lookupPlayer={lookupPlayer}
+            goToBoss={goToBoss}
+          />
+        )}
+        {view.name === 'boss' && (
+          <BossView
+            titleParts={titleParts}
+            bosses={bosses}
+            selectedBoss={selectedBoss}
+            goToBoss={goToBoss}
+            navigate={navigate}
             leaderboard={leaderboard}
             rows={rows}
+            lookupPlayer={lookupPlayer}
           />
         )}
         {view.name === 'player' && <PlayerView state={profileState} navigate={navigate} />}
@@ -258,44 +298,33 @@ export function PhaseTwoOsrsPreview() {
   );
 }
 
-function LeaderboardView({
-  titleParts,
+function HomeView({
   stats,
   recentSyncs,
   topBosses,
   bosses,
-  selectedBoss,
-  setSelectedBoss,
   playerQuery,
   setPlayerQuery,
   suggestions,
   onPlayerSubmit,
   lookupPlayer,
-  leaderboard,
-  rows,
+  goToBoss,
 }: {
-  titleParts: { primary: string; secondary: string };
   stats: LoadState<QuickStats>;
   recentSyncs: LoadState<RecentSync[]>;
   topBosses: LoadState<Array<{ base: string; label: string; key: string; row?: LeaderboardRow }>>;
   bosses: LoadState<string[]>;
-  selectedBoss: string;
-  setSelectedBoss: (boss: string) => void;
   playerQuery: string;
   setPlayerQuery: (value: string) => void;
   suggestions: string[];
   onPlayerSubmit: (event: FormEvent<HTMLFormElement>) => void;
   lookupPlayer: (name: string) => void;
-  leaderboard: LoadState<LeaderboardRow[]>;
-  rows: LeaderboardRow[];
+  goToBoss: (boss: string) => void;
 }) {
-  const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
-  const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
-
   const selectArena = (base: string) => {
     if (!isLoaded(bosses)) return;
     const key = resolveBossKey(bosses.data, base);
-    if (key) setSelectedBoss(key);
+    if (key) goToBoss(key);
   };
 
   return (
@@ -378,7 +407,7 @@ function LeaderboardView({
         {isLoaded(topBosses) && (
           <div className="pbt-cards">
             {topBosses.data.map((entry, index) => (
-              <button type="button" className="pbt-card" key={entry.base} onClick={() => setSelectedBoss(entry.key)}>
+              <button type="button" className="pbt-card" key={entry.base} onClick={() => goToBoss(entry.key)}>
                 <span className="idx">{String(index + 1).padStart(2, '0')}</span>
                 <PetIcon boss={entry.key} size="lg" />
                 <div className="bname">{entry.label}</div>
@@ -390,72 +419,6 @@ function LeaderboardView({
                 ) : (
                   <div className="brank">No synced time yet</div>
                 )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="pbt-section">
-        <div className="pbt-sec-head">
-          <h2 className="pbt-display pbt-h2">{titleParts.primary}</h2>
-          <div className="rule" />
-          {titleParts.secondary && <span className="meta">{titleParts.secondary}</span>}
-        </div>
-
-        <div style={{ maxWidth: 420, marginBottom: 20 }}>
-          {isLoaded(bosses) ? (
-            <BossComboboxCollapsed
-              bosses={bosses.data}
-              selected={selectedBoss}
-              onSelect={setSelectedBoss}
-              onSelectRaidBase={setSelectedBoss}
-            />
-          ) : (
-            <div className="pbt-panel-state">{bosses.s === 'error' ? 'Boss list unavailable.' : 'Loading bosses...'}</div>
-          )}
-        </div>
-
-        {showRaidPicker && isLoaded(bosses) && (
-          <RaidVariantPicker
-            base={selectedBoss.split(' - ')[0]}
-            bosses={bosses.data}
-            selected={selectedBoss}
-            onSelect={setSelectedBoss}
-          />
-        )}
-
-        {leaderboard.s === 'loading' && <div className="pbt-panel-state">Loading leaderboard...</div>}
-        {leaderboard.s === 'error' && <div className="pbt-panel-state">Leaderboard unavailable.</div>}
-        {isLoaded(leaderboard) && rows.length === 0 && <div className="pbt-panel-state">No synced PBs for this boss yet.</div>}
-        {rows.length > 0 && (
-          <div className="pbt-rows">
-            <div className="pbt-thead">
-              <span>Rank</span>
-              <span />
-              <span>Player</span>
-              <span>Time</span>
-              <span className="when">Synced</span>
-            </div>
-            {rows.map((row, index) => (
-              <button
-                type="button"
-                className="pbt-row"
-                key={`${row.displayName}-${index}`}
-                onClick={() => lookupPlayer(row.displayName)}
-              >
-                <span className="rank">{String(index + 1).padStart(2, '0')}</span>
-                <PetIcon boss={selectedBoss} size="sm" />
-                <span className="name">{row.displayName}</span>
-                <span className="time">
-                  {formatTime(row.timeSeconds)}
-                  {fastest !== undefined && row.timeSeconds !== fastest && (
-                    <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>
-                      +{formatTime(row.timeSeconds - fastest)}
-                    </span>
-                  )}
-                </span>
-                <span className="when">{formatDate(row.updatedAt)}</span>
               </button>
             ))}
           </div>
@@ -487,6 +450,101 @@ function LeaderboardView({
   );
 }
 
+function BossView({
+  titleParts,
+  bosses,
+  selectedBoss,
+  goToBoss,
+  navigate,
+  leaderboard,
+  rows,
+  lookupPlayer,
+}: {
+  titleParts: { primary: string; secondary: string };
+  bosses: LoadState<string[]>;
+  selectedBoss: string;
+  goToBoss: (boss: string) => void;
+  navigate: (view: PreviewView) => void;
+  leaderboard: LoadState<LeaderboardRow[]>;
+  rows: LeaderboardRow[];
+  lookupPlayer: (name: string) => void;
+}) {
+  const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
+  const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
+
+  return (
+    <div className="pbt-section" style={{ paddingTop: 40 }}>
+      <div className="pbt-crumbs">
+        <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / Leaderboards
+      </div>
+
+      <div className="pbt-sec-head">
+        <h2 className="pbt-display pbt-h2">{titleParts.primary}</h2>
+        <div className="rule" />
+        {titleParts.secondary && <span className="meta">{titleParts.secondary}</span>}
+      </div>
+
+      <div style={{ maxWidth: 420, marginBottom: 20 }}>
+        {isLoaded(bosses) ? (
+          <BossComboboxCollapsed
+            bosses={bosses.data}
+            selected={selectedBoss}
+            onSelect={goToBoss}
+            onSelectRaidBase={goToBoss}
+          />
+        ) : (
+          <div className="pbt-panel-state">{bosses.s === 'error' ? 'Boss list unavailable.' : 'Loading bosses...'}</div>
+        )}
+      </div>
+
+      {showRaidPicker && isLoaded(bosses) && (
+        <RaidVariantPicker
+          base={selectedBoss.split(' - ')[0]}
+          bosses={bosses.data}
+          selected={selectedBoss}
+          onSelect={goToBoss}
+        />
+      )}
+
+      {leaderboard.s === 'loading' && <div className="pbt-panel-state">Loading leaderboard...</div>}
+      {leaderboard.s === 'error' && <div className="pbt-panel-state">Leaderboard unavailable.</div>}
+      {isLoaded(leaderboard) && rows.length === 0 && <div className="pbt-panel-state">No synced PBs for this boss yet.</div>}
+      {rows.length > 0 && (
+        <div className="pbt-rows">
+          <div className="pbt-thead">
+            <span>Rank</span>
+            <span />
+            <span>Player</span>
+            <span>Time</span>
+            <span className="when">Synced</span>
+          </div>
+          {rows.map((row, index) => (
+            <button
+              type="button"
+              className="pbt-row"
+              key={`${row.displayName}-${index}`}
+              onClick={() => lookupPlayer(row.displayName)}
+            >
+              <span className="rank">{String(index + 1).padStart(2, '0')}</span>
+              <PetIcon boss={selectedBoss} size="sm" />
+              <span className="name">{row.displayName}</span>
+              <span className="time">
+                {formatTime(row.timeSeconds)}
+                {fastest !== undefined && row.timeSeconds !== fastest && (
+                  <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>
+                    +{formatTime(row.timeSeconds - fastest)}
+                  </span>
+                )}
+              </span>
+              <span className="when">{formatDate(row.updatedAt)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: PreviewView) => void }) {
   // Hooks must run unconditionally on every render (Rules of Hooks), so this
   // is computed before the early returns below - it just resolves to empty
@@ -507,7 +565,7 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
     <div className="pbt-section" style={{ paddingTop: 40 }}>
       <div className="pbt-banner">
         <div className="pbt-crumbs">
-          <button type="button" onClick={() => navigate({ name: 'leaderboard' })}>Leaderboards</button> / {state.player.displayName}
+          <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / {state.player.displayName}
         </div>
         <div className="pbt-titleline">
           <h1 className="pbt-display pbt-h3">{state.player.displayName}</h1>

@@ -26,16 +26,27 @@
   inherits: true;
   initial-value: #ff981f;
 }
+@property --pbt-tint {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 0%;
+}
 
 .pbt {
   /* --pbt-accent is the one knob a selected boss turns: everything else
      below (borders, fills, hairlines) is derived from it via color-mix(),
      so per-boss theming is just overriding this one variable inline rather
-     than touching every rule that used to hardcode orange. */
+     than touching every rule that used to hardcode orange.
+     --pbt-tint is separate and defaults to 0%: it gates how much of the
+     accent bleeds into the *background* specifically. Only the boss page
+     sets it above zero (alongside --pbt-accent), so Home/Player pages keep
+     a true black ground instead of permanently inheriting the accent's
+     default orange as a background tint. */
   --pbt-accent:    #ff981f;
-  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) 22%, #000);
-  --pbt-bg-2:      color-mix(in srgb, var(--pbt-accent) 27%, #0b0b0b);
-  --pbt-bg-3:      color-mix(in srgb, var(--pbt-accent) 32%, #141414);
+  --pbt-tint:      0%;
+  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) var(--pbt-tint), #000);
+  --pbt-bg-2:      color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 1.25), #0b0b0b);
+  --pbt-bg-3:      color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 1.5), #141414);
   --pbt-fill:      color-mix(in srgb, var(--pbt-accent) 16%, #000);
   --pbt-line:      color-mix(in srgb, var(--pbt-accent) 22%, transparent);
   --pbt-line-soft: color-mix(in srgb, var(--pbt-accent) 12%, transparent);
@@ -52,7 +63,7 @@
   font-size: 16px;
   line-height: 1.5;
   text-shadow: var(--pbt-shadow);
-  transition: --pbt-accent .5s ease, background .5s ease;
+  transition: --pbt-accent .5s ease, --pbt-tint .5s ease, background .5s ease;
 }
 .pbt a { color: inherit; text-decoration: none; }
 .pbt button { font-family: var(--pbt-font); }
@@ -84,7 +95,7 @@
 
 .pbt-page {
   max-width: 1280px; margin: 0 auto; padding: 0 40px 140px;
-  background: radial-gradient(900px 520px at 50% 0%, color-mix(in srgb, var(--pbt-accent) 18%, transparent), transparent 70%);
+  background: radial-gradient(900px 520px at 50% 0%, color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 0.8), transparent), transparent 70%);
   transition: background .5s ease;
 }
 .pbt-section { padding: 64px 0 0; }
