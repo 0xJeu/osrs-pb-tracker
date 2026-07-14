@@ -138,6 +138,60 @@ describe('POST /api/sync', () => {
     expect((await better.json()).updated).toBe(1);
   });
 
+  it('upserts a bulk PB payload as one set and only reports changed rows', async () => {
+    const secret = 'a'.repeat(20);
+    const initialPbs = {
+      Zulrah: 80,
+      Vorkath: 70,
+      Araxxor: 90,
+      'Phantom Muspah': 110,
+      'Corrupted Gauntlet': 420,
+    };
+
+    const initial = await syncRequest({
+      accountHash: 'bulk-account',
+      displayName: 'Bulk Sync',
+      installSecret: secret,
+      pbs: initialPbs,
+    });
+    expect(initial.status).toBe(200);
+    expect((await initial.json()).updated).toBe(5);
+
+    const unchanged = await syncRequest({
+      accountHash: 'bulk-account',
+      displayName: 'Bulk Sync',
+      installSecret: secret,
+      pbs: initialPbs,
+    });
+    expect(unchanged.status).toBe(200);
+    expect((await unchanged.json()).updated).toBe(0);
+
+    const partiallyFaster = await syncRequest({
+      accountHash: 'bulk-account',
+      displayName: 'Bulk Sync',
+      installSecret: secret,
+      pbs: { ...initialPbs, Zulrah: 75, Vorkath: 75 },
+    });
+    expect(partiallyFaster.status).toBe(200);
+    expect((await partiallyFaster.json()).updated).toBe(1);
+  });
+
+  it('deduplicates raw keys that normalize to the same boss and keeps the fastest time', async () => {
+    const res = await syncRequest({
+      accountHash: 'duplicate-account',
+      displayName: 'Duplicate Sync',
+      installSecret: 'a'.repeat(20),
+      pbs: { Zulrah: 80, ' zulrah ': 75, ZULRAH: 85 },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: 3, updated: 1 });
+
+    const lookup = await app.request('/api/players/Duplicate%20Sync');
+    expect((await lookup.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 75, updatedAt: expect.any(String), rank: 1 },
+    ]);
+  });
+
   it('does not move the "Recorded" timestamp on an equal or slower resync, only on a faster one', async () => {
     const secret = 'a'.repeat(20);
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
