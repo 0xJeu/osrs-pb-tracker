@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
@@ -54,27 +54,30 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
 // or slower resync must leave the existing row (including its timestamp)
 // completely untouched - see sync.test.ts's "only overwrites a PB when the
 // new time is faster" test, which locks this in.
-async function upsertPb(playerId: number, boss: string, timeSeconds: number) {
-  const existingRows = await db
-    .select()
-    .from(personalBests)
-    .where(eq(personalBests.playerId, playerId));
-  const existing = existingRows.find((row) => row.boss === boss);
-
-  if (!existing) {
-    await db.insert(personalBests).values({ playerId, boss, timeSeconds, updatedAt: new Date() });
-    return true;
+async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
+  if (pbsByBoss.size === 0) {
+    return 0;
   }
 
-  if (timeSeconds < existing.timeSeconds) {
-    await db
-      .update(personalBests)
-      .set({ timeSeconds, updatedAt: new Date() })
-      .where(eq(personalBests.id, existing.id));
-    return true;
-  }
+  const updatedAt = new Date();
+  const changed = await db
+    .insert(personalBests)
+    .values(
+      Array.from(pbsByBoss, ([boss, timeSeconds]) => ({
+        playerId,
+        boss,
+        timeSeconds,
+        updatedAt,
+      }))
+    )
+    .onConflictDoUpdate({
+      target: [personalBests.playerId, personalBests.boss],
+      set: { timeSeconds: sql`excluded.time_seconds`, updatedAt },
+      setWhere: sql`excluded.time_seconds < ${personalBests.timeSeconds}`,
+    })
+    .returning({ id: personalBests.id });
 
-  return false;
+  return changed.length;
 }
 
 sync.post('/', async (c) => {
@@ -115,7 +118,7 @@ sync.post('/', async (c) => {
   }
 
   const entries = Object.entries(pbs as Record<string, unknown>);
-  let updated = 0;
+  const pbsByBoss = new Map<string, number>();
   for (const [rawBoss, seconds] of entries) {
     const boss = rawBoss.trim().toLowerCase();
     const timeSeconds = Number(seconds);
@@ -128,10 +131,16 @@ sync.post('/', async (c) => {
     if (isRedundantDuplicateKey(boss)) {
       continue;
     }
-    if (await upsertPb(playerId, boss, timeSeconds)) {
-      updated += 1;
+
+    // Different raw keys can normalize to the same boss. Keep the fastest so
+    // one batched INSERT never attempts to affect the same conflict row twice.
+    const pendingTime = pbsByBoss.get(boss);
+    if (pendingTime === undefined || timeSeconds < pendingTime) {
+      pbsByBoss.set(boss, timeSeconds);
     }
   }
+
+  const updated = await upsertPbs(playerId, pbsByBoss);
 
   return c.json({ ok: true, playerId, received: entries.length, updated });
 });
