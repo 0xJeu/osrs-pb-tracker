@@ -538,15 +538,15 @@ function BossView({
       {leaderboard.s === 'error' && <div className="pbt-panel-state">Leaderboard unavailable.</div>}
       {isLoaded(leaderboard) && rows.length === 0 && <div className="pbt-panel-state">No synced PBs for this boss yet.</div>}
       {rows.length > 0 && (
-        <div className="pbt-rows">
+        <div className="pbt-rows pbt-leaderboard-rows">
           <div className="pbt-thead">
             <span>Rank</span>
-            <span />
             <span>Player</span>
             <span>Time</span>
             <span className="when">Synced</span>
           </div>
           {rows.map((row, index) => {
+            const rank = index + 1;
             const isHighlighted = highlightLower !== undefined && row.displayName.toLowerCase() === highlightLower;
             return (
               <button
@@ -556,8 +556,7 @@ function BossView({
                 ref={isHighlighted ? highlightRowRef : undefined}
                 onClick={() => lookupPlayer(row.displayName)}
               >
-                <span className="rank">{String(index + 1).padStart(2, '0')}</span>
-                <PetIcon boss={selectedBoss} size="sm" />
+                <span className={`rank${rank <= 3 ? ` podium rank-${rank}` : ''}`}>{String(rank).padStart(2, '0')}</span>
                 <span className="name">
                   {row.displayName}
                   {isHighlighted && <span className="pbt-tag">Here</span>}
