@@ -27,6 +27,7 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Player not found' }, 404));
     const api = createApiClient('', fetchFn);
     expect(await api.lookupPlayer('Nobody')).toEqual({ kind: 'notFound' });
+    expect(fetchFn).toHaveBeenCalledWith('/api/players/nobody');
   });
 
   it('maps an ambiguous response to its matches', async () => {
@@ -86,7 +87,36 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
     const api = createApiClient('', fetchFn);
     await api.getLeaderboard('zulrah', 25, 'Blitzen');
-    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=25&highlight=Blitzen');
+    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=25&highlight=blitzen');
+  });
+
+  it('canonicalizes and deduplicates concurrent player searches', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(['Blitzen']));
+    const api = createApiClient('', fetchFn);
+
+    const [first, second] = await Promise.all([api.search(' BlIt '), api.search('BLIT')]);
+    expect(first).toEqual(['Blitzen']);
+    expect(second).toEqual(['Blitzen']);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledWith('/api/search?q=blit');
+  });
+
+  it('does not request suggestions for fewer than two characters', async () => {
+    const fetchFn = vi.fn();
+    const api = createApiClient('', fetchFn);
+    expect(await api.search('a')).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('clamps leaderboard and recent-sync limits to canonical cache keys', async () => {
+    const fetchFn = vi.fn().mockImplementation(async () => jsonResponse([]));
+    const api = createApiClient('', fetchFn);
+
+    await api.getLeaderboard(' Zulrah ', 999);
+    await api.getRecentSyncs(999);
+
+    expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/leaderboard/zulrah?limit=100');
+    expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/recent-syncs?limit=25');
   });
 
   it('loads recent sync summaries with a clamped default limit', async () => {

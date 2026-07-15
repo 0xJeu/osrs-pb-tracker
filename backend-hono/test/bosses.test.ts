@@ -12,9 +12,16 @@ describe('GET /api/bosses', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
     expect(res.headers.get('cdn-cache-control')).toBe(
-      'public, max-age=3600, stale-while-revalidate=86400'
+      'public, max-age=86400, stale-while-revalidate=604800'
     );
+    expect(res.headers.get('vercel-cache-tag')).toBe('boss-list');
     expect(await res.json()).toEqual([]);
+  });
+
+  it('redirects ignored query parameters before querying', async () => {
+    const res = await app.request('/api/bosses?utm_source=test');
+    expect(res.status).toBe(308);
+    expect(res.headers.get('location')).toBe('/api/bosses');
   });
 
   it('returns distinct boss names sorted alphabetically', async () => {

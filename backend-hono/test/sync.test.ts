@@ -50,7 +50,7 @@ describe('POST /api/sync', () => {
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, received: 1, updated: 1 });
 
-    const lookup = await app.request('/api/players/Blitzen');
+    const lookup = await app.request('/api/players/blitzen');
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
@@ -67,7 +67,7 @@ describe('POST /api/sync', () => {
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, received: 2, updated: 1 });
 
-    const lookup = await app.request('/api/players/Blitzen');
+    const lookup = await app.request('/api/players/blitzen');
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
@@ -91,7 +91,7 @@ describe('POST /api/sync', () => {
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, received: 6, updated: 1 });
 
-    const lookup = await app.request('/api/players/Blitzen');
+    const lookup = await app.request('/api/players/blitzen');
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
@@ -113,7 +113,7 @@ describe('POST /api/sync', () => {
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, received: 4, updated: 1 });
 
-    const lookup = await app.request('/api/players/Blitzen');
+    const lookup = await app.request('/api/players/blitzen');
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
@@ -187,7 +187,7 @@ describe('POST /api/sync', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ received: 3, updated: 1 });
 
-    const lookup = await app.request('/api/players/Duplicate%20Sync');
+    const lookup = await app.request('/api/players/duplicate%20sync');
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'zulrah', timeSeconds: 75, updatedAt: expect.any(String), rank: 1 },
     ]);
@@ -196,19 +196,19 @@ describe('POST /api/sync', () => {
   it('does not move the "Recorded" timestamp on an equal or slower resync, only on a faster one', async () => {
     const secret = 'a'.repeat(20);
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
-    const firstLookup = await app.request('/api/players/Blitzen');
+    const firstLookup = await app.request('/api/players/blitzen');
     const firstUpdatedAt = (await firstLookup.json()).pbs[0].updatedAt;
 
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 90 } });
-    const afterWorseLookup = await app.request('/api/players/Blitzen');
+    const afterWorseLookup = await app.request('/api/players/blitzen');
     expect((await afterWorseLookup.json()).pbs[0].updatedAt).toBe(firstUpdatedAt);
 
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 80 } });
-    const afterEqualLookup = await app.request('/api/players/Blitzen');
+    const afterEqualLookup = await app.request('/api/players/blitzen');
     expect((await afterEqualLookup.json()).pbs[0].updatedAt).toBe(firstUpdatedAt);
 
     await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: { Zulrah: 75 } });
-    const afterFasterLookup = await app.request('/api/players/Blitzen');
+    const afterFasterLookup = await app.request('/api/players/blitzen');
     expect((await afterFasterLookup.json()).pbs[0].updatedAt).not.toBe(firstUpdatedAt);
   });
 

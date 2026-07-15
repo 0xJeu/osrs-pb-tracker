@@ -3,11 +3,26 @@ import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
-import { cachePolicies, setSharedCache } from '../lib/cache.js';
+import {
+  cachePolicies,
+  playerIdCacheTag,
+  playerNameCacheTag,
+  profileBossBucketCacheTag,
+  setSharedCache,
+} from '../lib/cache.js';
+import { redirectToCanonicalGet } from '../lib/canonicalRequest.js';
 
 const playersRoute = new Hono();
 
 const otherPbs = alias(personalBests, 'other_pbs');
+
+const publicPlayerColumns = {
+  id: players.id,
+  displayName: players.displayName,
+  updatedAt: players.updatedAt,
+};
+
+type PublicPlayer = Pick<typeof players.$inferSelect, 'id' | 'displayName' | 'updatedAt'>;
 
 // Rank on the boss's overall leaderboard: 1 + how many other players have a
 // strictly faster time for the same boss. Built via the query builder (not a
@@ -18,7 +33,7 @@ const rankSubquery = db
   .from(otherPbs)
   .where(and(eq(otherPbs.boss, personalBests.boss), lt(otherPbs.timeSeconds, personalBests.timeSeconds)));
 
-async function playerWithPbs(player: typeof players.$inferSelect) {
+async function playerWithPbs(player: PublicPlayer) {
   const pbs = await db
     .select({
       boss: personalBests.boss,
@@ -38,37 +53,58 @@ async function playerWithPbs(player: typeof players.$inferSelect) {
   };
 }
 
+function profileCacheTags(payload: Awaited<ReturnType<typeof playerWithPbs>>) {
+  return [
+    playerIdCacheTag(payload.id),
+    ...payload.pbs.map((pb) => profileBossBucketCacheTag(pb.boss)),
+  ];
+}
+
 playersRoute.get('/by-id/:id', async (c) => {
   const id = Number(c.req.param('id'));
-  if (!Number.isFinite(id)) {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    setSharedCache(c, cachePolicies.notFound);
     return c.json({ error: 'Player not found' }, 404);
   }
 
-  const rows = await db.select().from(players).where(eq(players.id, id)).limit(1);
+  const canonicalPath = `/api/players/by-id/${id}`;
+  const redirect = redirectToCanonicalGet(c, canonicalPath);
+  if (redirect) return redirect;
+
+  const rows = await db.select(publicPlayerColumns).from(players).where(eq(players.id, id)).limit(1);
   const player = rows[0];
   if (!player) {
+    setSharedCache(c, cachePolicies.notFound, [playerIdCacheTag(id)]);
     return c.json({ error: 'Player not found' }, 404);
   }
 
   const payload = await playerWithPbs(player);
-  setSharedCache(c, cachePolicies.liveData);
+  setSharedCache(c, cachePolicies.publicData, profileCacheTags(payload));
   return c.json(payload);
 });
 
 playersRoute.get('/:name', async (c) => {
-  const nameLower = c.req.param('name').toLowerCase();
+  const nameLower = c.req.param('name').trim().toLowerCase();
+  const canonicalPath = `/api/players/${encodeURIComponent(nameLower)}`;
+  const redirect = redirectToCanonicalGet(c, canonicalPath);
+  if (redirect) return redirect;
+
   const rows = await db
-    .select()
+    .select(publicPlayerColumns)
     .from(players)
     .where(eq(players.displayNameLower, nameLower))
     .orderBy(desc(players.updatedAt));
 
   if (rows.length === 0) {
+    setSharedCache(c, cachePolicies.notFound, [playerNameCacheTag(nameLower)]);
     return c.json({ error: 'Player not found' }, 404);
   }
 
   if (rows.length > 1) {
-    setSharedCache(c, cachePolicies.liveData);
+    setSharedCache(c, cachePolicies.publicData, [
+      playerNameCacheTag(nameLower),
+      ...rows.map((player) => playerIdCacheTag(player.id)),
+    ]);
     return c.json({
       ambiguous: true,
       matches: rows.map((player) => ({
@@ -80,7 +116,10 @@ playersRoute.get('/:name', async (c) => {
   }
 
   const payload = await playerWithPbs(rows[0]);
-  setSharedCache(c, cachePolicies.liveData);
+  setSharedCache(c, cachePolicies.publicData, [
+    playerNameCacheTag(nameLower),
+    ...profileCacheTags(payload),
+  ]);
   return c.json(payload);
 });
 

@@ -2,6 +2,14 @@ import { eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
+import {
+  bossCacheTag,
+  cacheTags,
+  invalidateSharedCache,
+  playerIdCacheTag,
+  playerNameCacheTag,
+  profileBossBucketCacheTag,
+} from '../lib/cache.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
 import { isRedundantDuplicateKey, isTrackedBoss } from '../lib/trackedBosses.js';
 
@@ -16,7 +24,16 @@ interface SyncBody {
 
 async function upsertPlayer(accountHash: string, displayName: string, secretHash: string) {
   const displayNameLower = displayName.toLowerCase();
-  const existingRows = await db.select().from(players).where(eq(players.accountHash, accountHash)).limit(1);
+  const existingRows = await db
+    .select({
+      id: players.id,
+      displayName: players.displayName,
+      displayNameLower: players.displayNameLower,
+      installSecretHash: players.installSecretHash,
+    })
+    .from(players)
+    .where(eq(players.accountHash, accountHash))
+    .limit(1);
   const existing = existingRows[0];
 
   if (!existing) {
@@ -29,24 +46,46 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
         installSecretHash: secretHash,
         updatedAt: new Date(),
       })
-      .returning();
-    return { playerId: inserted.id, authorized: true };
+      .returning({ id: players.id });
+    return {
+      playerId: inserted.id,
+      authorized: true,
+      metadataChanged: true,
+      created: true,
+      namesToInvalidate: [displayNameLower],
+    };
   }
 
   if (!existing.installSecretHash) {
     await db.update(players).set({ installSecretHash: secretHash }).where(eq(players.id, existing.id));
   } else if (existing.installSecretHash !== secretHash) {
-    return { playerId: existing.id, authorized: false };
+    return {
+      playerId: existing.id,
+      authorized: false,
+      metadataChanged: false,
+      created: false,
+      namesToInvalidate: [] as string[],
+    };
   }
 
+  let metadataChanged = false;
+  const namesToInvalidate: string[] = [];
   if (existing.displayName !== displayName) {
     await db
       .update(players)
       .set({ displayName, displayNameLower, updatedAt: new Date() })
       .where(eq(players.id, existing.id));
+    metadataChanged = true;
+    namesToInvalidate.push(existing.displayNameLower, displayNameLower);
   }
 
-  return { playerId: existing.id, authorized: true };
+  return {
+    playerId: existing.id,
+    authorized: true,
+    metadataChanged,
+    created: false,
+    namesToInvalidate,
+  };
 }
 
 // Invariant: `updated_at` must only move on insert or a strictly faster time.
@@ -56,7 +95,7 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
 // new time is faster" test, which locks this in.
 async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
   if (pbsByBoss.size === 0) {
-    return 0;
+    return [] as string[];
   }
 
   const updatedAt = new Date();
@@ -75,9 +114,9 @@ async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
       set: { timeSeconds: sql`excluded.time_seconds`, updatedAt },
       setWhere: sql`excluded.time_seconds < ${personalBests.timeSeconds}`,
     })
-    .returning({ id: personalBests.id });
+    .returning({ boss: personalBests.boss });
 
-  return changed.length;
+  return [...new Set(changed.map((row) => row.boss))];
 }
 
 sync.post('/', async (c) => {
@@ -105,7 +144,11 @@ sync.post('/', async (c) => {
   }
 
   const secretHash = hashSecret(installSecret);
-  const { playerId, authorized } = await upsertPlayer(accountHash, displayName, secretHash);
+  const { playerId, authorized, metadataChanged, created, namesToInvalidate } = await upsertPlayer(
+    accountHash,
+    displayName,
+    secretHash
+  );
 
   if (!authorized) {
     return c.json(
@@ -140,9 +183,34 @@ sync.post('/', async (c) => {
     }
   }
 
-  const updated = await upsertPbs(playerId, pbsByBoss);
+  const changedBosses = await upsertPbs(playerId, pbsByBoss);
+  const invalidationTags: string[] = [];
 
-  return c.json({ ok: true, playerId, received: entries.length, updated });
+  if (metadataChanged) {
+    invalidationTags.push(
+      cacheTags.search,
+      cacheTags.recentSyncs,
+      playerIdCacheTag(playerId),
+      ...namesToInvalidate.map(playerNameCacheTag)
+    );
+  }
+
+  if (created) {
+    invalidationTags.push(cacheTags.stats);
+  }
+
+  if (changedBosses.length > 0) {
+    invalidationTags.push(
+      cacheTags.bossList,
+      cacheTags.stats,
+      playerIdCacheTag(playerId),
+      ...changedBosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)])
+    );
+  }
+
+  await invalidateSharedCache(invalidationTags);
+
+  return c.json({ ok: true, playerId, received: entries.length, updated: changedBosses.length });
 });
 
 export default sync;
