@@ -34,9 +34,10 @@ describe('GET /api/search', () => {
     expect(await res.json()).toEqual([]);
   });
 
-  it('canonicalizes query casing and removes ignored parameters', async () => {
+  it('normalizes query casing and ignores unrelated parameters', async () => {
+    await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
     const res = await app.request('/api/search?utm_source=test&q=BlIt');
-    expect(res.status).toBe(308);
-    expect(res.headers.get('location')).toBe('/api/search?q=blit');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(['Blitzen']);
   });
 });

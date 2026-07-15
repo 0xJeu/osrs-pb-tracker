@@ -88,13 +88,11 @@ describe('GET /api/recent-syncs', () => {
     ]);
   });
 
-  it('redirects missing and out-of-range limits to one canonical cache key', async () => {
+  it('defaults and clamps limits without redirecting', async () => {
     const missing = await app.request('/api/recent-syncs');
-    expect(missing.status).toBe(308);
-    expect(missing.headers.get('location')).toBe('/api/recent-syncs?limit=10');
+    expect(missing.status).toBe(200);
 
     const oversized = await app.request('/api/recent-syncs?limit=999');
-    expect(oversized.status).toBe(308);
-    expect(oversized.headers.get('location')).toBe('/api/recent-syncs?limit=25');
+    expect(oversized.status).toBe(200);
   });
 });

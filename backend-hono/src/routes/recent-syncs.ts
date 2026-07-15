@@ -3,7 +3,6 @@ import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 import { cachePolicies, cacheTags, setSharedCache } from '../lib/cache.js';
-import { redirectToCanonicalGet } from '../lib/canonicalRequest.js';
 
 const recentSyncs = new Hono();
 
@@ -18,10 +17,6 @@ function parseLimit(value: string | undefined) {
 
 recentSyncs.get('/', async (c) => {
   const limit = parseLimit(c.req.query('limit'));
-  const canonicalParams = new URLSearchParams({ limit: String(limit) });
-  const redirect = redirectToCanonicalGet(c, '/api/recent-syncs', canonicalParams);
-  if (redirect) return redirect;
-
   const rows = await db
     .select({
       id: players.id,

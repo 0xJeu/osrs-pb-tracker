@@ -3,7 +3,6 @@ import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 import { bossCacheTag, cachePolicies, setSharedCache } from '../lib/cache.js';
-import { redirectToCanonicalGet } from '../lib/canonicalRequest.js';
 import { isTrackedBoss } from '../lib/trackedBosses.js';
 
 const leaderboard = new Hono();
@@ -18,11 +17,6 @@ leaderboard.get('/:boss', async (c) => {
   const limitParam = Number(c.req.query('limit'));
   const limit = Math.min(Number.isFinite(limitParam) && limitParam > 0 ? Math.floor(limitParam) : 25, 100);
   const highlight = c.req.query('highlight')?.trim().toLowerCase() || undefined;
-  const canonicalParams = new URLSearchParams({ limit: String(limit) });
-  if (highlight) canonicalParams.set('highlight', highlight);
-  const canonicalPath = `/api/leaderboard/${encodeURIComponent(boss)}`;
-  const redirect = redirectToCanonicalGet(c, canonicalPath, canonicalParams);
-  if (redirect) return redirect;
 
   if (!isTrackedBoss(boss)) {
     setSharedCache(c, cachePolicies.publicData, [bossCacheTag(boss)]);

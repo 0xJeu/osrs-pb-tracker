@@ -8,11 +8,7 @@ describe('GET /api/players/:name', () => {
   });
 
   it('returns 404 for an unknown player', async () => {
-    const redirect = await app.request('/api/players/Nobody?ignored=true');
-    expect(redirect.status).toBe(308);
-    expect(redirect.headers.get('location')).toBe('/api/players/nobody');
-
-    const res = await app.request('/api/players/nobody');
+    const res = await app.request('/api/players/Nobody?ignored=true');
     expect(res.status).toBe(404);
     expect(res.headers.get('cdn-cache-control')).toBe(
       'public, max-age=3600, stale-while-revalidate=86400'
@@ -107,10 +103,10 @@ describe('GET /api/players/by-id/:id', () => {
     expect((await res.json()).displayName).toBe('Blitzen');
   });
 
-  it('canonicalizes numeric ids before querying', async () => {
+  it('normalizes numeric ids without redirecting', async () => {
     const res = await app.request('/api/players/by-id/00042?ignored=true');
-    expect(res.status).toBe(308);
-    expect(res.headers.get('location')).toBe('/api/players/by-id/42');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('vercel-cache-tag')).toBe('player-id:42');
   });
 
   it('caches invalid ids without querying', async () => {

@@ -10,7 +10,6 @@ import {
   profileBossBucketCacheTag,
   setSharedCache,
 } from '../lib/cache.js';
-import { redirectToCanonicalGet } from '../lib/canonicalRequest.js';
 
 const playersRoute = new Hono();
 
@@ -67,10 +66,6 @@ playersRoute.get('/by-id/:id', async (c) => {
     return c.json({ error: 'Player not found' }, 404);
   }
 
-  const canonicalPath = `/api/players/by-id/${id}`;
-  const redirect = redirectToCanonicalGet(c, canonicalPath);
-  if (redirect) return redirect;
-
   const rows = await db.select(publicPlayerColumns).from(players).where(eq(players.id, id)).limit(1);
   const player = rows[0];
   if (!player) {
@@ -85,10 +80,6 @@ playersRoute.get('/by-id/:id', async (c) => {
 
 playersRoute.get('/:name', async (c) => {
   const nameLower = c.req.param('name').trim().toLowerCase();
-  const canonicalPath = `/api/players/${encodeURIComponent(nameLower)}`;
-  const redirect = redirectToCanonicalGet(c, canonicalPath);
-  if (redirect) return redirect;
-
   const rows = await db
     .select(publicPlayerColumns)
     .from(players)

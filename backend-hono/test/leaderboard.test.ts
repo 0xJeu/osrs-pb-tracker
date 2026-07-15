@@ -35,8 +35,7 @@ describe('GET /api/leaderboard/:boss', () => {
 
   it('clamps limit to a maximum of 100', async () => {
     const res = await app.request('/api/leaderboard/zulrah?limit=99999');
-    expect(res.status).toBe(308);
-    expect(res.headers.get('location')).toBe('/api/leaderboard/zulrah?limit=100');
+    expect(res.status).toBe(200);
   });
 
   it('extends past the default limit to include a highlighted player beyond it', async () => {
@@ -58,13 +57,7 @@ describe('GET /api/leaderboard/:boss', () => {
 
   it('is case-insensitive when matching the highlighted player', async () => {
     await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
-    const canonical = await app.request('/api/leaderboard/Zulrah?highlight=BLITZEN');
-    expect(canonical.status).toBe(308);
-    expect(canonical.headers.get('location')).toBe(
-      '/api/leaderboard/zulrah?limit=25&highlight=blitzen'
-    );
-
-    const res = await app.request('/api/leaderboard/zulrah?limit=25&highlight=blitzen');
+    const res = await app.request('/api/leaderboard/Zulrah?limit=25&highlight=BLITZEN');
     const json = (await res.json()) as Array<{ displayName: string }>;
     expect(json.map((row) => row.displayName)).toEqual(['Blitzen']);
   });

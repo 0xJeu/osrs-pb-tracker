@@ -18,10 +18,10 @@ describe('GET /api/bosses', () => {
     expect(await res.json()).toEqual([]);
   });
 
-  it('redirects ignored query parameters before querying', async () => {
+  it('ignores unrelated query parameters', async () => {
     const res = await app.request('/api/bosses?utm_source=test');
-    expect(res.status).toBe(308);
-    expect(res.headers.get('location')).toBe('/api/bosses');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
   });
 
   it('returns distinct boss names sorted alphabetically', async () => {
