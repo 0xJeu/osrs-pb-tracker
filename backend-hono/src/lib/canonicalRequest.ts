@@ -17,7 +17,12 @@ export function redirectToCanonicalGet(c: Context, pathname: string, searchParam
   const requestPathname =
     requestUrl.pathname.length > 1 ? requestUrl.pathname.replace(/\/+$/, '') : requestUrl.pathname;
 
-  if (requestPathname !== pathname || requestUrl.search !== search) {
+  // The serverless filesystem router can also rewrite the pathname to its
+  // matched function path. On Vercel, the frontend is responsible for path
+  // canonicalization; only compare the query string that reaches this app.
+  const pathIsCanonical = Boolean(process.env.VERCEL) || requestPathname === pathname;
+
+  if (!pathIsCanonical || requestUrl.search !== search) {
     return c.redirect(canonical, 308);
   }
 
