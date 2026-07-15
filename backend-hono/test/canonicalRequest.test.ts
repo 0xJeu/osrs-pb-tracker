@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { redirectToCanonicalGet } from '../src/lib/canonicalRequest.js';
 
 function canonicalApp() {
@@ -12,16 +12,6 @@ function canonicalApp() {
 }
 
 describe('redirectToCanonicalGet', () => {
-  const originalVercel = process.env.VERCEL;
-
-  afterEach(() => {
-    if (originalVercel === undefined) {
-      delete process.env.VERCEL;
-    } else {
-      process.env.VERCEL = originalVercel;
-    }
-  });
-
   it('accepts Vercel\'s internally appended trailing slash', async () => {
     const response = await canonicalApp().request('/api/stats/');
     expect(response.status).toBe(200);
@@ -34,8 +24,7 @@ describe('redirectToCanonicalGet', () => {
     expect(response.headers.get('location')).toBe('/api/stats');
   });
 
-  it('trusts Vercel\'s internally rewritten function pathname', async () => {
-    process.env.VERCEL = '1';
+  it('trusts a serverless router\'s internally rewritten function pathname', async () => {
     const response = await canonicalApp().request('/api/internal-function-path');
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('ok');
