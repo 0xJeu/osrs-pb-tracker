@@ -10,6 +10,10 @@ describe('GET /api/bosses', () => {
   it('returns an empty array when nothing is synced', async () => {
     const res = await app.request('/api/bosses');
     expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    expect(res.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=3600, stale-while-revalidate=86400'
+    );
     expect(await res.json()).toEqual([]);
   });
 

@@ -46,6 +46,7 @@ describe('POST /api/sync', () => {
       pbs: { Zulrah: 80 },
     });
     expect(res.status).toBe(200);
+    expect(res.headers.get('cdn-cache-control')).toBeNull();
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, received: 1, updated: 1 });
 

@@ -2,6 +2,7 @@ import { count, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
+import { cachePolicies, setSharedCache } from '../lib/cache.js';
 
 const recentSyncs = new Hono();
 
@@ -29,6 +30,7 @@ recentSyncs.get('/', async (c) => {
     .orderBy(desc(players.updatedAt))
     .limit(limit);
 
+  setSharedCache(c, cachePolicies.homeSummary);
   return c.json(
     rows.map((row) => ({
       id: row.id,

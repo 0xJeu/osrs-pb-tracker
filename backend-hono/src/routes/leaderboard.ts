@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
+import { cachePolicies, setSharedCache } from '../lib/cache.js';
 
 const leaderboard = new Hono();
 
@@ -37,10 +38,12 @@ leaderboard.get('/:boss', async (c) => {
     const all = await orderedQuery.limit(MAX_HIGHLIGHT_ROWS);
     const rank = all.findIndex((row) => row.displayName.toLowerCase() === highlightLower);
     const rowsToReturn = rank === -1 ? limit : rank + 1;
+    setSharedCache(c, cachePolicies.liveData);
     return c.json(all.slice(0, Math.max(rowsToReturn, limit)));
   }
 
   const rows = await orderedQuery.limit(limit);
+  setSharedCache(c, cachePolicies.liveData);
   return c.json(rows);
 });
 

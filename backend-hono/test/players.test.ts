@@ -10,12 +10,17 @@ describe('GET /api/players/:name', () => {
   it('returns 404 for an unknown player', async () => {
     const res = await app.request('/api/players/Nobody');
     expect(res.status).toBe(404);
+    expect(res.headers.get('cdn-cache-control')).toBeNull();
   });
 
   it('returns a single player with their PBs', async () => {
     await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
     const res = await app.request('/api/players/blitzen');
     expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    expect(res.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=30, stale-while-revalidate=60'
+    );
     const json = await res.json();
     expect(json.displayName).toBe('Blitzen');
     expect(json.pbs).toEqual([{ boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 }]);
@@ -81,6 +86,9 @@ describe('GET /api/players/by-id/:id', () => {
     });
     const res = await app.request(`/api/players/by-id/${player.id}`);
     expect(res.status).toBe(200);
+    expect(res.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=30, stale-while-revalidate=60'
+    );
     expect((await res.json()).displayName).toBe('Blitzen');
   });
 });

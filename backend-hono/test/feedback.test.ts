@@ -31,6 +31,7 @@ describe('POST /api/feedback', () => {
   it('accepts a message with no context', async () => {
     const res = await feedbackRequest({ message: 'The Colosseum PB looks wrong for my account.' });
     expect(res.status).toBe(200);
+    expect(res.headers.get('cdn-cache-control')).toBeNull();
     expect(await res.json()).toEqual({ ok: true });
   });
 

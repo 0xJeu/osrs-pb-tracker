@@ -2,6 +2,7 @@ import { count } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
+import { cachePolicies, setSharedCache } from '../lib/cache.js';
 
 const stats = new Hono();
 
@@ -11,9 +12,7 @@ stats.get('/', async (c) => {
     db.select({ value: count(personalBests.id) }).from(personalBests),
   ]);
 
-  // Totals move slowly; a short shared cache keeps home-page loads from
-  // hitting the database on every request.
-  c.header('Cache-Control', 'public, max-age=60');
+  setSharedCache(c, cachePolicies.homeSummary);
 
   return c.json({
     trackedPlayers: Number(playerTotal?.value ?? 0),

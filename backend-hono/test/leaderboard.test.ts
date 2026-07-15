@@ -9,6 +9,10 @@ describe('GET /api/leaderboard/:boss', () => {
 
   it('returns an empty array when nobody has synced that boss', async () => {
     const res = await app.request('/api/leaderboard/zulrah');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    expect(res.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=30, stale-while-revalidate=60'
+    );
     expect(await res.json()).toEqual([]);
   });
 

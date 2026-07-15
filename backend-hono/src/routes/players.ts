@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
+import { cachePolicies, setSharedCache } from '../lib/cache.js';
 
 const playersRoute = new Hono();
 
@@ -49,7 +50,9 @@ playersRoute.get('/by-id/:id', async (c) => {
     return c.json({ error: 'Player not found' }, 404);
   }
 
-  return c.json(await playerWithPbs(player));
+  const payload = await playerWithPbs(player);
+  setSharedCache(c, cachePolicies.liveData);
+  return c.json(payload);
 });
 
 playersRoute.get('/:name', async (c) => {
@@ -65,6 +68,7 @@ playersRoute.get('/:name', async (c) => {
   }
 
   if (rows.length > 1) {
+    setSharedCache(c, cachePolicies.liveData);
     return c.json({
       ambiguous: true,
       matches: rows.map((player) => ({
@@ -75,7 +79,9 @@ playersRoute.get('/:name', async (c) => {
     });
   }
 
-  return c.json(await playerWithPbs(rows[0]));
+  const payload = await playerWithPbs(rows[0]);
+  setSharedCache(c, cachePolicies.liveData);
+  return c.json(payload);
 });
 
 export default playersRoute;
