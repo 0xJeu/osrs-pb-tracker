@@ -6,7 +6,7 @@ import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { formatDate, formatTime, titleCase } from '../lib/format';
 import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
 import { bossAccentColor } from '../lib/bossColors';
-import { getRaidModes, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
+import { getRaidModes, groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
 import { RaidVariantPicker } from './RaidVariantPicker';
@@ -23,6 +23,8 @@ type PreviewView =
   | { name: 'home' }
   | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'player'; player: string };
+type BossRecordSort = 'rank' | 'name' | 'time';
+type SortDirection = 'asc' | 'desc';
 
 // Empty base: this preview owns the whole app on this branch (see App.tsx),
 // so its internal routes live at the root (/, /boss/<key>, /player/<name>)
@@ -513,7 +515,10 @@ function BossView({
             bosses={bosses.data}
             selected={selectedBoss}
             onSelect={goToBoss}
-            onSelectRaidBase={goToBoss}
+            onSelectRaidBase={(base) => {
+              const firstVariant = getRaidModes(bosses.data, base)[0]?.variants[0]?.key;
+              if (firstVariant) goToBoss(firstVariant);
+            }}
           />
         ) : (
           <div className="pbt-panel-state">{bosses.s === 'error' ? 'Boss list unavailable.' : 'Loading bosses...'}</div>
@@ -522,7 +527,7 @@ function BossView({
 
       {showRaidPicker && isLoaded(bosses) && (
         <RaidVariantPicker
-          base={selectedBoss.split(' - ')[0]}
+          base={groupedBaseForKey(selectedBoss)}
           bosses={bosses.data}
           selected={selectedBoss}
           onSelect={goToBoss}
@@ -581,6 +586,50 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
   // when there's no loaded player yet.
   const pbs = state.s === 'loaded' ? visiblePbs(state.player) : [];
   const { groups, flat } = useMemo(() => groupPlayerRaidPbs(pbs), [pbs]);
+  const [recordSort, setRecordSort] = useState<BossRecordSort>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const recordRows = useMemo(() => {
+    const combined = [
+      ...flat.map((pb) => ({ type: 'pb' as const, key: pb.boss, name: titleCase(pb.boss), rank: pb.rank, time: pb.timeSeconds, pb })),
+      ...groups.map((group) => ({
+        type: 'group' as const,
+        key: group.heading,
+        name: group.heading,
+        rank: group.summary.rank,
+        time: group.summary.timeSeconds,
+        group,
+      })),
+    ];
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    return combined.sort((a, b) => {
+      const comparison = recordSort === 'name'
+        ? a.name.localeCompare(b.name)
+        : recordSort === 'rank'
+          ? a.rank - b.rank
+          : a.time - b.time;
+      return comparison * direction || a.name.localeCompare(b.name);
+    });
+  }, [flat, groups, recordSort, sortDirection]);
+
+  const chooseSort = (next: BossRecordSort) => {
+    if (next === recordSort) {
+      setSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    setRecordSort(next);
+    setSortDirection('asc');
+  };
+
+  const sortLabel = (key: BossRecordSort, label: string) => (
+    <button
+      type="button"
+      className={`pbt-sort${recordSort === key ? ' active' : ''}`}
+      aria-pressed={recordSort === key}
+      onClick={() => chooseSort(key)}
+    >
+      {label}{recordSort === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+    </button>
+  );
 
   if (state.s === 'loading' || state.s === 'idle') {
     return <div className="pbt-panel-state">Loading profile...</div>;
@@ -627,24 +676,16 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
         {pbs.length > 0 && (
           <div className="pbt-rows">
             <div className="pbt-thead">
-              <span>Rank</span>
+              <span>{sortLabel('rank', 'Rank')}</span>
               <span />
-              <span>Boss</span>
-              <span>Time</span>
+              <span>{sortLabel('name', 'Boss')}</span>
+              <span>{sortLabel('time', 'Time')}</span>
               <span className="when">Synced</span>
             </div>
-            {flat
-              .slice()
-              .sort((a, b) => titleCase(a.boss).localeCompare(titleCase(b.boss)))
-              .map((pb) => (
-                <PbRow key={pb.boss} pb={pb} onBossClick={goToBossHighlighted} />
-              ))}
-            {groups
-              .slice()
-              .sort((a, b) => a.heading.localeCompare(b.heading))
-              .map((group) => (
-                <RaidGroupRows key={group.heading} group={group} onBossClick={goToBossHighlighted} />
-              ))}
+            {recordRows.map((row) => row.type === 'pb'
+              ? <PbRow key={row.key} pb={row.pb} onBossClick={goToBossHighlighted} />
+              : <RaidGroupRows key={row.key} group={row.group} onBossClick={goToBossHighlighted} />
+            )}
           </div>
         )}
       </div>

@@ -138,6 +138,9 @@
 .pbt-rows { border-top: 1px solid var(--pbt-line); }
 .pbt-thead { display: grid; grid-template-columns: 56px 48px 1fr auto auto; gap: 20px; padding: 12px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; align-items: center; }
 .pbt-thead button { background: none; border: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; text-shadow: var(--pbt-shadow); padding: 0; }
+.pbt-thead .pbt-sort { border: 1px solid transparent; border-radius: 999px; padding: 4px 9px; margin: -5px -10px; }
+.pbt-thead .pbt-sort:hover { border-color: var(--pbt-orange); }
+.pbt-thead .pbt-sort.active { background: var(--pbt-orange); border-color: var(--pbt-orange); color: #080808; text-shadow: none; font-weight: 700; }
 .pbt-thead .when { text-align: right; min-width: 130px; }
 .pbt-row {
   display: grid; align-items: center; width: 100%;
@@ -272,7 +275,10 @@
   transition: border-color .15s, background .15s;
 }
 .pbt .raid-mode-tab:hover, .pbt .raid-kind-tab:hover, .pbt .raid-variant-button:hover { border-color: var(--pbt-orange); }
-.pbt .raid-mode-tab.active, .pbt .raid-kind-tab.active, .pbt .raid-variant-button.active { background: var(--pbt-fill); border-color: var(--pbt-orange); }
+.pbt .raid-mode-tab.active, .pbt .raid-kind-tab.active, .pbt .raid-variant-button.active {
+  background: var(--pbt-orange); border-color: var(--pbt-orange); color: #080808;
+  text-shadow: none; font-weight: 700; box-shadow: 0 0 0 1px color-mix(in srgb, var(--pbt-orange) 35%, transparent);
+}
 
 @media (max-width: 900px) {
   .pbt-page, .pbt-topbar-inner { padding-left: 20px; padding-right: 20px; }
