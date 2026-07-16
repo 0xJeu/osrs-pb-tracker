@@ -10,6 +10,7 @@ import { getRaidModes, groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant }
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
 import { RaidVariantPicker } from './RaidVariantPicker';
+import { SetupGuidePage } from './SetupGuidePage';
 
 type LoadState<T> = { s: 'loading' } | { s: 'error' } | { s: 'loaded'; data: T };
 type PlayerState =
@@ -22,7 +23,8 @@ type PlayerState =
 type PreviewView =
   | { name: 'home' }
   | { name: 'boss'; boss: string; highlight?: string }
-  | { name: 'player'; player: string };
+  | { name: 'player'; player: string }
+  | { name: 'setup' };
 type BossRecordSort = 'rank' | 'name' | 'time';
 type SortDirection = 'asc' | 'desc';
 
@@ -60,6 +62,7 @@ function normalize(boss: string): string {
 
 function viewFromPreviewPath(): PreviewView {
   const rest = window.location.pathname.slice(previewBase.length);
+  if (rest === '/setup') return { name: 'setup' };
   const playerMatch = rest.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
   const bossMatch = rest.match(/^\/boss\/(.+)$/);
@@ -217,6 +220,8 @@ export function PhaseTwoOsrsPreview() {
         ? `${previewBase}/player/${encodeURIComponent(next.player)}`
         : next.name === 'boss'
           ? `${previewBase}/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
+          : next.name === 'setup'
+            ? `${previewBase}/setup`
           : previewBase || '/';
     window.history.pushState({}, '', path);
     setView(next);
@@ -262,6 +267,9 @@ export function PhaseTwoOsrsPreview() {
             <button type="button" className={view.name === 'home' ? 'active' : undefined} onClick={() => navigate({ name: 'home' })}>
               Home
             </button>
+            <button type="button" className={view.name === 'setup' ? 'active' : undefined} onClick={() => navigate({ name: 'setup' })}>
+              Setup
+            </button>
             <button
               type="button"
               className={view.name === 'boss' ? 'active' : undefined}
@@ -302,6 +310,7 @@ export function PhaseTwoOsrsPreview() {
           />
         )}
         {view.name === 'player' && <PlayerView state={profileState} navigate={navigate} />}
+        {view.name === 'setup' && <SetupGuidePage />}
       </div>
 
       <div className="pbt-footer">
