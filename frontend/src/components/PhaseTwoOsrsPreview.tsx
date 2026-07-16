@@ -486,10 +486,44 @@ function BossView({
   rows: LeaderboardRow[];
   lookupPlayer: (name: string) => void;
 }) {
+  const [leaderboardSort, setLeaderboardSort] = useState<BossRecordSort>('rank');
+  const [leaderboardDirection, setLeaderboardDirection] = useState<SortDirection>('asc');
   const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
   const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
   const highlightLower = highlight?.toLowerCase();
   const highlightRowRef = useRef<HTMLButtonElement | null>(null);
+  const sortedRows = useMemo(() => {
+    const rankedRows = rows.map((row, index) => ({ row, rank: index + 1 }));
+    const direction = leaderboardDirection === 'asc' ? 1 : -1;
+    return rankedRows.sort((a, b) => {
+      const comparison = leaderboardSort === 'name'
+        ? a.row.displayName.localeCompare(b.row.displayName)
+        : leaderboardSort === 'time'
+          ? a.row.timeSeconds - b.row.timeSeconds
+          : a.rank - b.rank;
+      return comparison * direction || a.rank - b.rank;
+    });
+  }, [rows, leaderboardSort, leaderboardDirection]);
+
+  const chooseLeaderboardSort = (next: BossRecordSort) => {
+    if (next === leaderboardSort) {
+      setLeaderboardDirection((current) => current === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    setLeaderboardSort(next);
+    setLeaderboardDirection('asc');
+  };
+
+  const leaderboardSortLabel = (key: BossRecordSort, label: string) => (
+    <button
+      type="button"
+      className={`pbt-sort${leaderboardSort === key ? ' active' : ''}`}
+      aria-pressed={leaderboardSort === key}
+      onClick={() => chooseLeaderboardSort(key)}
+    >
+      {label}{leaderboardSort === key ? (leaderboardDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+    </button>
+  );
 
   useEffect(() => {
     if (highlightRowRef.current) {
@@ -540,19 +574,18 @@ function BossView({
       {rows.length > 0 && (
         <div className="pbt-rows pbt-leaderboard-rows">
           <div className="pbt-thead">
-            <span>Rank</span>
-            <span>Player</span>
-            <span>Time</span>
+            <span>{leaderboardSortLabel('rank', 'Rank')}</span>
+            <span>{leaderboardSortLabel('name', 'Player')}</span>
+            <span>{leaderboardSortLabel('time', 'Time')}</span>
             <span className="when">Synced</span>
           </div>
-          {rows.map((row, index) => {
-            const rank = index + 1;
+          {sortedRows.map(({ row, rank }) => {
             const isHighlighted = highlightLower !== undefined && row.displayName.toLowerCase() === highlightLower;
             return (
               <button
                 type="button"
                 className={`pbt-row${isHighlighted ? ' me' : ''}`}
-                key={`${row.displayName}-${index}`}
+                key={`${row.displayName}-${rank}`}
                 ref={isHighlighted ? highlightRowRef : undefined}
                 onClick={() => lookupPlayer(row.displayName)}
               >
