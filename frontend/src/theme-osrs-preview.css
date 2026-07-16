@@ -181,6 +181,19 @@
 
 .pbt-panel-state { padding: 40px 8px; font-size: 15px; opacity: .7; }
 
+/* Main-branch FAQ content, kept unchanged and presented inside the makeover. */
+.pbt .faq-page:not(.setup-guide) { max-width: 920px; padding-top: 56px; }
+.pbt .faq-page:not(.setup-guide) .result-title {
+  margin: 0 0 28px; color: var(--pbt-yellow); font-size: clamp(32px, 5vw, 60px);
+  font-weight: 700; line-height: 1.04;
+}
+.pbt .faq-page:not(.setup-guide) .faq-entry { padding: 28px 0 32px; border-top: 1px solid var(--pbt-line); }
+.pbt .faq-page:not(.setup-guide) .faq-entry h3 { margin: 0 0 12px; color: var(--pbt-yellow); font-size: 22px; }
+.pbt .faq-page:not(.setup-guide) .faq-entry p,
+.pbt .faq-page:not(.setup-guide) .faq-entry li { line-height: 1.7; opacity: .82; }
+.pbt .faq-page:not(.setup-guide) .faq-entry ul { margin: 12px 0 0; padding-left: 22px; }
+.pbt .faq-page:not(.setup-guide) .faq-entry li + li { margin-top: 8px; }
+
 /* Main-branch setup content, presented inside the makeover theme. The
    component itself remains shared verbatim so setup instructions cannot
    drift between branches. */
@@ -338,6 +351,8 @@
   .pbt-modes, .pbt-kind-tabs { gap: 8px; }
   .pbt-chip { padding: 5px 11px; font-size: 13px; }
   .pbt-banner { padding: 36px 20px 24px; }
+  .pbt .faq-page:not(.setup-guide) { padding-top: 40px; }
+  .pbt .faq-page:not(.setup-guide) .faq-entry { padding: 22px 0 26px; }
   .pbt .setup-guide { padding-top: 40px; }
   .pbt .setup-guide .faq-entry { padding: 22px 0 26px; }
   .pbt-h1 { font-size: clamp(32px, 12vw, 56px); }
