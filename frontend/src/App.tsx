@@ -13,13 +13,15 @@ import { EmptyState } from './components/States';
 import { FaqPage } from './components/FaqPage';
 import { SetupGuidePage } from './components/SetupGuidePage';
 import { FeedbackButton } from './components/FeedbackButton';
+import { PhaseTwoModernPreview } from './components/PhaseTwoModernPreview';
 
 type View =
   | { name: 'home' }
   | { name: 'player'; player: string }
   | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'faq' }
-  | { name: 'setup' };
+  | { name: 'setup' }
+  | { name: 'phase2ModernPreview' };
 
 function viewFromLocation(): View {
   const path = window.location.pathname;
@@ -32,6 +34,7 @@ function viewFromLocation(): View {
   }
   if (path === '/faq') return { name: 'faq' };
   if (path === '/setup') return { name: 'setup' };
+  if (path === '/phase-two-modern-preview' || path.startsWith('/phase-two-modern-preview/')) return { name: 'phase2ModernPreview' };
   return { name: 'home' };
 }
 
@@ -47,6 +50,8 @@ function feedbackContext(view: View): string {
       return 'page:faq';
     case 'setup':
       return 'page:setup';
+    case 'phase2ModernPreview':
+      return 'page:phase-two-modern-preview';
     default:
       return 'page:home';
   }
@@ -79,10 +84,20 @@ export default function App() {
             ? '/faq'
             : next.name === 'setup'
               ? '/setup'
+              : next.name === 'phase2ModernPreview'
+                ? '/phase-two-modern-preview'
               : '/';
     window.history.pushState({}, '', path);
     setView(next);
   };
+
+  if (view.name === 'phase2ModernPreview') {
+    return (
+      <main className="phase2-modern-page">
+        <PhaseTwoModernPreview />
+      </main>
+    );
+  }
 
   return (
     <>

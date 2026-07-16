@@ -4,7 +4,7 @@ const player = {
   id: 1,
   displayName: 'Blitzen',
   updatedAt: '2026-07-04T18:00:00.000Z',
-  pbs: [{ boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T18:00:00.000Z' }],
+  pbs: [{ boss: 'zulrah', timeSeconds: 80, rank: 1, updatedAt: '2026-07-04T18:00:00.000Z' }],
 };
 
 const leaderboardRows = [
@@ -160,6 +160,55 @@ test('recent sync rows navigate to player results', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/player\/Blitzen/);
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
+});
+
+test('phase two modern preview renders live API data', async ({ page }) => {
+  await page.route('**/api/leaderboard/zulrah**', (route) =>
+    route.fulfill({ json: leaderboardRows })
+  );
+  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
+  await page.route('**/api/players/Fast', (route) =>
+    route.fulfill({ json: { ...player, displayName: 'Fast' } })
+  );
+
+  await page.goto('/phase-two-modern-preview');
+
+  await expect(page.getByRole('heading', { name: 'Zulrah' })).toBeVisible();
+  await expect(page.getByText('1,284')).toBeVisible();
+  await expect(page.getByText('18,492')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Fastest Fast/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Live API' })).toHaveCount(0);
+  await expect(page.getByText('Live API')).toHaveCount(0);
+  await expect(page.getByText('Top 25')).toHaveCount(0);
+  await expect(page.getByText('1:20')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Lookup' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Fastest Fast/ }).click();
+  await expect(page).toHaveURL(/\/phase-two-modern-preview\/player\/Fast/);
+  await expect(page.getByRole('heading', { name: 'Fast' })).toBeVisible();
+
+  await page.goto('/phase-two-modern-preview');
+
+  await page.getByLabel('Player Lookup').fill('Blitzen');
+  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
+  await expect(page.getByText('Boss Records')).toBeVisible();
+  await expect(page.locator('.phase2-modern-boss-list').getByText('Zulrah')).toBeVisible();
+});
+
+test('phase two modern preview exposes setup and player routes', async ({ page }) => {
+  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
+
+  await page.goto('/phase-two-modern-preview/setup');
+  await expect(page.getByRole('heading', { name: 'How to set up PB Tracker Sync', level: 2 })).toBeVisible();
+  await expect(page.getByText('Install the plugin')).toBeVisible();
+  await expect(page.getByText('Synced live')).toHaveCount(0);
+  await expect(page.getByText('Install the RuneLite plugin and confirm your in-game personal bests are ready to sync.')).toBeVisible();
+
+  await page.goto('/phase-two-modern-preview/player/Blitzen');
+  await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
+  await expect(page.getByText('Boss Records')).toBeVisible();
+  await expect(page.locator('.phase2-modern-boss-list').getByText('Zulrah')).toBeVisible();
 });
 
 test('shared URLs restore player and boss views', async ({ page }) => {

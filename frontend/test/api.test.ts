@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createApiClient } from '../src/lib/api';
+import { createApiClient, resolveApiBaseUrl } from '../src/lib/api';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -137,5 +137,23 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Too many requests' }, 429));
     const api = createApiClient('', fetchFn);
     await expect(api.submitFeedback('spam')).rejects.toThrow();
+  });
+});
+
+describe('resolveApiBaseUrl', () => {
+  it('honors an explicit configured base URL', () => {
+    expect(resolveApiBaseUrl('https://api.example.test', { hostname: 'osrs-pb-tracker-frontend-git-demo.vercel.app' })).toBe(
+      'https://api.example.test'
+    );
+  });
+
+  it('falls back to same-origin paths outside frontend-only Vercel previews', () => {
+    expect(resolveApiBaseUrl(undefined, { hostname: 'localhost' })).toBe('');
+  });
+
+  it('uses production API data for frontend Vercel previews without an env override', () => {
+    expect(resolveApiBaseUrl(undefined, { hostname: 'osrs-pb-tracker-frontend-git-demo.vercel.app' })).toBe(
+      'https://osrs-pb-tracker-backend.vercel.app'
+    );
   });
 });
