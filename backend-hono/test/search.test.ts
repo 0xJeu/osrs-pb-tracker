@@ -23,4 +23,13 @@ describe('GET /api/search', () => {
     const res = await app.request('/api/search?q=zzz');
     expect(await res.json()).toEqual([]);
   });
+
+  it('returns typed player and boss results from universal search', async () => {
+    await insertTestPlayerWithPb({ boss: 'phantom muspah', timeSeconds: 80, displayName: 'Muspah Fan' });
+    const res = await app.request('/api/search/all?q=muspah');
+    expect(await res.json()).toEqual([
+      { type: 'player', value: 'Muspah Fan' },
+      { type: 'boss', value: 'phantom muspah' },
+    ]);
+  });
 });

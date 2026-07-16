@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, players } from '../db/schema.js';
+import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
 import { isRedundantDuplicateKey, isTrackedBoss } from '../lib/trackedBosses.js';
 
@@ -40,6 +40,15 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
   }
 
   if (existing.displayName !== displayName) {
+    await db
+      .insert(playerNameHistory)
+      .values({
+        playerId: existing.id,
+        displayName: existing.displayName,
+        displayNameLower: existing.displayNameLower,
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing();
     await db
       .update(players)
       .set({ displayName, displayNameLower, updatedAt: new Date() })

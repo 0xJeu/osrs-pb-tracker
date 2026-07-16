@@ -20,6 +20,7 @@ const PET_ICON_FILES: Record<string, string> = {
   'alchemical hydra': 'Ikkle hydra.png',
   araxxor: 'Nid.png',
   amoxliatl: 'Moxi.png',
+  'phantom muspah': 'Muphin.png',
   leviathan: "Lil'viathan.png",
   nex: 'Nexling.png',
   vorkath: 'Vorki.png',

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
-import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { insertManyTestPlayersWithPbs, insertTestPlayerWithPb, truncateAll } from './helpers.js';
 
 describe('GET /api/leaderboard/:boss', () => {
   beforeEach(async () => {
@@ -24,6 +24,35 @@ describe('GET /api/leaderboard/:boss', () => {
   it('clamps limit to a maximum of 100', async () => {
     const res = await app.request('/api/leaderboard/zulrah?limit=99999');
     expect(res.status).toBe(200);
+  });
+
+  it('returns paginated rows with total and rank offset metadata', async () => {
+    await insertManyTestPlayersWithPbs(Array.from({ length: 55 }, (_, i) => ({
+        boss: 'zulrah',
+        timeSeconds: 80 + i,
+        displayName: `Player${i}`,
+        accountHash: `paged-acct-${i}`,
+    })));
+
+    const res = await app.request('/api/leaderboard/zulrah?limit=25&offset=25');
+    const json = await res.json();
+    expect(json).toMatchObject({ total: 55, limit: 25, offset: 25 });
+    expect(json.rows).toHaveLength(25);
+    expect(json.rows[0].displayName).toBe('Player25');
+  });
+
+  it('opens the page containing a highlighted player', async () => {
+    await insertManyTestPlayersWithPbs(Array.from({ length: 55 }, (_, i) => ({
+        boss: 'zulrah',
+        timeSeconds: 80 + i,
+        displayName: `Player${i}`,
+        accountHash: `highlight-page-acct-${i}`,
+    })));
+
+    const res = await app.request('/api/leaderboard/zulrah?limit=25&offset=0&highlight=Player52');
+    const json = await res.json();
+    expect(json.offset).toBe(50);
+    expect(json.rows.map((row: { displayName: string }) => row.displayName)).toContain('Player52');
   });
 
   it('extends past the default limit to include a highlighted player beyond it', async () => {

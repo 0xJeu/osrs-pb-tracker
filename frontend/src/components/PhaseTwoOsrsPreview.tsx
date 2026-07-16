@@ -1,14 +1,16 @@
 import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import '../theme-osrs-preview.css';
 import { api } from '../lib/api';
-import type { LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync } from '../lib/api';
+import type { LeaderboardPage, LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync, SearchSuggestion } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { formatDate, formatTime, titleCase } from '../lib/format';
 import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
 import { bossAccentColor } from '../lib/bossColors';
+import { bossBannerUrl } from '../lib/bossBanners';
 import { getRaidModes, groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
+import { AboutPage } from './AboutPage';
 import { FaqPage } from './FaqPage';
 import { RaidVariantPicker } from './RaidVariantPicker';
 import { SetupGuidePage } from './SetupGuidePage';
@@ -25,6 +27,7 @@ type PreviewView =
   | { name: 'home' }
   | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'player'; player: string }
+  | { name: 'about' }
   | { name: 'faq' }
   | { name: 'setup' };
 type BossRecordSort = 'rank' | 'name' | 'time';
@@ -35,6 +38,8 @@ type SortDirection = 'asc' | 'desc';
 // instead of nested under a sub-path - a bare deployment link lands
 // straight on it.
 const previewBase = '';
+const LEADERBOARD_PAGE_SIZE = 50;
+const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 const preferredBosses = [
   'chambers of xeric - challenge mode - fastest overall (3 players)',
   'chambers of xeric',
@@ -46,17 +51,6 @@ const preferredBosses = [
 // suffixes, dashes) can't be hardcoded reliably.
 const TOP_BOSS_BASES = ['theatre of blood', 'chambers of xeric', 'tombs of amascut', 'inferno', 'vorkath'];
 
-// Featured artwork tiles, per RuneDan's INTEGRATION.md asset map. Raid bases
-// resolve through getRaidModes (same as the boss combobox's "choose a raid"
-// drill-down); non-raid bosses resolve by matching the tracked boss list.
-const FEATURED_ARENAS = [
-  { base: 'theatre of blood', label: 'Theatre of Blood', meta: 'Raid - Entry / Normal / Hard', img: 'Theatre_of_Blood_artwork.jpg', big: true },
-  { base: 'inferno', label: 'The Inferno', meta: 'Solo wave survival', img: 'TzKal-Zuk_artwork.jpg', big: false },
-  { base: 'chambers of xeric', label: 'Chambers of Xeric', meta: 'Raid - Solo to 24+', img: 'Chambers_of_Xeric_artwork.jpg', big: false },
-  { base: 'tombs of amascut', label: 'Tombs of Amascut', meta: 'Raid - Entry / Normal / Expert', img: 'Tombs_of_Amascut_%281%29.jpg', big: false },
-  { base: 'fortis colosseum', label: 'Fortis Colosseum', meta: 'Solo wave survival', img: 'Fortis_Colosseum_-_colossi_concept_art.jpg', big: false },
-] as const;
-
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();
   return lower.startsWith('the ') ? lower.slice(4) : lower;
@@ -64,6 +58,7 @@ function normalize(boss: string): string {
 
 function viewFromPreviewPath(): PreviewView {
   const rest = window.location.pathname.slice(previewBase.length);
+  if (rest === '/about') return { name: 'about' };
   if (rest === '/faq') return { name: 'faq' };
   if (rest === '/setup') return { name: 'setup' };
   const playerMatch = rest.match(/^\/player\/(.+)$/);
@@ -130,11 +125,12 @@ export function PhaseTwoOsrsPreview() {
   const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'loading' });
   const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'loading' });
   const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'loading' });
-  const [leaderboard, setLeaderboard] = useState<LoadState<LeaderboardRow[]>>({ s: 'loading' });
+  const [leaderboard, setLeaderboard] = useState<LoadState<LeaderboardPage>>({ s: 'loading' });
+  const [leaderboardOffset, setLeaderboardOffset] = useState(0);
   const [topBosses, setTopBosses] = useState<LoadState<Array<{ base: string; label: string; key: string; row?: LeaderboardRow }>>>({ s: 'loading' });
   const [selectedBoss, setSelectedBoss] = useState('');
   const [playerQuery, setPlayerQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
 
   useEffect(() => {
@@ -187,21 +183,27 @@ export function PhaseTwoOsrsPreview() {
     if (view.name === 'boss' && view.boss) setSelectedBoss(view.boss);
   }, [view]);
 
+  useEffect(() => {
+    setLeaderboardOffset(0);
+  }, [selectedBoss]);
+
   const highlight = view.name === 'boss' ? view.highlight : undefined;
 
   useEffect(() => {
     if (!selectedBoss) return;
     let alive = true;
     setLeaderboard({ s: 'loading' });
-    api.getLeaderboard(selectedBoss, 25, highlight).then((data) => alive && setLeaderboard({ s: 'loaded', data })).catch(() => alive && setLeaderboard({ s: 'error' }));
+    api.getLeaderboardPage(selectedBoss, LEADERBOARD_PAGE_SIZE, leaderboardOffset, highlight)
+      .then((data) => alive && setLeaderboard({ s: 'loaded', data }))
+      .catch(() => alive && setLeaderboard({ s: 'error' }));
     return () => { alive = false; };
-  }, [selectedBoss, highlight]);
+  }, [selectedBoss, highlight, leaderboardOffset]);
 
   useEffect(() => {
     const query = playerQuery.trim();
     if (query.length < 2) { setSuggestions([]); return; }
     const timer = window.setTimeout(() => {
-      api.search(query).then(setSuggestions).catch(() => setSuggestions([]));
+      api.searchAll(query).then(setSuggestions).catch(() => setSuggestions([]));
     }, 200);
     return () => window.clearTimeout(timer);
   }, [playerQuery]);
@@ -211,7 +213,12 @@ export function PhaseTwoOsrsPreview() {
     const trimmed = view.player.trim();
     setProfileState({ s: 'loading', name: trimmed });
     api.lookupPlayer(trimmed).then((result) => {
-      if (result.kind === 'player') setProfileState({ s: 'loaded', player: result.player });
+      if (result.kind === 'player') {
+        setProfileState({ s: 'loaded', player: result.player });
+        if (result.player.displayName.toLowerCase() !== trimmed.toLowerCase()) {
+          window.history.replaceState({}, '', `${previewBase}/player/${encodeURIComponent(result.player.displayName)}`);
+        }
+      }
       else if (result.kind === 'ambiguous') setProfileState({ s: 'ambiguous', name: trimmed, count: result.matches.length });
       else setProfileState({ s: 'notFound', name: trimmed });
     }).catch(() => setProfileState({ s: 'error', name: trimmed }));
@@ -223,6 +230,8 @@ export function PhaseTwoOsrsPreview() {
         ? `${previewBase}/player/${encodeURIComponent(next.player)}`
         : next.name === 'boss'
           ? `${previewBase}/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
+          : next.name === 'about'
+            ? `${previewBase}/about`
           : next.name === 'faq'
             ? `${previewBase}/faq`
           : next.name === 'setup'
@@ -246,10 +255,14 @@ export function PhaseTwoOsrsPreview() {
 
   const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    lookupPlayer(playerQuery);
+    const exactBoss = suggestions.find(
+      (suggestion) => suggestion.type === 'boss' && normalize(suggestion.value) === normalize(playerQuery)
+    );
+    if (exactBoss) goToBoss(exactBoss.value);
+    else lookupPlayer(playerQuery);
   };
 
-  const rows = useMemo(() => (isLoaded(leaderboard) ? leaderboard.data : []), [leaderboard]);
+  const rows = useMemo(() => (isLoaded(leaderboard) ? leaderboard.data.rows : []), [leaderboard]);
   const titleParts = bossTitleParts(selectedBoss);
   // Only tint the page while actually looking at a boss's leaderboard - Home
   // and player pages stay neutral so the accent reads as "this page is about
@@ -278,6 +291,9 @@ export function PhaseTwoOsrsPreview() {
             <button type="button" className={view.name === 'faq' ? 'active' : undefined} onClick={() => navigate({ name: 'faq' })}>
               FAQ
             </button>
+            <button type="button" className={view.name === 'about' ? 'active' : undefined} onClick={() => navigate({ name: 'about' })}>
+              About
+            </button>
             <button
               type="button"
               className={view.name === 'boss' ? 'active' : undefined}
@@ -295,7 +311,6 @@ export function PhaseTwoOsrsPreview() {
             stats={stats}
             recentSyncs={recentSyncs}
             topBosses={topBosses}
-            bosses={bosses}
             playerQuery={playerQuery}
             setPlayerQuery={setPlayerQuery}
             suggestions={suggestions}
@@ -313,18 +328,23 @@ export function PhaseTwoOsrsPreview() {
             goToBoss={goToBoss}
             navigate={navigate}
             leaderboard={leaderboard}
+            setLeaderboardOffset={setLeaderboardOffset}
             rows={rows}
             lookupPlayer={lookupPlayer}
           />
         )}
         {view.name === 'player' && <PlayerView state={profileState} navigate={navigate} />}
+        {view.name === 'about' && <AboutPage />}
         {view.name === 'faq' && <FaqPage />}
         {view.name === 'setup' && <SetupGuidePage />}
       </div>
 
       <div className="pbt-footer">
         <div className="pbt-footer-inner">
-          Phase 2 OSRS-theme spike — real live data, hotlinked font/wiki assets, not production-ready.
+          <span>PB Tracker by Zenyte Labs — community boss personal-best leaderboards.</span>
+          {DONATE_URL && (
+            <a className="pbt-donate" href={DONATE_URL} target="_blank" rel="noreferrer">Donate</a>
+          )}
         </div>
       </div>
     </div>
@@ -335,7 +355,6 @@ function HomeView({
   stats,
   recentSyncs,
   topBosses,
-  bosses,
   playerQuery,
   setPlayerQuery,
   suggestions,
@@ -346,20 +365,13 @@ function HomeView({
   stats: LoadState<QuickStats>;
   recentSyncs: LoadState<RecentSync[]>;
   topBosses: LoadState<Array<{ base: string; label: string; key: string; row?: LeaderboardRow }>>;
-  bosses: LoadState<string[]>;
   playerQuery: string;
   setPlayerQuery: (value: string) => void;
-  suggestions: string[];
+  suggestions: SearchSuggestion[];
   onPlayerSubmit: (event: FormEvent<HTMLFormElement>) => void;
   lookupPlayer: (name: string) => void;
   goToBoss: (boss: string) => void;
 }) {
-  const selectArena = (base: string) => {
-    if (!isLoaded(bosses)) return;
-    const key = resolveBossKey(bosses.data, base);
-    if (key) goToBoss(key);
-  };
-
   return (
     <>
       <div className="pbt-section" style={{ paddingTop: 56 }}>
@@ -367,14 +379,15 @@ function HomeView({
           <span>Gamewide personal-best leaderboards</span>
           <span className="rule" />
         </div>
-        <h1 className="pbt-display pbt-h1">Who holds the record?</h1>
+        <h1 className="pbt-display pbt-h1">Find your next personal best.</h1>
 
         <form onSubmit={onPlayerSubmit} style={{ marginTop: 36 }}>
           <div className="pbt-searchband">
             <input
               value={playerQuery}
               onChange={(e) => setPlayerQuery(e.target.value)}
-              placeholder="Look up a player, e.g. Blitzen"
+              placeholder="Search players or bosses"
+              aria-label="Search players or bosses"
               autoComplete="off"
             />
             <button type="submit">Search</button>
@@ -382,52 +395,25 @@ function HomeView({
         </form>
         {suggestions.length > 0 && (
           <div className="pbt-suggestions">
-            {suggestions.slice(0, 6).map((name) => (
-              <button key={name} type="button" onClick={() => lookupPlayer(name)}>{name}</button>
+            {suggestions.slice(0, 10).map((suggestion) => (
+              <button
+                key={`${suggestion.type}:${suggestion.value}`}
+                type="button"
+                onClick={() => suggestion.type === 'boss' ? goToBoss(suggestion.value) : lookupPlayer(suggestion.value)}
+              >
+                <span className="pbt-suggestion-type">{suggestion.type}</span>
+                {titleCase(suggestion.value)}
+              </button>
             ))}
           </div>
         )}
 
-        <div className="pbt-stats">
+        <div className="pbt-stats pbt-stats-single">
           <div className="pbt-stat">
             <span className="num">{isLoaded(stats) ? statValue(stats.data.trackedPlayers) : stats.s === 'error' ? '—' : '...'}</span>
             <div className="lbl">Tracked players</div>
             <span className="idx">01</span>
           </div>
-          <div className="pbt-stat">
-            <span className="num">{isLoaded(stats) ? statValue(stats.data.personalBestRecords) : stats.s === 'error' ? '—' : '...'}</span>
-            <div className="lbl">PB records</div>
-            <span className="idx">02</span>
-          </div>
-          <div className="pbt-stat">
-            <span className="num">{isLoaded(bosses) ? statValue(bosses.data.length) : '...'}</span>
-            <div className="lbl">Bosses & raid modes</div>
-            <span className="idx">03</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="pbt-section">
-        <div className="pbt-sec-head">
-          <h2 className="pbt-display pbt-h2">Featured</h2>
-          <div className="rule" />
-        </div>
-        <div className="pbt-arenas">
-          {FEATURED_ARENAS.map((arena, index) => (
-            <button
-              type="button"
-              key={arena.base}
-              className={`pbt-arena${arena.big ? ' big' : ''}`}
-              onClick={() => selectArena(arena.base)}
-            >
-              <span className="img" style={{ backgroundImage: `url('https://oldschool.runescape.wiki/images/${arena.img}')` }} />
-              <span className="idx">{String(index + 1).padStart(2, '0')}</span>
-              <span className="label">
-                <span className="aname">{arena.label}</span>
-                <span className="ameta">{arena.meta}</span>
-              </span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -470,7 +456,6 @@ function HomeView({
             {recentSyncs.data.map((sync, index) => (
               <button type="button" className="pbt-row" key={sync.id} onClick={() => lookupPlayer(sync.displayName)}>
                 <span className="rank">{String(index + 1).padStart(2, '0')}</span>
-                <span />
                 <span className="name">{sync.displayName}</span>
                 <span className="time">{sync.pbCount} PBs</span>
                 <span className="when">{formatDate(sync.updatedAt)}</span>
@@ -491,6 +476,7 @@ function BossView({
   goToBoss,
   navigate,
   leaderboard,
+  setLeaderboardOffset,
   rows,
   lookupPlayer,
 }: {
@@ -500,18 +486,20 @@ function BossView({
   highlight?: string;
   goToBoss: (boss: string) => void;
   navigate: (view: PreviewView) => void;
-  leaderboard: LoadState<LeaderboardRow[]>;
+  leaderboard: LoadState<LeaderboardPage>;
+  setLeaderboardOffset: (offset: number) => void;
   rows: LeaderboardRow[];
   lookupPlayer: (name: string) => void;
 }) {
   const [leaderboardSort, setLeaderboardSort] = useState<BossRecordSort>('rank');
   const [leaderboardDirection, setLeaderboardDirection] = useState<SortDirection>('asc');
+  const page = isLoaded(leaderboard) ? leaderboard.data : undefined;
   const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
   const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
   const highlightLower = highlight?.toLowerCase();
   const highlightRowRef = useRef<HTMLButtonElement | null>(null);
   const sortedRows = useMemo(() => {
-    const rankedRows = rows.map((row, index) => ({ row, rank: index + 1 }));
+    const rankedRows = rows.map((row, index) => ({ row, rank: (page?.offset ?? 0) + index + 1 }));
     const direction = leaderboardDirection === 'asc' ? 1 : -1;
     return rankedRows.sort((a, b) => {
       const comparison = leaderboardSort === 'name'
@@ -521,7 +509,7 @@ function BossView({
           : a.rank - b.rank;
       return comparison * direction || a.rank - b.rank;
     });
-  }, [rows, leaderboardSort, leaderboardDirection]);
+  }, [rows, leaderboardSort, leaderboardDirection, page?.offset]);
 
   const chooseLeaderboardSort = (next: BossRecordSort) => {
     if (next === leaderboardSort) {
@@ -551,13 +539,14 @@ function BossView({
 
   return (
     <div className="pbt-section" style={{ paddingTop: 40 }}>
-      <div className="pbt-crumbs">
-        <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / Leaderboards
-      </div>
-
-      <div className="pbt-sec-head">
+      <div
+        className="pbt-banner pbt-boss-banner"
+        style={bossBannerUrl(selectedBoss) ? ({ '--pbt-banner': `url("${bossBannerUrl(selectedBoss)}")` } as CSSProperties) : undefined}
+      >
+        <div className="pbt-crumbs">
+          <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / Leaderboards
+        </div>
         <h2 className="pbt-display pbt-h2">{titleParts.primary}</h2>
-        <div className="rule" />
         {titleParts.secondary && <span className="meta">{titleParts.secondary}</span>}
       </div>
 
@@ -607,14 +596,16 @@ function BossView({
                 ref={isHighlighted ? highlightRowRef : undefined}
                 onClick={() => lookupPlayer(row.displayName)}
               >
-                <span className={`rank${rank <= 3 ? ` podium rank-${rank}` : ''}`}>{String(rank).padStart(2, '0')}</span>
+                <span className={`rank${rank <= 3 ? ` podium rank-${rank}` : ''}`}>
+                  {String(rank).padStart(2, '0')}
+                </span>
                 <span className="name">
                   {row.displayName}
                   {isHighlighted && <span className="pbt-tag">Here</span>}
                 </span>
                 <span className="time">
                   {formatTime(row.timeSeconds)}
-                  {fastest !== undefined && row.timeSeconds !== fastest && (
+                  {page?.offset === 0 && fastest !== undefined && row.timeSeconds !== fastest && (
                     <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>
                       +{formatTime(row.timeSeconds - fastest)}
                     </span>
@@ -625,6 +616,27 @@ function BossView({
             );
           })}
         </div>
+      )}
+      {page && page.total > page.limit && (
+        <nav className="pbt-pagination" aria-label="Leaderboard pages">
+          <button
+            type="button"
+            disabled={page.offset === 0}
+            onClick={() => setLeaderboardOffset(Math.max(0, page.offset - page.limit))}
+          >
+            Previous
+          </button>
+          <span>
+            {page.offset + 1}–{Math.min(page.offset + page.rows.length, page.total)} of {page.total}
+          </span>
+          <button
+            type="button"
+            disabled={page.offset + page.limit >= page.total}
+            onClick={() => setLeaderboardOffset(page.offset + page.limit)}
+          >
+            Next
+          </button>
+        </nav>
       )}
     </div>
   );
@@ -727,7 +739,6 @@ function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: 
           <div className="pbt-rows">
             <div className="pbt-thead">
               <span>{sortLabel('rank', 'Rank')}</span>
-              <span />
               <span>{sortLabel('name', 'Boss')}</span>
               <span>{sortLabel('time', 'Time')}</span>
               <span className="when">Synced</span>
@@ -747,7 +758,6 @@ function PbRow({ pb, onBossClick }: { pb: PbEntry; onBossClick: (boss: string) =
   return (
     <button type="button" className="pbt-row" onClick={() => onBossClick(pb.boss)}>
       <span className="rank">#{pb.rank}</span>
-      <PetIcon boss={pb.boss} size="sm" />
       <span className="name">{titleCase(pb.boss)}</span>
       <span className="time">{formatTime(pb.timeSeconds)}</span>
       <span className="when">{formatDate(pb.updatedAt)}</span>
@@ -773,7 +783,6 @@ function RaidGroupRows({ group, onBossClick }: { group: PlayerRaidGroup; onBossC
         }}
       >
         <span className="rank">#{group.summary.rank}</span>
-        <PetIcon boss={group.summary.key} size="sm" />
         <span className="bname">
           <button
             type="button"
@@ -798,7 +807,6 @@ function RaidGroupRows({ group, onBossClick }: { group: PlayerRaidGroup; onBossC
         group.variants.map((variant) => (
           <button type="button" className="pbt-sub" key={variant.key} onClick={() => onBossClick(variant.key)}>
             <span className="rank">#{variant.rank}</span>
-            <span />
             <span className="variant">{variant.label}</span>
             <span className="time">{formatTime(variant.timeSeconds)}</span>
             <span className="when">{formatDate(variant.updatedAt)}</span>

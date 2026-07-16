@@ -2,7 +2,7 @@ import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, players } from '../db/schema.js';
+import { personalBests, playerNameHistory, players } from '../db/schema.js';
 
 const playersRoute = new Hono();
 
@@ -54,11 +54,22 @@ playersRoute.get('/by-id/:id', async (c) => {
 
 playersRoute.get('/:name', async (c) => {
   const nameLower = c.req.param('name').toLowerCase();
-  const rows = await db
+  const currentRows = await db
     .select()
     .from(players)
     .where(eq(players.displayNameLower, nameLower))
     .orderBy(desc(players.updatedAt));
+
+  const historicRows = await db
+    .select({ player: players })
+    .from(playerNameHistory)
+    .innerJoin(players, eq(players.id, playerNameHistory.playerId))
+    .where(eq(playerNameHistory.displayNameLower, nameLower))
+    .orderBy(desc(players.updatedAt));
+
+  const rows = Array.from(
+    new Map([...currentRows, ...historicRows.map((row) => row.player)].map((player) => [player.id, player])).values()
+  );
 
   if (rows.length === 0) {
     return c.json({ error: 'Player not found' }, 404);

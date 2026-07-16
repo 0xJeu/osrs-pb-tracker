@@ -43,6 +43,18 @@ export interface QuickStats {
   personalBestRecords: number;
 }
 
+export interface SearchSuggestion {
+  type: 'player' | 'boss';
+  value: string;
+}
+
+export interface LeaderboardPage {
+  rows: LeaderboardRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number) {
     super(`API error ${status}`);
@@ -85,6 +97,25 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     search(q: string): Promise<string[]> {
       return getJson(`/api/search?q=${encodeURIComponent(q)}`);
     },
+    async searchAll(q: string): Promise<SearchSuggestion[]> {
+      try {
+        return await getJson(`/api/search/all?q=${encodeURIComponent(q)}`);
+      } catch {
+        // Rolling-deploy fallback: keep the makeover usable while the
+        // currently deployed backend still exposes only the legacy routes.
+        const [playerNames, bosses] = await Promise.all([
+          getJson<string[]>(`/api/search?q=${encodeURIComponent(q)}`).catch(() => []),
+          getJson<string[]>('/api/bosses').catch(() => []),
+        ]);
+        const normalizedQuery = q.trim().toLowerCase();
+        return [
+          ...playerNames.map((value) => ({ type: 'player' as const, value })),
+          ...bosses
+            .filter((value) => value.toLowerCase().includes(normalizedQuery))
+            .map((value) => ({ type: 'boss' as const, value })),
+        ];
+      }
+    },
     async getBosses(): Promise<string[]> {
       const bosses = await getJson<string[]>('/api/bosses');
       return bosses.filter(isTrackedBoss);
@@ -92,6 +123,14 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     getLeaderboard(boss: string, limit = 25, highlight?: string): Promise<LeaderboardRow[]> {
       const highlightParam = highlight ? `&highlight=${encodeURIComponent(highlight)}` : '';
       return getJson(`/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}${highlightParam}`);
+    },
+    async getLeaderboardPage(boss: string, limit = 50, offset = 0, highlight?: string): Promise<LeaderboardPage> {
+      const highlightParam = highlight ? `&highlight=${encodeURIComponent(highlight)}` : '';
+      const data = await getJson<LeaderboardPage | LeaderboardRow[]>(
+        `/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}&offset=${offset}${highlightParam}`
+      );
+      if (Array.isArray(data)) return { rows: data, total: data.length, limit, offset: 0 };
+      return data;
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       return getJson(`/api/recent-syncs?limit=${limit}`);

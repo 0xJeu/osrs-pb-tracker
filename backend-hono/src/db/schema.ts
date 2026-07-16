@@ -15,6 +15,23 @@ export const players = pgTable(
   })
 );
 
+export const playerNameHistory = pgTable(
+  'player_name_history',
+  {
+    id: serial('id').primaryKey(),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    displayName: text('display_name').notNull(),
+    displayNameLower: text('display_name_lower').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    playerNameUnique: unique().on(table.playerId, table.displayNameLower),
+    nameLowerIdx: index('idx_player_name_history_lower').on(table.displayNameLower),
+  })
+);
+
 export const personalBests = pgTable(
   'personal_bests',
   {

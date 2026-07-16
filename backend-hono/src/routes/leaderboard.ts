@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
@@ -14,6 +14,10 @@ leaderboard.get('/:boss', async (c) => {
   const boss = c.req.param('boss').toLowerCase();
   const limitParam = Number(c.req.query('limit'));
   const limit = Math.min(Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 25, 100);
+  const offsetRaw = c.req.query('offset');
+  const offsetParam = Number(offsetRaw);
+  let offset = Math.max(Number.isFinite(offsetParam) ? Math.floor(offsetParam) : 0, 0);
+  const paged = offsetRaw !== undefined;
   const highlight = c.req.query('highlight');
 
   const orderedQuery = db
@@ -26,6 +30,23 @@ leaderboard.get('/:boss', async (c) => {
     .innerJoin(players, eq(players.id, personalBests.playerId))
     .where(eq(personalBests.boss, boss))
     .orderBy(asc(personalBests.timeSeconds));
+
+  if (paged) {
+    const [totalRow] = await db
+      .select({ value: count(personalBests.id) })
+      .from(personalBests)
+      .where(eq(personalBests.boss, boss));
+    const total = Number(totalRow?.value ?? 0);
+
+    if (highlight) {
+      const all = await orderedQuery.limit(MAX_HIGHLIGHT_ROWS);
+      const rank = all.findIndex((row) => row.displayName.toLowerCase() === highlight.toLowerCase());
+      if (rank !== -1) offset = Math.floor(rank / limit) * limit;
+    }
+
+    const rows = await orderedQuery.limit(limit).offset(offset);
+    return c.json({ rows, total, limit, offset });
+  }
 
   if (highlight) {
     // Need every row up to the highlighted player's rank to know how far

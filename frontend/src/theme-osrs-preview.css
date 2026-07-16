@@ -128,24 +128,29 @@
 .pbt-suggestions { max-width: 720px; border: 1px solid var(--pbt-line-soft); border-top: none; background: rgba(0,0,0,.7); }
 .pbt-suggestions button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--pbt-yellow); font-family: var(--pbt-font); font-size: 15px; padding: 10px 22px; cursor: pointer; text-shadow: var(--pbt-shadow); }
 .pbt-suggestions button:hover { background: var(--pbt-bg-2); }
+.pbt-suggestion-type {
+  display: inline-block; min-width: 58px; margin-right: 12px; color: var(--pbt-orange);
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+}
 
 .pbt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--pbt-line-soft); border: 1px solid var(--pbt-line-soft); margin-top: 40px; }
 .pbt-stat { background: var(--pbt-bg); padding: 32px 28px 28px; position: relative; }
 .pbt-stat .num { font-weight: 700; font-size: clamp(36px, 4vw, 56px); line-height: 1; }
 .pbt-stat .lbl { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; margin-top: 12px; }
 .pbt-stat .idx { position: absolute; top: 18px; right: 22px; font-size: 13px; }
+.pbt-stats-single { max-width: 360px; }
 
 .pbt-rows { border-top: 1px solid var(--pbt-line); }
-.pbt-thead { display: grid; grid-template-columns: 56px 48px 1fr auto auto; gap: 20px; padding: 12px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; align-items: center; }
+.pbt-thead { display: grid; grid-template-columns: 76px 1fr auto auto; gap: 20px; padding: 12px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; align-items: center; }
 .pbt-thead button { background: none; border: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; text-shadow: var(--pbt-shadow); padding: 0; }
 .pbt-thead .pbt-sort { border: 1px solid transparent; border-radius: 999px; padding: 4px 9px; margin: -5px -10px; }
 .pbt-thead .pbt-sort:hover { border-color: var(--pbt-orange); }
 .pbt-thead .pbt-sort.active { background: var(--pbt-orange); border-color: var(--pbt-orange); color: #080808; text-shadow: none; font-weight: 700; }
 .pbt-thead .when { text-align: right; min-width: 130px; }
-.pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 56px 1fr auto auto; }
+.pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 76px 1fr auto auto; }
 .pbt-row {
   display: grid; align-items: center; width: 100%;
-  grid-template-columns: 56px 48px 1fr auto auto; gap: 20px;
+  grid-template-columns: 76px 1fr auto auto; gap: 20px;
   padding: 16px 8px; border-bottom: 1px solid var(--pbt-line);
   cursor: pointer; transition: background .15s;
   background: none; border-left: none; border-right: none; border-top: none;
@@ -153,7 +158,7 @@
 }
 .pbt-row:hover { background: var(--pbt-bg-2); }
 .pbt-row .rank { font-size: 15px; }
-.pbt-row .rank.podium { font-weight: 700; text-shadow: 0 0 10px currentColor; }
+.pbt-row .rank.podium { font-weight: 700; }
 .pbt-row .rank.podium.rank-1 { color: #ffd84d; }
 .pbt-row .rank.podium.rank-2 { color: #dce4ec; }
 .pbt-row .rank.podium.rank-3 { color: #d99055; }
@@ -178,6 +183,8 @@
 .pbt-crumbs { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 22px; }
 .pbt-crumbs button { background: none; border: none; color: inherit; font: inherit; text-shadow: var(--pbt-shadow); cursor: pointer; padding: 0; text-transform: inherit; letter-spacing: inherit; }
 .pbt-titleline { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.pbt-boss-banner { margin-bottom: 24px; min-height: 150px; }
+.pbt-boss-banner .meta { display: block; margin-top: 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
 
 .pbt-panel-state { padding: 40px 8px; font-size: 15px; opacity: .7; }
 
@@ -220,7 +227,14 @@
 .pbt .setup-guide-screenshot-narrow { max-width: 320px; }
 
 .pbt-footer { border-top: 1px solid var(--pbt-line); margin-top: 100px; }
-.pbt-footer-inner { max-width: 1280px; margin: 0 auto; padding: 30px 40px 50px; font-size: 13px; opacity: .75; }
+.pbt-footer-inner { max-width: 1280px; margin: 0 auto; padding: 30px 40px 50px; font-size: 13px; opacity: .75; display: flex; justify-content: space-between; gap: 24px; align-items: center; }
+.pbt-donate { color: var(--pbt-yellow); border: 1px solid var(--pbt-orange); border-radius: 999px; padding: 8px 16px; text-decoration: none; opacity: 1; }
+.pbt-donate:hover { background: var(--pbt-fill); }
+
+.pbt-pagination { display: flex; justify-content: center; align-items: center; gap: 18px; padding-top: 28px; }
+.pbt-pagination button { color: var(--pbt-yellow); background: none; border: 1px solid var(--pbt-line); border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+.pbt-pagination button:hover:not(:disabled) { border-color: var(--pbt-orange); background: var(--pbt-fill); }
+.pbt-pagination button:disabled { opacity: .35; cursor: default; }
 
 /* ---- Numbered cards (top bosses) ---- */
 .pbt-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--pbt-line-soft); border: 1px solid var(--pbt-line-soft); }
@@ -235,36 +249,13 @@
 .pbt-card .btime { font-size: 20px; margin-top: 8px; text-shadow: var(--pbt-shadow); }
 .pbt-card .brank { font-size: 12px; margin-top: 4px; opacity: .75; }
 
-/* ---- Arena cards (featured raid/challenge artwork) ----
-   Horizontal scroll strip rather than a grid, so this section stays a
-   fixed, compact height regardless of how many tiles there are. */
-.pbt-arenas {
-  display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px;
-  scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--pbt-line) transparent;
-}
-.pbt-arenas::-webkit-scrollbar { height: 8px; }
-.pbt-arenas::-webkit-scrollbar-thumb { background: var(--pbt-line); border-radius: 999px; }
-.pbt-arena {
-  position: relative; overflow: hidden; cursor: pointer; border: 1px solid var(--pbt-line-soft); border-radius: 4px;
-  flex: 0 0 auto; width: 260px; aspect-ratio: 16 / 11; background: var(--pbt-bg-2); padding: 0;
-  font-family: var(--pbt-font); scroll-snap-align: start;
-}
-.pbt-arena.big { width: 340px; aspect-ratio: 16 / 9; }
-.pbt-arena .img { position: absolute; inset: 0; background-size: cover; background-position: center 30%; filter: saturate(.92) brightness(.82); transition: transform .35s ease, filter .25s ease; }
-.pbt-arena:hover .img { transform: scale(1.04); filter: saturate(1) brightness(.95); }
-.pbt-arena::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.05) 40%, rgba(0,0,0,.9) 100%); }
-.pbt-arena .label { position: absolute; left: 16px; bottom: 12px; z-index: 2; text-align: left; }
-.pbt-arena .label .aname { font-weight: 700; font-size: 19px; color: var(--pbt-yellow); text-shadow: var(--pbt-shadow); display: block; }
-.pbt-arena .label .ameta { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--pbt-yellow); text-shadow: var(--pbt-shadow); }
-.pbt-arena .idx { position: absolute; top: 10px; right: 14px; z-index: 2; font-size: 12px; color: var(--pbt-yellow); text-shadow: var(--pbt-shadow); }
-
 /* ---- Mode chips (Entry / Normal / Hard-Challenge-Expert) ---- */
 .pbt-modes { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .pbt-kind-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 
 /* ---- Expandable raid rows (player page) ---- */
 .pbt-brow {
-  display: grid; align-items: center; width: 100%; grid-template-columns: 56px 48px 1fr auto auto; gap: 20px;
+  display: grid; align-items: center; width: 100%; grid-template-columns: 76px 1fr auto auto; gap: 20px;
   padding: 14px 8px; border-bottom: 1px solid var(--pbt-line); transition: background .15s; cursor: pointer;
   background: none; border-left: none; border-right: none; border-top: none;
   font-family: var(--pbt-font); text-align: left; color: var(--pbt-yellow); text-shadow: var(--pbt-shadow);
@@ -279,13 +270,13 @@
 .pbt-brow .caret:hover { opacity: 1; }
 .pbt-brow.open .caret { transform: rotate(90deg); }
 .pbt-sub {
-  display: grid; grid-template-columns: 56px 48px 1fr auto auto; gap: 20px; align-items: center;
+  display: grid; grid-template-columns: 76px 1fr auto auto; gap: 20px; align-items: center;
   padding: 10px 8px; border-bottom: 1px solid var(--pbt-line-soft); background: rgba(255,152,31,.02);
   width: 100%; text-align: left; font-family: var(--pbt-font); color: var(--pbt-yellow); text-shadow: var(--pbt-shadow);
   border-left: none; border-right: none; border-top: none; cursor: pointer;
 }
 .pbt-sub:hover { background: var(--pbt-bg-2); }
-.pbt-sub .variant { grid-column: 3; font-size: 14px; padding-left: 12px; opacity: .85; }
+.pbt-sub .variant { grid-column: 2; font-size: 14px; padding-left: 12px; opacity: .85; }
 
 /* Boss combobox reskin, scoped under .pbt so it matches the rest of the page */
 .pbt .combobox-trigger {
@@ -325,29 +316,29 @@
 
 @media (max-width: 900px) {
   .pbt-page, .pbt-topbar-inner { padding-left: 20px; padding-right: 20px; }
-  .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 40px 40px 1fr auto; }
-  .pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 40px 1fr auto; }
+  .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 64px 1fr auto; }
+  .pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 64px 1fr auto; }
   .pbt-thead .when, .pbt-row .when, .pbt-brow .when, .pbt-sub .when { display: none; }
   .pbt-cards { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 640px) {
   .pbt-page, .pbt-topbar-inner { padding-left: 16px; padding-right: 16px; }
-  .pbt-topbar-inner { gap: 20px; padding-top: 16px; padding-bottom: 16px; }
+  .pbt-topbar-inner { gap: 12px; padding-top: 16px; padding-bottom: 16px; flex-wrap: wrap; }
   .pbt-topbar-rule { display: none; }
-  .pbt-nav { gap: 20px; }
+  .pbt-logo { width: 100%; }
+  .pbt-nav { width: 100%; gap: 12px 20px; flex-wrap: wrap; }
   .pbt-section { padding-top: 40px; }
   .pbt-searchband { flex-direction: column; }
   .pbt-searchband button { border-left: none; border-top: 1px solid var(--pbt-orange); padding: 14px; }
   .pbt-stats { grid-template-columns: 1fr; margin-top: 28px; }
   .pbt-sec-head { flex-wrap: wrap; gap: 12px; }
-  .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 32px 32px 1fr; gap: 12px; }
-  .pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 32px 1fr auto; }
+  .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 58px 1fr auto; gap: 12px; }
+  .pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 58px 1fr auto; }
   .pbt-row .rank, .pbt-brow .rank, .pbt-sub .rank { font-size: 13px; }
   .pbt-row .name, .pbt-brow .bname { font-size: 15px; }
   .pbt-cards { grid-template-columns: repeat(2, 1fr); }
   .pbt-card .pbt-pet { margin-bottom: 18px; }
-  .pbt-arena, .pbt-arena.big { width: 78vw; max-width: 320px; aspect-ratio: 16 / 9; }
   .pbt-modes, .pbt-kind-tabs { gap: 8px; }
   .pbt-chip { padding: 5px 11px; font-size: 13px; }
   .pbt-banner { padding: 36px 20px 24px; }
@@ -356,4 +347,5 @@
   .pbt .setup-guide { padding-top: 40px; }
   .pbt .setup-guide .faq-entry { padding: 22px 0 26px; }
   .pbt-h1 { font-size: clamp(32px, 12vw, 56px); }
+  .pbt-footer-inner { padding-left: 16px; padding-right: 16px; align-items: flex-start; flex-direction: column; }
 }

@@ -23,6 +23,7 @@ const BOSS_ACCENTS: Record<string, string> = {
   "phosani's nightmare": '#6a4c93',
   araxxor: '#8b2e2e',
   amoxliatl: '#3fa9c9',
+  'phantom muspah': '#69727d',
   'duke sucellus': '#6fa8bb',
   leviathan: '#1f6f6f',
   whisperer: '#4a3f7a',

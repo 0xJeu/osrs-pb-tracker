@@ -55,6 +55,19 @@ describe('POST /api/sync', () => {
     ]);
   });
 
+  it('keeps an old display name searchable after an authorized name change', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({ accountHash: 'rename-acct', displayName: 'Old Name', installSecret: secret, pbs: { Zulrah: 80 } });
+    await syncRequest({ accountHash: 'rename-acct', displayName: 'New Name', installSecret: secret, pbs: { Zulrah: 79 } });
+
+    const oldLookup = await app.request('/api/players/Old%20Name');
+    expect(oldLookup.status).toBe(200);
+    expect((await oldLookup.json()).displayName).toBe('New Name');
+
+    const search = await app.request('/api/search/all?q=old');
+    expect(await search.json()).toContainEqual({ type: 'player', value: 'New Name' });
+  });
+
   it('silently drops bosses with no official Jagex personal best', async () => {
     const res = await syncRequest({
       accountHash: 'acct-1',
