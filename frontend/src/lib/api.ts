@@ -51,6 +51,7 @@ export class ApiError extends Error {
 
 export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) {
   const base = baseUrl.replace(/\/+$/, '');
+  const searchCache = new Map<string, Promise<string[]>>();
 
   async function getJson<T>(path: string): Promise<T> {
     const res = await fetchFn(`${base}${path}`);
@@ -77,24 +78,47 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
 
   return {
     async lookupPlayer(name: string): Promise<PlayerLookup> {
-      return playerFrom(await fetchFn(`${base}/api/players/${encodeURIComponent(name)}`));
+      const canonicalName = name.trim().toLowerCase();
+      return playerFrom(await fetchFn(`${base}/api/players/${encodeURIComponent(canonicalName)}`));
     },
     async getPlayerById(id: number): Promise<PlayerLookup> {
       return playerFrom(await fetchFn(`${base}/api/players/by-id/${id}`));
     },
     search(q: string): Promise<string[]> {
-      return getJson(`/api/search?q=${encodeURIComponent(q)}`);
+      const canonicalQuery = q.trim().toLowerCase();
+      if (canonicalQuery.length < 2) {
+        return Promise.resolve([]);
+      }
+
+      const cached = searchCache.get(canonicalQuery);
+      if (cached) return cached;
+
+      const request = getJson<string[]>(`/api/search?q=${encodeURIComponent(canonicalQuery)}`);
+      searchCache.set(canonicalQuery, request);
+      void request.then(
+        () => searchCache.delete(canonicalQuery),
+        () => searchCache.delete(canonicalQuery)
+      );
+      return request;
     },
     async getBosses(): Promise<string[]> {
       const bosses = await getJson<string[]>('/api/bosses');
       return bosses.filter(isTrackedBoss);
     },
     getLeaderboard(boss: string, limit = 25, highlight?: string): Promise<LeaderboardRow[]> {
-      const highlightParam = highlight ? `&highlight=${encodeURIComponent(highlight)}` : '';
-      return getJson(`/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}${highlightParam}`);
+      const canonicalBoss = boss.trim().toLowerCase();
+      const canonicalLimit = Math.min(Math.max(Math.floor(limit) || 25, 1), 100);
+      const canonicalHighlight = highlight?.trim().toLowerCase();
+      const highlightParam = canonicalHighlight
+        ? `&highlight=${encodeURIComponent(canonicalHighlight)}`
+        : '';
+      return getJson(
+        `/api/leaderboard/${encodeURIComponent(canonicalBoss)}?limit=${canonicalLimit}${highlightParam}`
+      );
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
-      return getJson(`/api/recent-syncs?limit=${limit}`);
+      const canonicalLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), 25);
+      return getJson(`/api/recent-syncs?limit=${canonicalLimit}`);
     },
     getStats(): Promise<QuickStats> {
       return getJson('/api/stats');

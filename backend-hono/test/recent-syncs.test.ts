@@ -10,13 +10,14 @@ describe('GET /api/recent-syncs', () => {
   });
 
   it('returns an empty array when nothing is synced', async () => {
-    const res = await app.request('/api/recent-syncs');
+    const res = await app.request('/api/recent-syncs?limit=10');
 
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
     expect(res.headers.get('cdn-cache-control')).toBe(
-      'public, max-age=60, stale-while-revalidate=300'
+      'public, max-age=86400, stale-while-revalidate=604800'
     );
+    expect(res.headers.get('vercel-cache-tag')).toBe('recent-syncs');
     expect(await res.json()).toEqual([]);
   });
 
@@ -41,7 +42,7 @@ describe('GET /api/recent-syncs', () => {
       updatedAt: new Date('2026-07-05T12:01:00.000Z'),
     });
 
-    const res = await app.request('/api/recent-syncs');
+    const res = await app.request('/api/recent-syncs?limit=10');
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
@@ -85,5 +86,13 @@ describe('GET /api/recent-syncs', () => {
         pbCount: 1,
       },
     ]);
+  });
+
+  it('defaults and clamps limits without redirecting', async () => {
+    const missing = await app.request('/api/recent-syncs');
+    expect(missing.status).toBe(200);
+
+    const oversized = await app.request('/api/recent-syncs?limit=999');
+    expect(oversized.status).toBe(200);
   });
 });
