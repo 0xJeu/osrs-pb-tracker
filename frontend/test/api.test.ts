@@ -27,6 +27,7 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Player not found' }, 404));
     const api = createApiClient('', fetchFn);
     expect(await api.lookupPlayer('Nobody')).toEqual({ kind: 'notFound' });
+    expect(fetchFn).toHaveBeenCalledWith('/api/players/nobody');
   });
 
   it('maps an ambiguous response to its matches', async () => {
@@ -86,7 +87,87 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
     const api = createApiClient('', fetchFn);
     await api.getLeaderboard('zulrah', 25, 'Blitzen');
-    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=25&highlight=Blitzen');
+    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=25&highlight=blitzen');
+  });
+
+  it('canonicalizes and deduplicates concurrent player searches', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(['Blitzen']));
+    const api = createApiClient('', fetchFn);
+
+    const [first, second] = await Promise.all([api.search(' BlIt '), api.search('BLIT')]);
+    expect(first).toEqual(['Blitzen']);
+    expect(second).toEqual(['Blitzen']);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledWith('/api/search?q=blit');
+  });
+
+  it('does not request suggestions for fewer than two characters', async () => {
+    const fetchFn = vi.fn();
+    const api = createApiClient('', fetchFn);
+    expect(await api.search('a')).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('clamps leaderboard and recent-sync limits to canonical cache keys', async () => {
+    const fetchFn = vi.fn().mockImplementation(async () => jsonResponse([]));
+    const api = createApiClient('', fetchFn);
+
+    await api.getLeaderboard(' Zulrah ', 999);
+    await api.getRecentSyncs(999);
+
+    expect(fetchFn).toHaveBeenNthCalledWith(1, '/api/leaderboard/zulrah?limit=100');
+    expect(fetchFn).toHaveBeenNthCalledWith(2, '/api/recent-syncs?limit=25');
+  });
+
+  it('loads typed universal-search suggestions', async () => {
+    const suggestions = [{ type: 'boss', value: 'phantom muspah' }];
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(suggestions));
+    const api = createApiClient('', fetchFn);
+    expect(await api.searchAll('muspah')).toEqual(suggestions);
+    expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=muspah');
+  });
+
+  it('loads a paginated leaderboard page', async () => {
+    const page = { rows: [], total: 80, limit: 50, offset: 50 };
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(page));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getLeaderboardPage('zulrah', 50, 50, 'Blitzen')).toEqual(page);
+    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=50&offset=50&highlight=Blitzen');
+  });
+
+  it('accepts a legacy leaderboard array during a rolling backend deploy', async () => {
+    const rows = [{ displayName: 'Blitzen', timeSeconds: 80, updatedAt: '2026-07-04T18:00:00.000Z' }];
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(rows));
+    const api = createApiClient('', fetchFn);
+    expect(await api.getLeaderboardPage('zulrah', 50, 0)).toEqual({
+      rows,
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  it('falls back to legacy player and boss search when universal search is unavailable', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: 'Not found' }, 404))
+      .mockResolvedValueOnce(jsonResponse(['Blitzen']))
+      .mockResolvedValueOnce(jsonResponse(['phantom muspah', 'zulrah']));
+    const api = createApiClient('', fetchFn);
+    expect(await api.searchAll('muspah')).toEqual([
+      { type: 'player', value: 'Blitzen' },
+      { type: 'boss', value: 'phantom muspah' },
+    ]);
+  });
+
+  it('uses boss aliases in the legacy universal-search fallback', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: 'Not found' }, 404))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse(['tombs of amascut', 'zulrah']));
+    const api = createApiClient('', fetchFn);
+    expect(await api.searchAll('toa')).toEqual([
+      { type: 'boss', value: 'tombs of amascut' },
+    ]);
   });
 
   it('loads recent sync summaries with a clamped default limit', async () => {

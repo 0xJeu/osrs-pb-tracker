@@ -32,9 +32,7 @@ function buildRows(bosses: string[]): Row[] {
 }
 
 function buildFilteredRows(bosses: string[], filter: string): Row[] {
-  return bosses
-    .filter((b) => b.toLowerCase().includes(filter.toLowerCase()))
-    .map((b) => ({ type: 'option' as const, key: b, label: titleCase(b) }));
+  return buildRows(bosses.filter((boss) => boss.toLowerCase().includes(filter.toLowerCase())));
 }
 
 export function BossComboboxCollapsed({

@@ -9,12 +9,14 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "@neondatabase/serverless": "^0.10.0",
+    "@vercel/functions": "^3.7.5",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0"
   },

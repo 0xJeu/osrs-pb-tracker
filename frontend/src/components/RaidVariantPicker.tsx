@@ -20,6 +20,29 @@ export function RaidVariantPicker({
   const [kindIndex, setKindIndex] = useState(0);
   const kindGroup = kindGroups[kindIndex] ?? kindGroups[0];
 
+  const selectedVariant = kindGroups.flatMap((group) => group.variants).find((variant) => variant.key === selected);
+
+  const selectMode = (nextModeIndex: number) => {
+    const nextGroups = groupVariantsByKind(modes[nextModeIndex]?.variants ?? []);
+    const currentKind = kindGroup?.kind;
+    const nextKindIndex = Math.max(0, nextGroups.findIndex((group) => group.kind === currentKind));
+    const nextGroup = nextGroups[nextKindIndex] ?? nextGroups[0];
+    const nextVariant = nextGroup?.variants.find((variant) => variant.sizeLabel === selectedVariant?.sizeLabel)
+      ?? nextGroup?.variants[0];
+
+    setModeIndex(nextModeIndex);
+    setKindIndex(nextKindIndex);
+    if (nextVariant) onSelect(nextVariant.key);
+  };
+
+  const selectKind = (nextKindIndex: number) => {
+    const nextGroup = kindGroups[nextKindIndex];
+    const nextVariant = nextGroup?.variants.find((variant) => variant.sizeLabel === selectedVariant?.sizeLabel)
+      ?? nextGroup?.variants[0];
+    setKindIndex(nextKindIndex);
+    if (nextVariant) onSelect(nextVariant.key);
+  };
+
   useEffect(() => {
     if (!selected) return;
 
@@ -42,10 +65,7 @@ export function RaidVariantPicker({
               key={m.modeLabel}
               type="button"
               className={`raid-mode-tab${i === modeIndex ? ' active' : ''}`}
-              onClick={() => {
-                setModeIndex(i);
-                setKindIndex(0);
-              }}
+              onClick={() => selectMode(i)}
             >
               {m.modeLabel}
             </button>
@@ -59,7 +79,7 @@ export function RaidVariantPicker({
               key={kg.kind}
               type="button"
               className={`raid-kind-tab${i === kindIndex ? ' active' : ''}`}
-              onClick={() => setKindIndex(i)}
+              onClick={() => selectKind(i)}
             >
               {kg.kind}
             </button>

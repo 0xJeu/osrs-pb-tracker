@@ -20,7 +20,7 @@ export function SearchBar({
       return;
     }
     const q = value.trim();
-    if (!q) {
+    if (q.length < 2) {
       setSuggestions([]);
       return;
     }
