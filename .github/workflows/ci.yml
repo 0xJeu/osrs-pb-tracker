@@ -20,6 +20,9 @@ jobs:
           cache: npm
           cache-dependency-path: backend-hono/package-lock.json
       - run: npm ci
+      - run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
       - run: npm run typecheck
       - run: npm test
         env:
