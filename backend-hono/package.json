@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.node.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "vercel-build": "npm run db:migrate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
