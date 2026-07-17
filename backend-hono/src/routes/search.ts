@@ -1,7 +1,8 @@
-import { asc, eq, like } from 'drizzle-orm';
+import { asc, eq, like, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, playerNameHistory, players } from '../db/schema.js';
+import { bossSearchAliasTarget } from '../lib/bossAliases.js';
 
 const search = new Hono();
 
@@ -24,6 +25,7 @@ search.get('/', async (c) => {
 search.get('/all', async (c) => {
   const q = (c.req.query('q') ?? '').toLowerCase().trim();
   if (!q) return c.json([]);
+  const bossAliasTarget = bossSearchAliasTarget(q);
 
   const [currentPlayers, historicPlayers, bosses] = await Promise.all([
     db
@@ -42,7 +44,9 @@ search.get('/all', async (c) => {
     db
       .selectDistinct({ value: personalBests.boss })
       .from(personalBests)
-      .where(like(personalBests.boss, `%${q}%`))
+      .where(bossAliasTarget
+        ? or(like(personalBests.boss, `%${q}%`), like(personalBests.boss, `%${bossAliasTarget}%`))
+        : like(personalBests.boss, `%${q}%`))
       .orderBy(asc(personalBests.boss))
       .limit(8),
   ]);

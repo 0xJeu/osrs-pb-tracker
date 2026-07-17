@@ -1,4 +1,5 @@
 import { isTrackedBoss } from './trackedBosses';
+import { matchesBossSearch } from './bossAliases';
 
 export interface PbEntry {
   boss: string;
@@ -107,11 +108,10 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
           getJson<string[]>(`/api/search?q=${encodeURIComponent(q)}`).catch(() => []),
           getJson<string[]>('/api/bosses').catch(() => []),
         ]);
-        const normalizedQuery = q.trim().toLowerCase();
         return [
           ...playerNames.map((value) => ({ type: 'player' as const, value })),
           ...bosses
-            .filter((value) => value.toLowerCase().includes(normalizedQuery))
+            .filter((value) => matchesBossSearch(value, q))
             .map((value) => ({ type: 'boss' as const, value })),
         ];
       }

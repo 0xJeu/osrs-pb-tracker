@@ -129,6 +129,17 @@ describe('createApiClient', () => {
     ]);
   });
 
+  it('uses boss aliases in the legacy universal-search fallback', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: 'Not found' }, 404))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse(['tombs of amascut', 'zulrah']));
+    const api = createApiClient('', fetchFn);
+    expect(await api.searchAll('toa')).toEqual([
+      { type: 'boss', value: 'tombs of amascut' },
+    ]);
+  });
+
   it('loads recent sync summaries with a clamped default limit', async () => {
     const rows = [{ id: 5, displayName: 'ChampSide', updatedAt: '2026-07-05T19:35:04Z', pbCount: 24 }];
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(rows));

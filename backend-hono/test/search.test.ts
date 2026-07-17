@@ -32,4 +32,12 @@ describe('GET /api/search', () => {
       { type: 'boss', value: 'phantom muspah' },
     ]);
   });
+
+  it('resolves common boss aliases in universal search', async () => {
+    await insertTestPlayerWithPb({ boss: 'tombs of amascut - expert mode', timeSeconds: 900, displayName: 'Raider' });
+    const res = await app.request('/api/search/all?q=toa');
+    expect(await res.json()).toEqual([
+      { type: 'boss', value: 'tombs of amascut - expert mode' },
+    ]);
+  });
 });

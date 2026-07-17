@@ -7,6 +7,7 @@ import { formatDate, formatTime, titleCase } from '../lib/format';
 import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
 import { bossAccentColor } from '../lib/bossColors';
 import { bossBannerUrl } from '../lib/bossBanners';
+import { bossSearchAliasTarget } from '../lib/bossAliases';
 import { getRaidModes, groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
@@ -255,10 +256,13 @@ export function PhaseTwoOsrsPreview() {
 
   const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const aliasTarget = bossSearchAliasTarget(playerQuery);
+    const aliasBoss = aliasTarget && isLoaded(bosses) ? resolveBossKey(bosses.data, aliasTarget) : undefined;
     const exactBoss = suggestions.find(
       (suggestion) => suggestion.type === 'boss' && normalize(suggestion.value) === normalize(playerQuery)
     );
-    if (exactBoss) goToBoss(exactBoss.value);
+    if (aliasBoss) goToBoss(aliasBoss);
+    else if (exactBoss) goToBoss(exactBoss.value);
     else lookupPlayer(playerQuery);
   };
 

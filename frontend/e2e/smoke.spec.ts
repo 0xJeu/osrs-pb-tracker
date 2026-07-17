@@ -54,6 +54,20 @@ test('player search success renders the PB table', async ({ page }) => {
   await expect(page.getByText('1:20')).toBeVisible();
 });
 
+test('boss aliases navigate directly to the canonical leaderboard', async ({ page }) => {
+  await page.route('**/api/bosses', (route) => route.fulfill({ json: ['tombs of amascut', 'zulrah'] }));
+  await page.route('**/api/leaderboard/tombs%20of%20amascut**', (route) =>
+    route.fulfill({ json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 } })
+  );
+  await page.goto('/');
+
+  await page.getByLabel('Search players or bosses').fill('ToA');
+  await page.getByRole('button', { name: 'Search' }).click();
+
+  await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === '/boss/tombs of amascut');
+  await expect(page.getByRole('heading', { name: 'Tombs Of Amascut' })).toBeVisible();
+});
+
 test('unknown player shows the not-found state', async ({ page }) => {
   await page.route('**/api/players/Nobody', (route) =>
     route.fulfill({ status: 404, json: { error: 'Player not found' } })
