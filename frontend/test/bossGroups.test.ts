@@ -4,6 +4,7 @@ import {
   getRaidBases,
   getRaidModes,
   groupBosses,
+  groupedBaseForKey,
   groupPlayerRaidPbs,
   groupVariantsByKind,
   isGroupedVariant,
@@ -40,6 +41,12 @@ const ALL_KEYS = [
   'the nightmare - fastest overall (2 players)',
   'the nightmare - fastest overall (6+ players)',
   "phosani's nightmare",
+  "tzhaar-ket-rak's first challenge",
+  "tzhaar-ket-rak's second challenge",
+  "tzhaar-ket-rak's third challenge",
+  "tzhaar-ket-rak's fourth challenge",
+  "tzhaar-ket-rak's fifth challenge",
+  "tzhaar-ket-rak's sixth challenge",
 ];
 
 describe('categorize', () => {
@@ -176,6 +183,32 @@ describe('groupBosses', () => {
     // rather than being swept into The Nightmare's group.
     expect(bossesGroup?.items?.map((i) => i.key)).toEqual(["phosani's nightmare", 'zulrah']);
   });
+
+  it('collapses all six TzHaar-Ket-Rak challenges into one numbered picker', () => {
+    const keys = [
+      "tzhaar-ket-rak's sixth challenge",
+      "tzhaar-ket-rak's second challenge",
+      "tzhaar-ket-rak's first challenge",
+      "tzhaar-ket-rak's fifth challenge",
+      "tzhaar-ket-rak's fourth challenge",
+      "tzhaar-ket-rak's third challenge",
+    ];
+    const minigames = groupBosses(keys).find((group) => group.category === 'Minigames & Challenges');
+    expect(minigames?.items).toBeUndefined();
+    expect(minigames?.raidGroups).toEqual([{
+      heading: "TzHaar-Ket-Rak's Challenges",
+      variants: [
+        { key: "tzhaar-ket-rak's first challenge", label: '1' },
+        { key: "tzhaar-ket-rak's second challenge", label: '2' },
+        { key: "tzhaar-ket-rak's third challenge", label: '3' },
+        { key: "tzhaar-ket-rak's fourth challenge", label: '4' },
+        { key: "tzhaar-ket-rak's fifth challenge", label: '5' },
+        { key: "tzhaar-ket-rak's sixth challenge", label: '6' },
+      ],
+    }]);
+    expect(getRaidModes(keys, "tzhaar-ket-rak's challenges")[0].variants.map((variant) => variant.label)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(groupedBaseForKey(keys[0])).toBe("tzhaar-ket-rak's challenges");
+  });
 });
 
 describe('getRaidModes', () => {
@@ -237,9 +270,10 @@ describe('getRaidBases', () => {
 });
 
 describe('isGroupedVariant', () => {
-  it('is true for raid keys and The Nightmare, false for everything else', () => {
+  it('is true for raid keys, The Nightmare, and TzHaar challenges; false for everything else', () => {
     expect(isGroupedVariant('chambers of xeric - fastest overall (solo)')).toBe(true);
     expect(isGroupedVariant('the nightmare - fastest overall (solo)')).toBe(true);
+    expect(isGroupedVariant("tzhaar-ket-rak's sixth challenge")).toBe(true);
     expect(isGroupedVariant("phosani's nightmare")).toBe(false);
     expect(isGroupedVariant('zulrah')).toBe(false);
   });

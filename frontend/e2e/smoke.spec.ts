@@ -23,7 +23,9 @@ const recentSyncs = [
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/bosses', (route) => route.fulfill({ json: ['vorkath', 'zulrah'] }));
-  await page.route('**/api/search**', (route) => route.fulfill({ json: ['Blitzen'] }));
+  await page.route('**/api/search/all**', (route) => route.fulfill({
+    json: [{ type: 'player', value: 'Blitzen' }],
+  }));
   await page.route('**/api/recent-syncs**', (route) => route.fulfill({ json: recentSyncs }));
   await page.route('**/api/stats', (route) =>
     route.fulfill({ json: { trackedPlayers: 1284, personalBestRecords: 18492 } })
@@ -33,21 +35,18 @@ test.beforeEach(async ({ page }) => {
 test('initial load shows the search experience and recent syncs', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByLabel('Player name')).toBeVisible();
-  await expect(page.getByText('Search a player above')).toBeVisible();
-  const quickStats = page.getByRole('region', { name: 'Quick stats' });
-  await expect(quickStats.getByRole('heading', { name: 'Quick Stats' })).toBeVisible();
-  await expect(quickStats.getByText('1,284')).toBeVisible();
-  await expect(quickStats.getByText('18,492')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Recent Syncs' })).toBeVisible();
+  await expect(page.getByLabel('Search players or bosses')).toBeVisible();
+  await expect(page.getByText('1,284')).toBeVisible();
+  await expect(page.getByText('18,492')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Recent syncs' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Blitzen/ })).toBeVisible();
 });
 
 test('player search success renders the PB table', async ({ page }) => {
-  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
+  await page.route('**/api/players/blitzen', (route) => route.fulfill({ json: player }));
   await page.goto('/');
 
-  await page.getByLabel('Player name').fill('Blitzen');
+  await page.getByLabel('Search players or bosses').fill('Blitzen');
   await page.getByRole('button', { name: 'Search' }).click();
 
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
@@ -55,20 +54,44 @@ test('player search success renders the PB table', async ({ page }) => {
   await expect(page.getByText('1:20')).toBeVisible();
 });
 
+test('raid aliases show only mode choices before navigating to variants', async ({ page }) => {
+  const normalKey = 'theatre of blood - fastest overall (3 player)';
+  await page.route('**/api/bosses', (route) => route.fulfill({ json: [
+    'theatre of blood - entry - fastest overall (1 player entry mode)',
+    normalKey,
+    'theatre of blood - hard - fastest overall (4 player hard mode)',
+    'zulrah',
+  ] }));
+  await page.route('**/api/leaderboard/**', (route) =>
+    route.fulfill({ json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 } })
+  );
+  await page.goto('/');
+
+  await page.getByLabel('Search players or bosses').fill('ToB');
+  await expect(page.getByRole('button', { name: 'boss Theatre Of Blood — Entry' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'boss Theatre Of Blood — Normal' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'boss Theatre Of Blood — Hard' })).toBeVisible();
+  await expect(page.getByText(/Fastest Overall/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'boss Theatre Of Blood — Normal' }).click();
+
+  await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === `/boss/${normalKey}`);
+  await expect(page.getByRole('heading', { name: 'Theatre Of Blood' })).toBeVisible();
+});
+
 test('unknown player shows the not-found state', async ({ page }) => {
-  await page.route('**/api/players/Nobody', (route) =>
+  await page.route('**/api/players/nobody', (route) =>
     route.fulfill({ status: 404, json: { error: 'Player not found' } })
   );
   await page.goto('/');
 
-  await page.getByLabel('Player name').fill('Nobody');
+  await page.getByLabel('Search players or bosses').fill('Nobody');
   await page.getByRole('button', { name: 'Search' }).click();
 
-  await expect(page.getByText('No PB data found for')).toBeVisible();
+  await expect(page.getByText('No synced profile found for')).toBeVisible();
 });
 
-test('ambiguous names show the picker and resolve by id', async ({ page }) => {
-  await page.route('**/api/players/Blitzen', (route) =>
+test('ambiguous names show the matching-profile state', async ({ page }) => {
+  await page.route('**/api/players/blitzen', (route) =>
     route.fulfill({
       json: {
         ambiguous: true,
@@ -79,25 +102,21 @@ test('ambiguous names show the picker and resolve by id', async ({ page }) => {
       },
     })
   );
-  await page.route('**/api/players/by-id/1', (route) => route.fulfill({ json: player }));
-
   await page.goto('/player/Blitzen');
-  await expect(page.getByText('Multiple synced players')).toBeVisible();
-  await page.locator('.match-option').first().click();
-
-  await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
+  await expect(page.getByText('2 matching profiles found for')).toBeVisible();
 });
 
 test('boss leaderboard loads via the combobox', async ({ page }) => {
   await page.route('**/api/leaderboard/zulrah**', (route) =>
-    route.fulfill({ json: leaderboardRows })
+    route.fulfill({ json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 } })
   );
   await page.goto('/');
 
-  await page.getByRole('button', { name: /Select a boss/ }).click();
+  await page.getByRole('button', { name: 'Leaderboards' }).click();
+  await page.locator('.combobox-trigger').click();
   await page.getByRole('option', { name: 'Zulrah' }).click();
 
-  await expect(page.getByRole('heading', { name: /Zulrah - Top times/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Zulrah' })).toBeVisible();
   await expect(page.getByText('Fast')).toBeVisible();
 });
 
@@ -116,10 +135,13 @@ test('grouped boss picker opens raid variants and restores the selected mode fro
   const challengeKey = 'chambers of xeric - challenge mode - fastest overall (3 players)';
 
   await page.route('**/api/bosses', (route) => route.fulfill({ json: groupedBosses }));
-  await page.route('**/api/leaderboard/**', (route) => route.fulfill({ json: leaderboardRows }));
+  await page.route('**/api/leaderboard/**', (route) => route.fulfill({
+    json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 },
+  }));
 
   await page.goto('/');
-  await page.getByRole('button', { name: /Select a boss/ }).click();
+  await page.getByRole('button', { name: 'Leaderboards' }).click();
+  await page.locator('.combobox-trigger').click();
 
   await expect(page.getByText('Raids')).toBeVisible();
   await expect(page.getByText('Bosses')).toBeVisible();
@@ -137,13 +159,13 @@ test('grouped boss picker opens raid variants and restores the selected mode fro
   await page.locator('.raid-variant-button', { hasText: 'Overall' }).click();
 
   await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === '/boss/chambers of xeric');
-  await expect(page.getByRole('heading', { name: /Chambers Of Xeric - Top times/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Chambers Of Xeric' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Challenge Mode', exact: true }).click();
-  await page.getByRole('button', { name: 'Trio', exact: true }).click();
 
   await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === `/boss/${challengeKey}`);
-  await expect(page.getByRole('heading', { name: /Chambers Of Xeric - Challenge Mode - Fastest Overall/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Chambers Of Xeric' })).toBeVisible();
+  await expect(page.getByText('Challenge Mode - Fastest Overall (3 Players)', { exact: true })).toBeVisible();
 
   await page.reload();
 
@@ -153,7 +175,7 @@ test('grouped boss picker opens raid variants and restores the selected mode fro
 });
 
 test('recent sync rows navigate to player results', async ({ page }) => {
-  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
+  await page.route('**/api/players/blitzen', (route) => route.fulfill({ json: player }));
   await page.goto('/');
 
   await page.getByRole('button', { name: /Blitzen/ }).click();
@@ -163,15 +185,15 @@ test('recent sync rows navigate to player results', async ({ page }) => {
 });
 
 test('shared URLs restore player and boss views', async ({ page }) => {
-  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: player }));
+  await page.route('**/api/players/blitzen', (route) => route.fulfill({ json: player }));
   await page.goto('/player/Blitzen');
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
 
   await page.route('**/api/leaderboard/zulrah**', (route) =>
-    route.fulfill({ json: leaderboardRows })
+    route.fulfill({ json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 } })
   );
   await page.goto('/boss/zulrah');
-  await expect(page.getByRole('heading', { name: /Zulrah - Top times/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Zulrah' })).toBeVisible();
 });
 
 test('raid variants collapse into one expandable row on a player page', async ({ page }) => {
@@ -195,17 +217,17 @@ test('raid variants collapse into one expandable row on a player page', async ({
       },
     ],
   };
-  await page.route('**/api/players/Blitzen', (route) => route.fulfill({ json: raidPlayer }));
+  await page.route('**/api/players/blitzen', (route) => route.fulfill({ json: raidPlayer }));
   await page.goto('/player/Blitzen');
 
   await expect(page.getByRole('heading', { name: 'Blitzen' })).toBeVisible();
   // Two raid variants collapse to one summary row (the faster Trio time),
   // instead of two separate flat rows.
-  await expect(page.getByText('Chambers Of Xeric', { exact: true })).toBeVisible();
-  await expect(page.getByText('16:40 (Trio)')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Chambers Of Xeric/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /16:40.*Trio/ })).toBeVisible();
   await expect(page.getByText('Solo', { exact: true })).not.toBeVisible();
 
-  await page.locator('.group-toggle').click();
+  await page.getByRole('button', { name: 'Show all 2 variants', exact: true }).click();
 
   await expect(page.getByText('Solo', { exact: true })).toBeVisible();
   await expect(page.getByText('Trio', { exact: true })).toBeVisible();

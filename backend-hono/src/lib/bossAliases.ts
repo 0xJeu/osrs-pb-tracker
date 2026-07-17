@@ -1,0 +1,17 @@
+const BOSS_SEARCH_ALIASES: Record<string, string> = {
+  toa: 'tombs of amascut',
+  tob: 'theatre of blood',
+  cox: 'chambers of xeric',
+  cm: 'chambers of xeric - challenge mode',
+  'cox cm': 'chambers of xeric - challenge mode',
+  hmt: 'theatre of blood - hard',
+  'tob hm': 'theatre of blood - hard',
+};
+
+function normalizeAlias(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export function bossSearchAliasTarget(query: string): string | undefined {
+  return BOSS_SEARCH_ALIASES[normalizeAlias(query)];
+}

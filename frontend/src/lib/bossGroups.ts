@@ -12,6 +12,22 @@ const RAID_PREFIXES = ['chambers of xeric', 'theatre of blood', 'tombs of amascu
 // they stay in their normal category (Bosses) rather than becoming a Raid.
 const GROUPED_BOSS_PREFIXES = [...RAID_PREFIXES, 'the nightmare'];
 
+const TZHAAR_CHALLENGE_BASE = "tzhaar-ket-rak's challenges";
+const TZHAAR_CHALLENGE_HEADING = "TzHaar-Ket-Rak's Challenges";
+const TZHAAR_CHALLENGE_NUMBERS: Record<string, number> = {
+  first: 1,
+  second: 2,
+  third: 3,
+  fourth: 4,
+  fifth: 5,
+  sixth: 6,
+};
+
+function tzhaarChallengeNumber(key: string): number | undefined {
+  const match = normalize(key).match(/^tzhaar-ket-rak's (first|second|third|fourth|fifth|sixth) challenge$/);
+  return match ? TZHAAR_CHALLENGE_NUMBERS[match[1]] : undefined;
+}
+
 // The wiki's "Slayer bosses" set (Kraken, Cerberus, Abyssal Sire,
 // Thermonuclear Smoke Devil, Alchemical Hydra, Grotesque Guardians, Araxxor,
 // Shellbane Gryphon) are gated behind an active matching Slayer task. Skotizo
@@ -42,10 +58,6 @@ const MINIGAMES = [
   'fortis colosseum',
   'hallowed sepulchre',
   'shayzien basic agility course',
-  "tzhaar-ket-rak's first challenge",
-  "tzhaar-ket-rak's second challenge",
-  "tzhaar-ket-rak's third challenge",
-  "tzhaar-ket-rak's fourth challenge",
 ];
 
 // Curated so common OSRS bosses land in "Bosses" instead of the "Other"
@@ -141,11 +153,13 @@ function isRaid(key: string): boolean {
 // keeps its normal category (e.g. The Nightmare stays under "Bosses").
 export function isGroupedVariant(key: string): boolean {
   const lower = key.trim().toLowerCase();
-  return GROUPED_BOSS_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} -`));
+  return tzhaarChallengeNumber(key) !== undefined
+    || GROUPED_BOSS_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} -`));
 }
 
 export function categorize(bossKey: string): Category {
   if (isRaid(bossKey)) return 'Raids';
+  if (tzhaarChallengeNumber(bossKey) !== undefined) return 'Minigames & Challenges';
   if (matchesCurated(bossKey, SLAYER_MONSTERS)) return 'Slayer Monsters';
   if (matchesCurated(bossKey, MINIGAMES)) return 'Minigames & Challenges';
   if (matchesCurated(bossKey, KNOWN_BOSSES)) return 'Bosses';
@@ -167,6 +181,17 @@ interface RaidVariant {
 }
 
 function parseRaidVariant(bossKey: string): RaidVariant {
+  const challengeNumber = tzhaarChallengeNumber(bossKey);
+  if (challengeNumber !== undefined) {
+    return {
+      key: bossKey,
+      base: TZHAAR_CHALLENGE_BASE,
+      mode: '',
+      heading: TZHAAR_CHALLENGE_HEADING,
+      subLabel: String(challengeNumber),
+    };
+  }
+
   const segments = bossKey.trim().toLowerCase().split(' - ').map((s) => s.trim());
   const base = segments[0];
   const mode = segments.slice(1, -1).join(' - ');
@@ -445,11 +470,19 @@ export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]
 // "Normal" entry.
 export function getRaidModes(bosses: string[], base: string): RaidMode[] {
   const allGroups = groupBosses(bosses).flatMap((g) => g.raidGroups ?? []);
-  const baseLabel = titleCase(base);
+  const baseLabel = normalize(base) === TZHAAR_CHALLENGE_BASE ? TZHAAR_CHALLENGE_HEADING : titleCase(base);
   return allGroups
     .filter((g) => g.heading === baseLabel || g.heading.startsWith(`${baseLabel} - `))
     .map((g) => ({
       modeLabel: g.heading === baseLabel ? 'Normal' : g.heading.slice(baseLabel.length + 3),
       variants: g.variants,
     }));
+}
+
+// Returns the shared picker base for any grouped key. TzHaar challenges do
+// not share a literal key prefix, so the boss page cannot derive this by
+// splitting on " - " the way it can for raid variants.
+export function groupedBaseForKey(key: string): string {
+  if (tzhaarChallengeNumber(key) !== undefined) return TZHAAR_CHALLENGE_BASE;
+  return key.split(' - ')[0].trim().toLowerCase();
 }

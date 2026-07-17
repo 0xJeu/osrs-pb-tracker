@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, players } from '../db/schema.js';
+import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import {
   bossCacheTag,
   cacheTags,
@@ -71,6 +71,15 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
   let metadataChanged = false;
   const namesToInvalidate: string[] = [];
   if (existing.displayName !== displayName) {
+    await db
+      .insert(playerNameHistory)
+      .values({
+        playerId: existing.id,
+        displayName: existing.displayName,
+        displayNameLower: existing.displayNameLower,
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing();
     await db
       .update(players)
       .set({ displayName, displayNameLower, updatedAt: new Date() })
@@ -202,6 +211,7 @@ sync.post('/', async (c) => {
   if (changedBosses.length > 0) {
     invalidationTags.push(
       cacheTags.bossList,
+      cacheTags.search,
       cacheTags.stats,
       playerIdCacheTag(playerId),
       ...changedBosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)])

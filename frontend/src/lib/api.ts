@@ -1,4 +1,5 @@
 import { isTrackedBoss } from './trackedBosses';
+import { matchesBossSearch } from './bossAliases';
 
 export interface PbEntry {
   boss: string;
@@ -41,6 +42,19 @@ export interface RecentSync {
 export interface QuickStats {
   trackedPlayers: number;
   personalBestRecords: number;
+}
+
+export interface SearchSuggestion {
+  type: 'player' | 'boss';
+  value: string;
+  label?: string;
+}
+
+export interface LeaderboardPage {
+  rows: LeaderboardRow[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export class ApiError extends Error {
@@ -101,6 +115,24 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       );
       return request;
     },
+    async searchAll(q: string): Promise<SearchSuggestion[]> {
+      try {
+        return await getJson(`/api/search/all?q=${encodeURIComponent(q)}`);
+      } catch {
+        // Rolling-deploy fallback: keep the makeover usable while the
+        // currently deployed backend still exposes only the legacy routes.
+        const [playerNames, bosses] = await Promise.all([
+          getJson<string[]>(`/api/search?q=${encodeURIComponent(q)}`).catch(() => []),
+          getJson<string[]>('/api/bosses').catch(() => []),
+        ]);
+        return [
+          ...playerNames.map((value) => ({ type: 'player' as const, value })),
+          ...bosses
+            .filter((value) => matchesBossSearch(value, q))
+            .map((value) => ({ type: 'boss' as const, value })),
+        ];
+      }
+    },
     async getBosses(): Promise<string[]> {
       const bosses = await getJson<string[]>('/api/bosses');
       return bosses.filter(isTrackedBoss);
@@ -115,6 +147,14 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       return getJson(
         `/api/leaderboard/${encodeURIComponent(canonicalBoss)}?limit=${canonicalLimit}${highlightParam}`
       );
+    },
+    async getLeaderboardPage(boss: string, limit = 50, offset = 0, highlight?: string): Promise<LeaderboardPage> {
+      const highlightParam = highlight ? `&highlight=${encodeURIComponent(highlight)}` : '';
+      const data = await getJson<LeaderboardPage | LeaderboardRow[]>(
+        `/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}&offset=${offset}${highlightParam}`
+      );
+      if (Array.isArray(data)) return { rows: data, total: data.length, limit, offset: 0 };
+      return data;
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       const canonicalLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), 25);

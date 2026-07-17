@@ -2,7 +2,7 @@ import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, players } from '../db/schema.js';
+import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import {
   cachePolicies,
   playerIdCacheTag,
@@ -80,11 +80,22 @@ playersRoute.get('/by-id/:id', async (c) => {
 
 playersRoute.get('/:name', async (c) => {
   const nameLower = c.req.param('name').trim().toLowerCase();
-  const rows = await db
+  const currentRows = await db
     .select(publicPlayerColumns)
     .from(players)
     .where(eq(players.displayNameLower, nameLower))
     .orderBy(desc(players.updatedAt));
+
+  const historicRows = await db
+    .select(publicPlayerColumns)
+    .from(playerNameHistory)
+    .innerJoin(players, eq(players.id, playerNameHistory.playerId))
+    .where(eq(playerNameHistory.displayNameLower, nameLower))
+    .orderBy(desc(players.updatedAt));
+
+  const rows = Array.from(
+    new Map([...currentRows, ...historicRows].map((player) => [player.id, player])).values()
+  );
 
   if (rows.length === 0) {
     setSharedCache(c, cachePolicies.notFound, [playerNameCacheTag(nameLower)]);
