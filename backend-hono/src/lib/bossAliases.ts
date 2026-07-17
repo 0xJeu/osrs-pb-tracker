@@ -2,10 +2,10 @@ const BOSS_SEARCH_ALIASES: Record<string, string> = {
   toa: 'tombs of amascut',
   tob: 'theatre of blood',
   cox: 'chambers of xeric',
-  cm: 'chambers of xeric challenge mode',
-  'cox cm': 'chambers of xeric challenge mode',
-  hmt: 'theatre of blood hard mode',
-  'tob hm': 'theatre of blood hard mode',
+  cm: 'chambers of xeric - challenge mode',
+  'cox cm': 'chambers of xeric - challenge mode',
+  hmt: 'theatre of blood - hard',
+  'tob hm': 'theatre of blood - hard',
 };
 
 function normalizeAlias(value: string): string {

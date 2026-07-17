@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bossSearchAliasTarget, matchesBossSearch } from '../src/lib/bossAliases';
+import { bossSearchAlias, bossSearchAliasTarget, matchesBossSearch } from '../src/lib/bossAliases';
 
 describe('boss search aliases', () => {
   it('maps common raid abbreviations to canonical boss names', () => {
@@ -9,8 +9,9 @@ describe('boss search aliases', () => {
   });
 
   it('supports common hard and challenge mode abbreviations', () => {
-    expect(bossSearchAliasTarget('CoX CM')).toBe('chambers of xeric challenge mode');
-    expect(bossSearchAliasTarget('HMT')).toBe('theatre of blood hard mode');
+    expect(bossSearchAliasTarget('CoX CM')).toBe('chambers of xeric - challenge mode');
+    expect(bossSearchAliasTarget('HMT')).toBe('theatre of blood - hard');
+    expect(bossSearchAlias('HMT')?.modeLabel).toBe('Hard');
   });
 
   it('matches an alias against canonical synced boss keys', () => {

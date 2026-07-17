@@ -54,18 +54,28 @@ test('player search success renders the PB table', async ({ page }) => {
   await expect(page.getByText('1:20')).toBeVisible();
 });
 
-test('boss aliases navigate directly to the canonical leaderboard', async ({ page }) => {
-  await page.route('**/api/bosses', (route) => route.fulfill({ json: ['tombs of amascut', 'zulrah'] }));
-  await page.route('**/api/leaderboard/tombs%20of%20amascut**', (route) =>
+test('raid aliases show only mode choices before navigating to variants', async ({ page }) => {
+  const normalKey = 'theatre of blood - fastest overall (3 player)';
+  await page.route('**/api/bosses', (route) => route.fulfill({ json: [
+    'theatre of blood - entry - fastest overall (1 player entry mode)',
+    normalKey,
+    'theatre of blood - hard - fastest overall (4 player hard mode)',
+    'zulrah',
+  ] }));
+  await page.route('**/api/leaderboard/**', (route) =>
     route.fulfill({ json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 } })
   );
   await page.goto('/');
 
-  await page.getByLabel('Search players or bosses').fill('ToA');
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByLabel('Search players or bosses').fill('ToB');
+  await expect(page.getByRole('button', { name: 'boss Theatre Of Blood — Entry' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'boss Theatre Of Blood — Normal' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'boss Theatre Of Blood — Hard' })).toBeVisible();
+  await expect(page.getByText(/Fastest Overall/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'boss Theatre Of Blood — Normal' }).click();
 
-  await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === '/boss/tombs of amascut');
-  await expect(page.getByRole('heading', { name: 'Tombs Of Amascut' })).toBeVisible();
+  await expect(page).toHaveURL((url) => decodeURIComponent(url.pathname) === `/boss/${normalKey}`);
+  await expect(page.getByRole('heading', { name: 'Theatre Of Blood' })).toBeVisible();
 });
 
 test('unknown player shows the not-found state', async ({ page }) => {

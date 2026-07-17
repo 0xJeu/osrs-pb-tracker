@@ -47,6 +47,7 @@ export interface QuickStats {
 export interface SearchSuggestion {
   type: 'player' | 'boss';
   value: string;
+  label?: string;
 }
 
 export interface LeaderboardPage {

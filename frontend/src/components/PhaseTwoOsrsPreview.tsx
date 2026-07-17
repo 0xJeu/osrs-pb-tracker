@@ -7,7 +7,7 @@ import { formatDate, formatTime, titleCase } from '../lib/format';
 import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
 import { bossAccentColor } from '../lib/bossColors';
 import { bossBannerUrl } from '../lib/bossBanners';
-import { bossSearchAliasTarget } from '../lib/bossAliases';
+import { bossSearchAlias } from '../lib/bossAliases';
 import { getRaidModes, groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
@@ -108,6 +108,20 @@ function resolveBossKey(bosses: string[], base: string): string | undefined {
   return bosses.find((b) => normalize(b) === base || normalize(b).startsWith(base));
 }
 
+function compactAliasSuggestions(query: string, bosses: string[]): SearchSuggestion[] | undefined {
+  const alias = bossSearchAlias(query);
+  if (!alias) return undefined;
+  const modes = getRaidModes(bosses, alias.base)
+    .filter((mode) => !alias.modeLabel || mode.modeLabel === alias.modeLabel);
+  if (modes.length === 0) return undefined;
+  const raidLabel = titleCase(alias.base);
+  return modes.map((mode) => ({
+    type: 'boss',
+    value: mode.variants[0].key,
+    label: `${raidLabel} — ${mode.modeLabel}`,
+  }));
+}
+
 // Request a thumb ~2x the rendered box (32px sm / 64px lg boxes at 72% fit)
 // so icons stay crisp on retina displays without over-fetching.
 const PET_ICON_PIXEL_WIDTH: Record<'sm' | 'lg', number> = { sm: 64, lg: 128 };
@@ -203,11 +217,16 @@ export function PhaseTwoOsrsPreview() {
   useEffect(() => {
     const query = playerQuery.trim();
     if (query.length < 2) { setSuggestions([]); return; }
+    const compactSuggestions = isLoaded(bosses) ? compactAliasSuggestions(query, bosses.data) : undefined;
+    if (compactSuggestions) {
+      setSuggestions(compactSuggestions);
+      return;
+    }
     const timer = window.setTimeout(() => {
       api.searchAll(query).then(setSuggestions).catch(() => setSuggestions([]));
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [playerQuery]);
+  }, [playerQuery, bosses]);
 
   useEffect(() => {
     if (view.name !== 'player') return;
@@ -256,8 +275,9 @@ export function PhaseTwoOsrsPreview() {
 
   const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const aliasTarget = bossSearchAliasTarget(playerQuery);
-    const aliasBoss = aliasTarget && isLoaded(bosses) ? resolveBossKey(bosses.data, aliasTarget) : undefined;
+    const alias = bossSearchAlias(playerQuery);
+    const aliasSuggestions = alias && isLoaded(bosses) ? compactAliasSuggestions(playerQuery, bosses.data) : undefined;
+    const aliasBoss = aliasSuggestions?.[0]?.value;
     const exactBoss = suggestions.find(
       (suggestion) => suggestion.type === 'boss' && normalize(suggestion.value) === normalize(playerQuery)
     );
@@ -406,7 +426,7 @@ function HomeView({
                 onClick={() => suggestion.type === 'boss' ? goToBoss(suggestion.value) : lookupPlayer(suggestion.value)}
               >
                 <span className="pbt-suggestion-type">{suggestion.type}</span>
-                {titleCase(suggestion.value)}
+                {suggestion.label ?? titleCase(suggestion.value)}
               </button>
             ))}
           </div>
