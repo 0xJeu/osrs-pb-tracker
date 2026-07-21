@@ -21,6 +21,7 @@
     "api:smoke:staging": "tsx scripts/check-staging-api.ts",
     "recovery:test": "tsx scripts/recovery-admin.ts destructive-test",
     "recovery:staging": "tsx scripts/recovery-admin.ts seeded-staging",
+    "recovery:e2e:staging": "tsx scripts/check-install-recovery-e2e.ts",
     "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
   },
   "dependencies": {

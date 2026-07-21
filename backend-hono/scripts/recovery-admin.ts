@@ -19,31 +19,8 @@ const { assertDatabaseTarget } = await import('../src/db/targetGuard.js');
 await assertDatabaseTarget(role);
 
 if (command === 'list') {
-  const [{ desc }, { db }, { installRecoveryCandidates }] = await Promise.all([
-    import('drizzle-orm'),
-    import('../src/db/client.js'),
-    import('../src/db/schema.js'),
-  ]);
-  const candidates = await db
-    .select({
-      id: installRecoveryCandidates.id,
-      displayName: installRecoveryCandidates.displayName,
-      status: installRecoveryCandidates.status,
-      attemptCount: installRecoveryCandidates.attemptCount,
-      receivedCount: installRecoveryCandidates.receivedCount,
-      eligibleCount: installRecoveryCandidates.eligibleCount,
-      equalCount: installRecoveryCandidates.equalCount,
-      improvedCount: installRecoveryCandidates.improvedCount,
-      newCount: installRecoveryCandidates.newCount,
-      slowerCount: installRecoveryCandidates.slowerCount,
-      missingCount: installRecoveryCandidates.missingCount,
-      firstSeenAt: installRecoveryCandidates.firstSeenAt,
-      lastSeenAt: installRecoveryCandidates.lastSeenAt,
-      promotedAt: installRecoveryCandidates.promotedAt,
-      rejectedAt: installRecoveryCandidates.rejectedAt,
-    })
-    .from(installRecoveryCandidates)
-    .orderBy(desc(installRecoveryCandidates.lastSeenAt));
+  const { listSafeInstallRecoveryCandidates } = await import('../src/lib/installRecovery.js');
+  const candidates = await listSafeInstallRecoveryCandidates();
 
   console.table(candidates);
   process.exit(0);
@@ -65,9 +42,21 @@ if (!Number.isSafeInteger(candidateId) || candidateId <= 0 || !actor) {
 const { promoteInstallRecoveryCandidate, rejectInstallRecoveryCandidate } = await import(
   '../src/lib/installRecovery.js'
 );
-const result =
-  command === 'promote'
-    ? await promoteInstallRecoveryCandidate(candidateId, actor, reason)
-    : await rejectInstallRecoveryCandidate(candidateId, actor, reason);
-
-console.log(JSON.stringify({ command, ...result }, null, 2));
+if (command === 'promote') {
+  const result = await promoteInstallRecoveryCandidate(candidateId, actor, reason);
+  console.log(
+    JSON.stringify(
+      {
+        command,
+        candidateId: result.candidateId,
+        playerId: result.playerId,
+        changedPbCount: result.changedBosses.length,
+      },
+      null,
+      2
+    )
+  );
+} else {
+  const result = await rejectInstallRecoveryCandidate(candidateId, actor, reason);
+  console.log(JSON.stringify({ command, ...result }, null, 2));
+}

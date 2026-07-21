@@ -55,7 +55,8 @@ curl -X POST http://localhost:3000/api/sync \
 
 Never use a real player or production credential in the destructive test
 database. Inspect only safe candidate metadata (the command never prints
-credential hashes or PB payloads):
+credential hashes or PB payloads). Promotion output likewise reports only the
+number of changed PBs, not their names or times:
 
 ```bash
 npm run recovery:test -- list
@@ -74,6 +75,43 @@ player still has the incumbent credential captured with the candidate. It then
 replays the quarantined PBs using the normal faster-only rule. A contested
 candidate cannot be promoted by this first implementation; it can only be
 rejected pending a future explicit contested-recovery policy.
+
+### Full seeded-staging recovery verification
+
+The guarded E2E harness runs the entire operator recovery sequence through the
+real Hono sync route using the exact synthetic account `0xSteph Recovery E2E`:
+
+1. the incumbent credential creates the player and is accepted;
+2. a different credential is rejected and quarantined;
+3. the operator-safe metadata projection is verified;
+4. that exact recovery candidate is promoted;
+5. the promoted credential is accepted on its next sync; and
+6. the former incumbent is rejected without changing canonical PBs.
+
+It resets only the exact `staging-recovery-e2e-0xsteph` fixture before each
+run, leaves the final synthetic state available for manual inspection, and
+prints no install secrets, credential hashes, payloads, or payload digests.
+The database target guard checks Neon's server-reported project and branch IDs
+before any fixture write occurs.
+
+```bash
+npm run db:migrate:staging
+npm run recovery:e2e:staging -- --confirm
+npm run recovery:staging -- list
+```
+
+The final `list` is optional. It uses the same allowlisted metadata projection
+as the E2E harness, so it shows continuity counts and state without exposing
+credential or PB contents. Re-running the E2E command is safe and idempotent
+for this one synthetic fixture. Remove it when manual inspection is complete:
+
+```bash
+npm run recovery:e2e:staging -- --confirm --cleanup
+```
+
+Never copy a real account hash, install secret, or PB payload into this
+harness. Do not bypass the `seeded-staging` target guard or repoint
+`.env.staging` at production.
 
 ## Seeded staging branch
 

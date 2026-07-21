@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   installRecoveryCandidates,
@@ -34,6 +34,44 @@ export interface RecoveryCandidateSummary extends RecoveryContinuity {
   eligibleCount: number;
   firstSeenAt: Date;
   lastSeenAt: Date;
+}
+
+// This is the only recovery-candidate projection intended for operator-facing
+// tools. Keep credential hashes, payloads, and payload digests out of it so a
+// CLI or future admin UI cannot expose them accidentally by serializing a full
+// database row.
+const safeRecoveryCandidateColumns = {
+  id: installRecoveryCandidates.id,
+  displayName: installRecoveryCandidates.displayName,
+  status: installRecoveryCandidates.status,
+  attemptCount: installRecoveryCandidates.attemptCount,
+  receivedCount: installRecoveryCandidates.receivedCount,
+  eligibleCount: installRecoveryCandidates.eligibleCount,
+  equalCount: installRecoveryCandidates.equalCount,
+  improvedCount: installRecoveryCandidates.improvedCount,
+  newCount: installRecoveryCandidates.newCount,
+  slowerCount: installRecoveryCandidates.slowerCount,
+  missingCount: installRecoveryCandidates.missingCount,
+  firstSeenAt: installRecoveryCandidates.firstSeenAt,
+  lastSeenAt: installRecoveryCandidates.lastSeenAt,
+  promotedAt: installRecoveryCandidates.promotedAt,
+  rejectedAt: installRecoveryCandidates.rejectedAt,
+} as const;
+
+export async function listSafeInstallRecoveryCandidates() {
+  return db
+    .select(safeRecoveryCandidateColumns)
+    .from(installRecoveryCandidates)
+    .orderBy(desc(installRecoveryCandidates.lastSeenAt));
+}
+
+export async function getSafeInstallRecoveryCandidate(candidateId: number) {
+  const [candidate] = await db
+    .select(safeRecoveryCandidateColumns)
+    .from(installRecoveryCandidates)
+    .where(eq(installRecoveryCandidates.id, candidateId))
+    .limit(1);
+  return candidate ?? null;
 }
 
 function stablePayload(pbsByBoss: Map<string, number>) {
