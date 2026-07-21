@@ -14,6 +14,7 @@ import { hashSecret, isRateLimited } from '../lib/secret.js';
 import {
   buildSyncReplayKey,
   getSuccessfulSyncReplay,
+  noteSuccessfulSyncReplay,
   rememberSuccessfulSync,
 } from '../lib/syncReplay.js';
 import { isRedundantDuplicateKey, isTrackedBoss } from '../lib/trackedBosses.js';
@@ -219,6 +220,7 @@ sync.post('/', async (c) => {
   const replay = await getSuccessfulSyncReplay(replayKey);
 
   if (replay) {
+    noteSuccessfulSyncReplay();
     return c.json({
       ok: true,
       playerId: replay.playerId,

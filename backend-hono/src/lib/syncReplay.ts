@@ -3,6 +3,9 @@ import { getCache } from '@vercel/functions';
 
 const SYNC_REPLAY_TTL_SECONDS = 10 * 60;
 const SYNC_REPLAY_TAG = 'pb-sync-replay-v1';
+const REPLAY_METRIC_INTERVAL_MS = 60 * 1000;
+let replayHitsSinceMetric = 0;
+let lastReplayMetricAt = 0;
 
 interface CachedSyncResult {
   playerId: number;
@@ -100,6 +103,25 @@ export async function rememberSuccessfulSync(key: string, result: CachedSyncResu
       error: error instanceof Error ? error.message : 'unknown error',
     });
   }
+}
+
+export function noteSuccessfulSyncReplay(nowMs: number = Date.now()) {
+  if (!process.env.VERCEL) {
+    return;
+  }
+
+  replayHitsSinceMetric += 1;
+  if (lastReplayMetricAt !== 0 && nowMs - lastReplayMetricAt < REPLAY_METRIC_INTERVAL_MS) {
+    return;
+  }
+
+  // One aggregate counter per warm instance/minute proves the production
+  // bypass is active without logging players, accounts, credentials, or PBs.
+  console.info('PB sync replay protection active', {
+    deduplicatedRequests: replayHitsSinceMetric,
+  });
+  replayHitsSinceMetric = 0;
+  lastReplayMetricAt = nowMs;
 }
 
 export async function resetSyncReplayCache() {
