@@ -52,6 +52,30 @@ export const personalBests = pgTable(
   })
 );
 
+// Operational support trail for recognized sync requests. Deliberately does
+// not store account hashes, install-secret hashes, IP addresses, user agents,
+// or PB payloads. Counts and outcomes are enough to distinguish an accepted
+// no-op from a rejected install binding without collecting new credentials.
+export const syncAttempts = pgTable(
+  'sync_attempts',
+  {
+    id: serial('id').primaryKey(),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    outcome: text('outcome').notNull(),
+    httpStatus: integer('http_status').notNull(),
+    receivedCount: integer('received_count').notNull(),
+    eligibleCount: integer('eligible_count'),
+    updatedCount: integer('updated_count'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    playerCreatedAtIdx: index('idx_sync_attempts_player_created_at').on(table.playerId, table.createdAt),
+    createdAtIdx: index('idx_sync_attempts_created_at').on(table.createdAt),
+  })
+);
+
 // Deliberately minimal - just enough to triage. No IP/user-agent/account
 // linkage is stored, both to keep row size small (site is in beta, feedback
 // volume is unpredictable) and to avoid collecting more than we need from

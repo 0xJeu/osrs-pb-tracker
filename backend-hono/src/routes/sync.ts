@@ -1,7 +1,7 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, playerNameHistory, players } from '../db/schema.js';
+import { personalBests, playerNameHistory, players, syncAttempts } from '../db/schema.js';
 import {
   bossCacheTag,
   cacheTags,
@@ -20,6 +20,89 @@ interface SyncBody {
   displayName?: unknown;
   installSecret?: unknown;
   pbs?: unknown;
+}
+
+type SyncAttemptOutcome = 'accepted' | 'install_secret_mismatch' | 'rate_limited';
+
+const SYNC_ATTEMPT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const SYNC_ATTEMPT_CLEANUP_INTERVAL = 100;
+
+export async function pruneExpiredSyncAttempts(latestAttemptId: number) {
+  if (latestAttemptId % SYNC_ATTEMPT_CLEANUP_INTERVAL !== 0) {
+    return;
+  }
+
+  try {
+    await db
+      .delete(syncAttempts)
+      .where(lt(syncAttempts.createdAt, new Date(Date.now() - SYNC_ATTEMPT_RETENTION_MS)));
+  } catch (error) {
+    // Retention is deliberately opportunistic. A cleanup problem should be
+    // visible in logs but must not change the result of a player's sync.
+    console.error('Failed to prune expired sync attempts', {
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
+}
+
+async function recordSyncAttempt(values: {
+  playerId: number;
+  outcome: SyncAttemptOutcome;
+  httpStatus: number;
+  receivedCount: number;
+  eligibleCount?: number;
+  updatedCount?: number;
+}) {
+  try {
+    const [attempt] = await db
+      .insert(syncAttempts)
+      .values({
+        ...values,
+        eligibleCount: values.eligibleCount ?? null,
+        updatedCount: values.updatedCount ?? null,
+        createdAt: new Date(),
+      })
+      .returning({ id: syncAttempts.id });
+    await pruneExpiredSyncAttempts(attempt.id);
+    return attempt.id;
+  } catch (error) {
+    // Observability must never become a new failure mode for PB syncing. Keep
+    // this credential-free so the fallback Vercel log is safe to retain.
+    console.error('Failed to record sync attempt', {
+      playerId: values.playerId,
+      outcome: values.outcome,
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+    return null;
+  }
+}
+
+async function recordRateLimitedAttempt(accountHash: string, receivedCount: number) {
+  try {
+    const [existing] = await db
+      .select({ id: players.id })
+      .from(players)
+      .where(eq(players.accountHash, accountHash))
+      .limit(1);
+
+    if (!existing) {
+      return null;
+    }
+
+    return recordSyncAttempt({
+      playerId: existing.id,
+      outcome: 'rate_limited',
+      httpStatus: 429,
+      receivedCount,
+    });
+  } catch (error) {
+    // Preserve the rate limiter's dependency-free 429 behavior even when the
+    // database is unavailable. Never log the account hash used for lookup.
+    console.error('Failed to identify rate-limited sync player', {
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+    return null;
+  }
 }
 
 async function upsertPlayer(accountHash: string, displayName: string, secretHash: string) {
@@ -148,8 +231,11 @@ sync.post('/', async (c) => {
     return c.json({ error: 'pbs must be an object of { bossName: seconds }' }, 400);
   }
 
+  const entries = Object.entries(pbs as Record<string, unknown>);
+
   if (isRateLimited(accountHash)) {
-    return c.json({ error: 'Too many sync requests for this account, slow down.' }, 429);
+    const syncAttemptId = await recordRateLimitedAttempt(accountHash, entries.length);
+    return c.json({ error: 'Too many sync requests for this account, slow down.', syncAttemptId }, 429);
   }
 
   const secretHash = hashSecret(installSecret);
@@ -160,16 +246,22 @@ sync.post('/', async (c) => {
   );
 
   if (!authorized) {
+    const syncAttemptId = await recordSyncAttempt({
+      playerId,
+      outcome: 'install_secret_mismatch',
+      httpStatus: 409,
+      receivedCount: entries.length,
+    });
     return c.json(
       {
         error:
           'This account is already synced from a different install. If this is really you, the original install secret is required.',
+        syncAttemptId,
       },
       409
     );
   }
 
-  const entries = Object.entries(pbs as Record<string, unknown>);
   const pbsByBoss = new Map<string, number>();
   for (const [rawBoss, seconds] of entries) {
     const boss = rawBoss.trim().toLowerCase();
@@ -193,6 +285,14 @@ sync.post('/', async (c) => {
   }
 
   const changedBosses = await upsertPbs(playerId, pbsByBoss);
+  const syncAttemptId = await recordSyncAttempt({
+    playerId,
+    outcome: 'accepted',
+    httpStatus: 200,
+    receivedCount: entries.length,
+    eligibleCount: pbsByBoss.size,
+    updatedCount: changedBosses.length,
+  });
   const invalidationTags: string[] = [];
 
   if (metadataChanged) {
@@ -220,7 +320,13 @@ sync.post('/', async (c) => {
 
   await invalidateSharedCache(invalidationTags);
 
-  return c.json({ ok: true, playerId, received: entries.length, updated: changedBosses.length });
+  return c.json({
+    ok: true,
+    playerId,
+    received: entries.length,
+    updated: changedBosses.length,
+    syncAttemptId,
+  });
 });
 
 export default sync;

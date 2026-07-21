@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
+import { db } from '../src/db/client.js';
+import { syncAttempts } from '../src/db/schema.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
+import { pruneExpiredSyncAttempts } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
 
 function syncRequest(body: unknown) {
@@ -54,6 +58,17 @@ describe('POST /api/sync', () => {
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
     ]);
+
+    const [attempt] = await db.select().from(syncAttempts);
+    expect(attempt).toMatchObject({
+      playerId: json.playerId,
+      outcome: 'accepted',
+      httpStatus: 200,
+      receivedCount: 1,
+      eligibleCount: 1,
+      updatedCount: 1,
+    });
+    expect(json.syncAttemptId).toBe(attempt.id);
   });
 
   it('keeps an old display name searchable after an authorized name change', async () => {
@@ -239,6 +254,17 @@ describe('POST /api/sync', () => {
       pbs: { Zulrah: 80 },
     });
     expect(res.status).toBe(409);
+    const json = await res.json();
+    const attempts = await db.select().from(syncAttempts).orderBy(asc(syncAttempts.id));
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]).toMatchObject({
+      outcome: 'install_secret_mismatch',
+      httpStatus: 409,
+      receivedCount: 1,
+      eligibleCount: null,
+      updatedCount: null,
+    });
+    expect(json.syncAttemptId).toBe(attempts[1].id);
   });
 
   it('rate-limits after too many requests for the same account', async () => {
@@ -248,5 +274,55 @@ describe('POST /api/sync', () => {
     }
     const res = await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: {} });
     expect(res.status).toBe(429);
+    const json = await res.json();
+    const attempts = await db.select().from(syncAttempts).orderBy(asc(syncAttempts.id));
+    expect(attempts).toHaveLength(31);
+    expect(attempts[30]).toMatchObject({
+      outcome: 'rate_limited',
+      httpStatus: 429,
+      receivedCount: 0,
+      eligibleCount: null,
+      updatedCount: null,
+    });
+    expect(json.syncAttemptId).toBe(attempts[30].id);
+
+    const selectSpy = vi.spyOn(db, 'select').mockImplementationOnce(() => {
+      throw new Error('simulated audit lookup outage');
+    });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const unavailableAudit = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: secret,
+      pbs: {},
+    });
+    expect(unavailableAudit.status).toBe(429);
+    expect(await unavailableAudit.json()).toMatchObject({ syncAttemptId: null });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Failed to identify rate-limited sync player',
+      expect.objectContaining({ error: 'simulated audit lookup outage' })
+    );
+    selectSpy.mockRestore();
+    consoleSpy.mockRestore();
+  }, 15_000);
+
+  it('opportunistically removes sync attempts older than 90 days', async () => {
+    const res = await syncRequest({
+      accountHash: 'retention-account',
+      displayName: 'Retention Test',
+      installSecret: 'a'.repeat(20),
+      pbs: { Zulrah: 80 },
+    });
+    const { syncAttemptId } = await res.json();
+
+    await db
+      .update(syncAttempts)
+      .set({ createdAt: new Date(Date.now() - 91 * 24 * 60 * 60 * 1000) })
+      .where(eq(syncAttempts.id, syncAttemptId));
+
+    await pruneExpiredSyncAttempts(100);
+
+    const remaining = await db.select().from(syncAttempts);
+    expect(remaining).toEqual([]);
   });
 });
