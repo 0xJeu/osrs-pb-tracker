@@ -4,6 +4,7 @@ import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
 import { syncAttempts } from '../src/db/schema.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
+import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { pruneExpiredSyncAttempts } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
 
@@ -17,6 +18,7 @@ function syncRequest(body: unknown) {
 
 describe('POST /api/sync', () => {
   beforeEach(async () => {
+    await resetSyncReplayCache();
     await truncateAll();
     resetRateLimiter();
   });
@@ -205,6 +207,66 @@ describe('POST /api/sync', () => {
     expect((await partiallyFaster.json()).updated).toBe(1);
   });
 
+  it('short-circuits an identical successful payload before any database query or write', async () => {
+    const body = {
+      accountHash: 'replay-account',
+      displayName: 'Replay Test',
+      installSecret: 'a'.repeat(20),
+      pbs: { Zulrah: 80, Vorkath: 70 },
+    };
+    const initial = await syncRequest(body);
+    const initialJson = await initial.json();
+    expect(initialJson).toMatchObject({ ok: true, updated: 2 });
+
+    const selectSpy = vi.spyOn(db, 'select');
+    const insertSpy = vi.spyOn(db, 'insert');
+    const replay = await syncRequest({
+      ...body,
+      // Object order must not affect replay detection.
+      pbs: { Vorkath: 70, Zulrah: 80 },
+    });
+    const replayJson = await replay.json();
+
+    expect(replay.status).toBe(200);
+    expect(replayJson).toMatchObject({
+      ok: true,
+      playerId: initialJson.playerId,
+      received: 2,
+      updated: 0,
+      syncAttemptId: null,
+      deduplicated: true,
+    });
+    expect(selectSpy).not.toHaveBeenCalled();
+    expect(insertSpy).not.toHaveBeenCalled();
+    selectSpy.mockRestore();
+    insertSpy.mockRestore();
+
+    const attempts = await db.select().from(syncAttempts);
+    expect(attempts).toHaveLength(1);
+  });
+
+  it('does not audit an accepted no-op that reaches the database', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({
+      accountHash: 'no-op-account',
+      displayName: 'No-op Test',
+      installSecret: secret,
+      pbs: { Zulrah: 80 },
+    });
+
+    const noOp = await syncRequest({
+      accountHash: 'no-op-account',
+      displayName: 'No-op Test',
+      installSecret: secret,
+      pbs: { Zulrah: 90 },
+    });
+
+    expect(noOp.status).toBe(200);
+    expect(await noOp.json()).toMatchObject({ updated: 0, syncAttemptId: null });
+    const attempts = await db.select().from(syncAttempts);
+    expect(attempts).toHaveLength(1);
+  });
+
   it('deduplicates raw keys that normalize to the same boss and keeps the fastest time', async () => {
     const res = await syncRequest({
       accountHash: 'duplicate-account',
@@ -270,40 +332,36 @@ describe('POST /api/sync', () => {
   it('rate-limits after too many requests for the same account', async () => {
     const secret = 'a'.repeat(20);
     for (let i = 0; i < 30; i += 1) {
-      await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: {} });
+      await syncRequest({
+        accountHash: 'acct-1',
+        displayName: 'Blitzen',
+        installSecret: secret,
+        pbs: { [`unsupported-${i}`]: 1 },
+      });
     }
-    const res = await syncRequest({ accountHash: 'acct-1', displayName: 'Blitzen', installSecret: secret, pbs: {} });
-    expect(res.status).toBe(429);
-    const json = await res.json();
-    const attempts = await db.select().from(syncAttempts).orderBy(asc(syncAttempts.id));
-    expect(attempts).toHaveLength(31);
-    expect(attempts[30]).toMatchObject({
-      outcome: 'rate_limited',
-      httpStatus: 429,
-      receivedCount: 0,
-      eligibleCount: null,
-      updatedCount: null,
-    });
-    expect(json.syncAttemptId).toBe(attempts[30].id);
-
-    const selectSpy = vi.spyOn(db, 'select').mockImplementationOnce(() => {
-      throw new Error('simulated audit lookup outage');
-    });
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const unavailableAudit = await syncRequest({
+    const res = await syncRequest({
       accountHash: 'acct-1',
       displayName: 'Blitzen',
       installSecret: secret,
-      pbs: {},
+      pbs: { 'unsupported-rate-limit': 1 },
     });
-    expect(unavailableAudit.status).toBe(429);
-    expect(await unavailableAudit.json()).toMatchObject({ syncAttemptId: null });
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Failed to identify rate-limited sync player',
-      expect.objectContaining({ error: 'simulated audit lookup outage' })
-    );
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    const attempts = await db.select().from(syncAttempts).orderBy(asc(syncAttempts.id));
+    expect(attempts).toHaveLength(1);
+    expect(json.syncAttemptId).toBeNull();
+
+    const selectSpy = vi.spyOn(db, 'select');
+    const shedWithoutDatabase = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: secret,
+      pbs: { 'another-unsupported-rate-limit': 1 },
+    });
+    expect(shedWithoutDatabase.status).toBe(429);
+    expect(await shedWithoutDatabase.json()).toMatchObject({ syncAttemptId: null });
+    expect(selectSpy).not.toHaveBeenCalled();
     selectSpy.mockRestore();
-    consoleSpy.mockRestore();
   }, 15_000);
 
   it('opportunistically removes sync attempts older than 90 days', async () => {

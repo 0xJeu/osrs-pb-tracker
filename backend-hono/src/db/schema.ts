@@ -52,10 +52,11 @@ export const personalBests = pgTable(
   })
 );
 
-// Operational support trail for recognized sync requests. Deliberately does
-// not store account hashes, install-secret hashes, IP addresses, user agents,
-// or PB payloads. Counts and outcomes are enough to distinguish an accepted
-// no-op from a rejected install binding without collecting new credentials.
+// Operational support trail for meaningful accepted changes and rejected
+// install bindings. Accepted no-ops and rate-limited requests are deliberately
+// omitted so a sync storm cannot turn observability into database write load.
+// The trail does not store account hashes, install-secret hashes, IP addresses,
+// user agents, or PB payloads.
 export const syncAttempts = pgTable(
   'sync_attempts',
   {
