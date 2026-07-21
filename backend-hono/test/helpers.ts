@@ -1,7 +1,8 @@
 import { db } from '../src/db/client.js';
-import { players, personalBests, playerNameHistory, feedback } from '../src/db/schema.js';
+import { players, personalBests, playerNameHistory, feedback, syncAttempts } from '../src/db/schema.js';
 
 export async function truncateAll() {
+  await db.delete(syncAttempts);
   await db.delete(personalBests);
   await db.delete(playerNameHistory);
   await db.delete(players);
