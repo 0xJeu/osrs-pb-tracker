@@ -20,13 +20,19 @@ jobs:
           cache: npm
           cache-dependency-path: backend-hono/package-lock.json
       - run: npm ci
-      - run: npm run db:migrate
+      - run: npm run db:migrate:test
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
+          PB_TRACKER_DATABASE_ROLE: destructive-test
+          PB_TRACKER_EXPECTED_PROJECT_ID: dry-tooth-70023755
+          PB_TRACKER_EXPECTED_BRANCH_ID: br-soft-field-afjdtpjs
       - run: npm run typecheck
       - run: npm test
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
+          PB_TRACKER_DATABASE_ROLE: destructive-test
+          PB_TRACKER_EXPECTED_PROJECT_ID: dry-tooth-70023755
+          PB_TRACKER_EXPECTED_BRANCH_ID: br-soft-field-afjdtpjs
 
   frontend:
     runs-on: ubuntu-latest

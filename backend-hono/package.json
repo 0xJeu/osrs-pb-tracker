@@ -11,7 +11,12 @@
     "vercel-build": "npm run db:migrate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:test": "tsx scripts/migrate-guarded.ts destructive-test",
+    "db:migrate:staging": "tsx scripts/migrate-guarded.ts seeded-staging",
     "db:push": "drizzle-kit push",
+    "db:seed:staging": "tsx scripts/seed-staging-data.ts",
+    "db:smoke:staging": "tsx scripts/check-staging-data.ts",
+    "api:smoke:staging": "tsx scripts/check-staging-api.ts",
     "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
   },
   "dependencies": {
