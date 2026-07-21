@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, real, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import { pgTable, serial, integer, text, real, timestamp, unique, index, jsonb } from 'drizzle-orm/pg-core';
 
 export const players = pgTable(
   'players',
@@ -52,6 +52,79 @@ export const personalBests = pgTable(
   })
 );
 
+// A rejected install credential is retained only as a one-way hash and a
+// quarantined, already-normalized PB payload. It cannot change the player's
+// public data until an explicit recovery decision promotes this exact row.
+export const installRecoveryCandidates = pgTable(
+  'install_recovery_candidates',
+  {
+    id: serial('id').primaryKey(),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    incumbentSecretHash: text('incumbent_secret_hash').notNull(),
+    candidateSecretHash: text('candidate_secret_hash').notNull(),
+    status: text('status').notNull().default('pending'),
+    displayName: text('display_name').notNull(),
+    payload: jsonb('payload').$type<Record<string, number>>().notNull(),
+    payloadDigest: text('payload_digest').notNull(),
+    attemptCount: integer('attempt_count').notNull().default(1),
+    receivedCount: integer('received_count').notNull(),
+    eligibleCount: integer('eligible_count').notNull(),
+    equalCount: integer('equal_count').notNull(),
+    improvedCount: integer('improved_count').notNull(),
+    newCount: integer('new_count').notNull(),
+    slowerCount: integer('slower_count').notNull(),
+    missingCount: integer('missing_count').notNull(),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    promotedAt: timestamp('promoted_at', { withTimezone: true }),
+    rejectedAt: timestamp('rejected_at', { withTimezone: true }),
+  },
+  (table) => ({
+    // The same install may legitimately become a candidate again after a
+    // different credential was promoted. Scope decisions to the incumbent
+    // binding that existed when the candidate was captured.
+    playerCredentialEpochUnique: unique().on(
+      table.playerId,
+      table.incumbentSecretHash,
+      table.candidateSecretHash
+    ),
+    playerStatusIdx: index('idx_install_recovery_player_status').on(table.playerId, table.status),
+    lastSeenAtIdx: index('idx_install_recovery_last_seen_at').on(table.lastSeenAt),
+  })
+);
+
+// Immutable operator/system decisions for credential recovery. Credential
+// hashes and PB payloads deliberately remain on the candidate row and are
+// never copied into this support-facing trail.
+export const installRecoveryEvents = pgTable(
+  'install_recovery_events',
+  {
+    id: serial('id').primaryKey(),
+    candidateId: integer('candidate_id')
+      .notNull()
+      .references(() => installRecoveryCandidates.id, { onDelete: 'cascade' }),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    actor: text('actor').notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    candidateCreatedAtIdx: index('idx_install_recovery_events_candidate_created_at').on(
+      table.candidateId,
+      table.createdAt
+    ),
+    playerCreatedAtIdx: index('idx_install_recovery_events_player_created_at').on(
+      table.playerId,
+      table.createdAt
+    ),
+  })
+);
+
 // Operational support trail for recognized sync requests. Deliberately does
 // not store account hashes, install-secret hashes, IP addresses, user agents,
 // or PB payloads. Counts and outcomes are enough to distinguish an accepted
@@ -68,6 +141,10 @@ export const syncAttempts = pgTable(
     receivedCount: integer('received_count').notNull(),
     eligibleCount: integer('eligible_count'),
     updatedCount: integer('updated_count'),
+    recoveryCandidateId: integer('recovery_candidate_id').references(
+      () => installRecoveryCandidates.id,
+      { onDelete: 'set null' }
+    ),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => ({
