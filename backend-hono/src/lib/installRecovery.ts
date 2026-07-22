@@ -42,6 +42,7 @@ export interface RecoveryCandidateSummary extends RecoveryContinuity {
 // database row.
 const safeRecoveryCandidateColumns = {
   id: installRecoveryCandidates.id,
+  playerId: installRecoveryCandidates.playerId,
   displayName: installRecoveryCandidates.displayName,
   status: installRecoveryCandidates.status,
   attemptCount: installRecoveryCandidates.attemptCount,
@@ -58,11 +59,19 @@ const safeRecoveryCandidateColumns = {
   rejectedAt: installRecoveryCandidates.rejectedAt,
 } as const;
 
-export async function listSafeInstallRecoveryCandidates() {
+export async function listSafeInstallRecoveryCandidates(options?: {
+  statuses?: readonly RecoveryCandidateStatus[];
+  limit?: number;
+}) {
+  const statusFilter = options?.statuses?.length
+    ? inArray(installRecoveryCandidates.status, [...options.statuses])
+    : undefined;
   return db
     .select(safeRecoveryCandidateColumns)
     .from(installRecoveryCandidates)
-    .orderBy(desc(installRecoveryCandidates.lastSeenAt));
+    .where(statusFilter)
+    .orderBy(desc(installRecoveryCandidates.lastSeenAt))
+    .limit(options?.limit ?? 1_000);
 }
 
 export async function getSafeInstallRecoveryCandidate(candidateId: number) {

@@ -43,6 +43,7 @@ const SAFE_METADATA_KEYS = [
   'lastSeenAt',
   'missingCount',
   'newCount',
+  'playerId',
   'promotedAt',
   'receivedCount',
   'rejectedAt',

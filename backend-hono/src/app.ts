@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import adminRecoveryRoute from './routes/admin-recovery.js';
 import bossesRoute from './routes/bosses.js';
 import feedbackRoute from './routes/feedback.js';
 import leaderboardRoute from './routes/leaderboard.js';
@@ -11,8 +12,12 @@ import syncRoute from './routes/sync.js';
 
 export const app = new Hono();
 
-app.use('*', cors());
+const publicCors = cors();
+app.use('/api/*', (c, next) =>
+  c.req.path.startsWith('/api/admin/') ? next() : publicCors(c, next)
+);
 
+app.route('/api/admin/recovery', adminRecoveryRoute);
 app.route('/api/bosses', bossesRoute);
 app.route('/api/feedback', feedbackRoute);
 app.route('/api/leaderboard', leaderboardRoute);

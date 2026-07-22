@@ -76,6 +76,32 @@ replays the quarantined PBs using the normal faster-only rule. A contested
 candidate cannot be promoted by this first implementation; it can only be
 rejected pending a future explicit contested-recovery policy.
 
+### Protected admin interface
+
+Set `RECOVERY_ADMIN_PASSWORD` in the ignored environment file for the target.
+The username is always `admin`. Use a strong password of at least 12
+characters; the checked-in `replace-with-...` placeholder deliberately fails
+closed. For example, generate a value locally with `openssl rand -base64 24`
+and place it in `.env.test`.
+
+Start the guarded backend and open the interface:
+
+```bash
+npm run dev:test
+open http://localhost:3000/api/admin/recovery
+```
+
+The HTML shell contains no recovery data. A successful login creates an
+eight-hour, signed, HttpOnly, SameSite=Strict session cookie; the password is
+not stored in the browser or database. Admin responses disable caching and
+CORS. Only safe continuity counts, timestamps, statuses, and decision events
+are returned; credential hashes and quarantined PB payloads are never exposed.
+
+Production requires a separate strong `RECOVERY_ADMIN_PASSWORD` in the backend
+deployment environment. Never reuse a test/staging password, place it in a URL,
+commit it, or send it in plugin traffic. Changing the password invalidates all
+existing admin sessions.
+
 ### Full seeded-staging recovery verification
 
 The guarded E2E harness runs the entire operator recovery sequence through the
