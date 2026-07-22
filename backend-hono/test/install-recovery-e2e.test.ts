@@ -6,10 +6,12 @@ import {
   cleanupInstallRecoveryE2eFixture,
   runInstallRecoveryE2e,
 } from '../scripts/lib/install-recovery-e2e.js';
+import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { truncateAll } from './helpers.js';
 
 describe('seeded staging install recovery E2E harness', () => {
   beforeEach(async () => {
+    await resetSyncReplayCache();
     await truncateAll();
   });
 

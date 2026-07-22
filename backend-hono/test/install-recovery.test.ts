@@ -15,6 +15,7 @@ import {
   rejectInstallRecoveryCandidate,
 } from '../src/lib/installRecovery.js';
 import { hashSecret, resetRateLimiter } from '../src/lib/secret.js';
+import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { truncateAll } from './helpers.js';
 
 const incumbentSecret = 'a'.repeat(20);
@@ -41,6 +42,7 @@ async function establishIncumbent() {
 
 describe('install credential recovery', () => {
   beforeEach(async () => {
+    await resetSyncReplayCache();
     await truncateAll();
     resetRateLimiter();
   });

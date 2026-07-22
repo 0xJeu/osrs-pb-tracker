@@ -5,6 +5,7 @@ import { db } from '../src/db/client.js';
 import { installRecoveryCandidates, installRecoveryEvents, personalBests } from '../src/db/schema.js';
 import { resetRecoveryAdminLoginLimiter } from '../src/lib/adminAuth.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
+import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { truncateAll } from './helpers.js';
 
 const adminPassword = 'recovery-admin-test-password-0001';
@@ -58,6 +59,7 @@ async function createCandidate() {
 describe('recovery admin', () => {
   beforeEach(async () => {
     process.env.RECOVERY_ADMIN_PASSWORD = adminPassword;
+    await resetSyncReplayCache();
     await truncateAll();
     resetRateLimiter();
     resetRecoveryAdminLoginLimiter();
