@@ -15,6 +15,12 @@ import {
   captureInstallRecoveryCandidate,
   noteIncumbentCredentialSeen,
 } from '../lib/installRecovery.js';
+import {
+  buildSyncReplayKey,
+  getSuccessfulSyncReplay,
+  noteSuccessfulSyncReplay,
+  rememberSuccessfulSync,
+} from '../lib/syncReplay.js';
 import { isRedundantDuplicateKey, isTrackedBoss } from '../lib/trackedBosses.js';
 
 const sync = new Hono();
@@ -26,7 +32,7 @@ interface SyncBody {
   pbs?: unknown;
 }
 
-type SyncAttemptOutcome = 'accepted' | 'install_secret_mismatch' | 'rate_limited';
+type SyncAttemptOutcome = 'accepted' | 'install_secret_mismatch';
 
 const SYNC_ATTEMPT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const SYNC_ATTEMPT_CLEANUP_INTERVAL = 100;
@@ -77,34 +83,6 @@ async function recordSyncAttempt(values: {
     console.error('Failed to record sync attempt', {
       playerId: values.playerId,
       outcome: values.outcome,
-      error: error instanceof Error ? error.message : 'unknown error',
-    });
-    return null;
-  }
-}
-
-async function recordRateLimitedAttempt(accountHash: string, receivedCount: number) {
-  try {
-    const [existing] = await db
-      .select({ id: players.id })
-      .from(players)
-      .where(eq(players.accountHash, accountHash))
-      .limit(1);
-
-    if (!existing) {
-      return null;
-    }
-
-    return recordSyncAttempt({
-      playerId: existing.id,
-      outcome: 'rate_limited',
-      httpStatus: 429,
-      receivedCount,
-    });
-  } catch (error) {
-    // Preserve the rate limiter's dependency-free 429 behavior even when the
-    // database is unavailable. Never log the account hash used for lookup.
-    console.error('Failed to identify rate-limited sync player', {
       error: error instanceof Error ? error.message : 'unknown error',
     });
     return null;
@@ -264,13 +242,33 @@ sync.post('/', async (c) => {
 
   const entries = Object.entries(pbs as Record<string, unknown>);
   const pbsByBoss = normalizePbEntries(entries);
+  const secretHash = hashSecret(installSecret);
+  const replayKey = buildSyncReplayKey({
+    accountHash,
+    displayName,
+    secretHash,
+    entries,
+  });
+  const replay = await getSuccessfulSyncReplay(replayKey);
 
-  if (isRateLimited(accountHash)) {
-    const syncAttemptId = await recordRateLimitedAttempt(accountHash, entries.length);
-    return c.json({ error: 'Too many sync requests for this account, slow down.', syncAttemptId }, 429);
+  if (replay) {
+    noteSuccessfulSyncReplay();
+    return c.json({
+      ok: true,
+      playerId: replay.playerId,
+      received: replay.received,
+      updated: 0,
+      syncAttemptId: null,
+      deduplicated: true,
+    });
   }
 
-  const secretHash = hashSecret(installSecret);
+  if (isRateLimited(accountHash)) {
+    // Do not query or write Neon while shedding load. Vercel request logs
+    // retain the 429 count without turning rejected traffic into DB traffic.
+    return c.json({ error: 'Too many sync requests for this account, slow down.', syncAttemptId: null }, 429);
+  }
+
   const {
     playerId,
     authorized,
@@ -336,14 +334,17 @@ sync.post('/', async (c) => {
   }
 
   const changedBosses = await upsertPbs(playerId, pbsByBoss);
-  const syncAttemptId = await recordSyncAttempt({
-    playerId,
-    outcome: 'accepted',
-    httpStatus: 200,
-    receivedCount: entries.length,
-    eligibleCount: pbsByBoss.size,
-    updatedCount: changedBosses.length,
-  });
+  const meaningfulChange = created || metadataChanged || changedBosses.length > 0;
+  const syncAttemptId = meaningfulChange
+    ? await recordSyncAttempt({
+        playerId,
+        outcome: 'accepted',
+        httpStatus: 200,
+        receivedCount: entries.length,
+        eligibleCount: pbsByBoss.size,
+        updatedCount: changedBosses.length,
+      })
+    : null;
   const invalidationTags: string[] = [];
 
   if (metadataChanged) {
@@ -370,6 +371,10 @@ sync.post('/', async (c) => {
   }
 
   await invalidateSharedCache(invalidationTags);
+  await rememberSuccessfulSync(replayKey, {
+    playerId,
+    received: entries.length,
+  });
 
   return c.json({
     ok: true,
