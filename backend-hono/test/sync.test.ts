@@ -323,8 +323,12 @@ describe('POST /api/sync', () => {
       outcome: 'install_secret_mismatch',
       httpStatus: 409,
       receivedCount: 1,
-      eligibleCount: null,
+      eligibleCount: 1,
       updatedCount: null,
+    });
+    expect(json).toMatchObject({
+      code: 'RECOVERY_PENDING',
+      recoveryId: attempts[1].recoveryCandidateId,
     });
     expect(json.syncAttemptId).toBe(attempts[1].id);
   });
