@@ -4,6 +4,12 @@
 **Date:** 2026-07-14
 **Purpose:** Issue-ready backlog for reducing Neon public network transfer after the critical login-sync fix deploys.
 
+> **Current design:** This backlog captures the original egress investigation.
+> The released system and the separate compute-wake problem are now covered by
+> [`../specs/2026-07-24-neon-compute-wake-reduction-design.md`](../specs/2026-07-24-neon-compute-wake-reduction-design.md).
+> Use that specification for new implementation work; retain this file as the
+> historical issue backlog and measurement baseline.
+
 ## Current status
 
 The urgent fix is implemented on `fix-neon-egress-sync` in commit `76e211f`.
