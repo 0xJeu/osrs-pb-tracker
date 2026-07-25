@@ -114,6 +114,13 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   }
 
   // Endpoint-specific session TTLs from the compute-wake design (Workstream E).
+  // getJson's bounded-eviction logic below compares ttlMs === TTL.search by
+  // raw value, so search's TTL must stay numerically distinct from every
+  // other entry here (currently equal to playerProfile's by coincidence,
+  // which is harmless only because lookupPlayer never routes through
+  // getJson) - changing this value, or routing another cache entry through
+  // getJson with this same number, would silently subject it to search's
+  // 200-entry eviction cap too.
   const TTL = {
     playerProfile: 5 * 60 * 1000,
     bossList: Number.POSITIVE_INFINITY, // session lifetime
