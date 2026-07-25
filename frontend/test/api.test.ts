@@ -132,7 +132,7 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(page));
     const api = createApiClient('', fetchFn);
     expect(await api.getLeaderboardPage('zulrah', 50, 50, 'Blitzen')).toEqual(page);
-    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=50&offset=50&highlight=Blitzen');
+    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=50&offset=50&highlight=blitzen');
   });
 
   it('accepts a legacy leaderboard array during a rolling backend deploy', async () => {
@@ -218,5 +218,50 @@ describe('createApiClient', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Too many requests' }, 429));
     const api = createApiClient('', fetchFn);
     await expect(api.submitFeedback('spam')).rejects.toThrow();
+  });
+});
+
+describe('request coalescing and session caching', () => {
+  it('coalesces two identical in-flight GETs into one fetch call', async () => {
+    let resolveFetch: (res: Response) => void;
+    const fetchFn = vi.fn().mockImplementation(
+      () => new Promise<Response>((resolve) => { resolveFetch = resolve; })
+    );
+    const api = createApiClient('', fetchFn);
+
+    const first = api.getStats();
+    const second = api.getStats();
+    resolveFetch!(jsonResponse({ trackedPlayers: 1, personalBestRecords: 2 }));
+
+    await Promise.all([first, second]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves a repeated boss-list request from the session cache without refetching', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(['zulrah']));
+    const api = createApiClient('', fetchFn);
+
+    await api.getBosses();
+    await api.getBosses();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a rejected request, so a retry can succeed', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(new Response('err', { status: 500 }))
+      .mockResolvedValueOnce(jsonResponse({ trackedPlayers: 1, personalBestRecords: 2 }));
+    const api = createApiClient('', fetchFn);
+
+    await expect(api.getStats()).rejects.toThrow();
+    await expect(api.getStats()).resolves.toEqual({ trackedPlayers: 1, personalBestRecords: 2 });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('builds a canonical leaderboard-page URL: trimmed/lowercased boss, clamped limit/offset, ordered params', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ rows: [], total: 0, limit: 50, offset: 0 }));
+    const api = createApiClient('', fetchFn);
+
+    await api.getLeaderboardPage('  Zulrah  ', 500, -5, '  Blitzen  ');
+    expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=100&offset=0&highlight=blitzen');
   });
 });

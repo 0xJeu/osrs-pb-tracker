@@ -67,13 +67,55 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   const base = baseUrl.replace(/\/+$/, '');
   const searchCache = new Map<string, Promise<string[]>>();
 
-  async function getJson<T>(path: string): Promise<T> {
-    const res = await fetchFn(`${base}${path}`);
-    if (!res.ok) {
-      throw new ApiError(res.status);
-    }
-    return res.json() as Promise<T>;
+  const inFlight = new Map<string, Promise<unknown>>();
+  const sessionCache = new Map<string, { expiresAt: number; value: unknown }>();
+
+  function now() {
+    return Date.now();
   }
+
+  async function getJson<T>(path: string, ttlMs = 0): Promise<T> {
+    const cached = sessionCache.get(path);
+    if (cached && cached.expiresAt > now()) {
+      return cached.value as T;
+    }
+
+    const pending = inFlight.get(path);
+    if (pending) {
+      return pending as Promise<T>;
+    }
+
+    const request = (async () => {
+      const res = await fetchFn(`${base}${path}`);
+      if (!res.ok) {
+        throw new ApiError(res.status);
+      }
+      const value = (await res.json()) as T;
+      if (ttlMs > 0) {
+        sessionCache.set(path, { expiresAt: now() + ttlMs, value });
+      }
+      return value;
+    })();
+
+    inFlight.set(path, request);
+    try {
+      return await request;
+    } finally {
+      inFlight.delete(path);
+    }
+  }
+
+  function invalidate(path: string) {
+    sessionCache.delete(path);
+  }
+
+  // Endpoint-specific session TTLs from the compute-wake design (Workstream E).
+  const TTL = {
+    playerProfile: 5 * 60 * 1000,
+    bossList: Number.POSITIVE_INFINITY, // session lifetime
+    statsRecentOverview: 2 * 60 * 1000,
+    search: 5 * 60 * 1000,
+  } as const;
 
   async function playerFrom(res: Response): Promise<PlayerLookup> {
     if (res.status === 404) {
@@ -93,7 +135,17 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   return {
     async lookupPlayer(name: string): Promise<PlayerLookup> {
       const canonicalName = name.trim().toLowerCase();
-      return playerFrom(await fetchFn(`${base}/api/players/${encodeURIComponent(canonicalName)}`));
+      const path = `/api/players/${encodeURIComponent(canonicalName)}`;
+      const cached = sessionCache.get(path);
+      if (cached && cached.expiresAt > now()) {
+        return playerFrom(new Response(JSON.stringify(cached.value), { status: 200 }));
+      }
+      const res = await fetchFn(`${base}${path}`);
+      if (res.ok) {
+        const cloned = res.clone();
+        void cloned.json().then((value) => sessionCache.set(path, { expiresAt: now() + TTL.playerProfile, value }));
+      }
+      return playerFrom(res);
     },
     async getPlayerById(id: number): Promise<PlayerLookup> {
       return playerFrom(await fetchFn(`${base}/api/players/by-id/${id}`));
@@ -134,7 +186,7 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       }
     },
     async getBosses(): Promise<string[]> {
-      const bosses = await getJson<string[]>('/api/bosses');
+      const bosses = await getJson<string[]>('/api/bosses', TTL.bossList);
       return bosses.filter(isTrackedBoss);
     },
     getLeaderboard(boss: string, limit = 25, highlight?: string): Promise<LeaderboardRow[]> {
@@ -149,19 +201,28 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       );
     },
     async getLeaderboardPage(boss: string, limit = 50, offset = 0, highlight?: string): Promise<LeaderboardPage> {
-      const highlightParam = highlight ? `&highlight=${encodeURIComponent(highlight)}` : '';
-      const data = await getJson<LeaderboardPage | LeaderboardRow[]>(
-        `/api/leaderboard/${encodeURIComponent(boss)}?limit=${limit}&offset=${offset}${highlightParam}`
-      );
-      if (Array.isArray(data)) return { rows: data, total: data.length, limit, offset: 0 };
+      const canonicalBoss = boss.trim().toLowerCase();
+      const canonicalLimit = Math.min(Math.max(Math.floor(limit) || 50, 1), 100);
+      const canonicalOffset = Math.max(Math.floor(offset) || 0, 0);
+      const canonicalHighlight = highlight?.trim().toLowerCase();
+      const highlightParam = canonicalHighlight ? `&highlight=${encodeURIComponent(canonicalHighlight)}` : '';
+      const path = `/api/leaderboard/${encodeURIComponent(canonicalBoss)}?limit=${canonicalLimit}&offset=${canonicalOffset}${highlightParam}`;
+      const data = await getJson<LeaderboardPage | LeaderboardRow[]>(path);
+      if (Array.isArray(data)) return { rows: data, total: data.length, limit: canonicalLimit, offset: 0 };
       return data;
     },
     getRecentSyncs(limit = 10): Promise<RecentSync[]> {
       const canonicalLimit = Math.min(Math.max(Math.floor(limit) || 10, 1), 25);
-      return getJson(`/api/recent-syncs?limit=${canonicalLimit}`);
+      return getJson(`/api/recent-syncs?limit=${canonicalLimit}`, TTL.statsRecentOverview);
     },
     getStats(): Promise<QuickStats> {
-      return getJson('/api/stats');
+      return getJson('/api/stats', TTL.statsRecentOverview);
+    },
+    getLeaderboardOverview(): Promise<Array<{ boss: string; leader: LeaderboardRow | null }>> {
+      return getJson('/api/leaderboard-overview', TTL.statsRecentOverview);
+    },
+    invalidatePlayerProfile(name: string) {
+      invalidate(`/api/players/${encodeURIComponent(name.trim().toLowerCase())}`);
     },
     async submitFeedback(message: string, context?: string): Promise<void> {
       const res = await fetchFn(`${base}/api/feedback`, {
