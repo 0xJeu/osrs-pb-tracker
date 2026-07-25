@@ -69,6 +69,10 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
 
   const inFlight = new Map<string, Promise<unknown>>();
   const sessionCache = new Map<string, { expiresAt: number; value: unknown }>();
+  // Insertion-ordered set of search-tagged cache keys only, so the bounded
+  // eviction below never touches non-search entries (boss list, stats,
+  // player profiles, etc.) that happen to share the sessionCache Map.
+  const searchCacheKeys = new Set<string>();
 
   function now() {
     return Date.now();
@@ -92,9 +96,15 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       }
       const value = (await res.json()) as T;
       if (ttlMs > 0) {
-        if (ttlMs === TTL.search && sessionCache.size >= 200) {
-          const oldestKey = sessionCache.keys().next().value;
-          if (oldestKey) sessionCache.delete(oldestKey);
+        if (ttlMs === TTL.search) {
+          searchCacheKeys.add(path);
+          if (searchCacheKeys.size > 200) {
+            const oldestSearchKey = searchCacheKeys.values().next().value;
+            if (oldestSearchKey) {
+              searchCacheKeys.delete(oldestSearchKey);
+              sessionCache.delete(oldestSearchKey);
+            }
+          }
         }
         sessionCache.set(path, { expiresAt: now() + ttlMs, value });
       }

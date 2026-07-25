@@ -288,4 +288,37 @@ describe('searchAll request controls', () => {
     await api.searchAll('  Blitzen  ');
     expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen');
   });
+
+  it('bounds search-cache eviction to search entries, sparing other cached endpoints', async () => {
+    const fetchFn = vi.fn().mockImplementation(async (url: string) => {
+      if (url === '/api/bosses') return jsonResponse(['zulrah']);
+      return jsonResponse([{ type: 'player', value: 'p' }]);
+    });
+    const api = createApiClient('', fetchFn);
+
+    // Prime a session-lifetime, non-search cache entry first (like the boss
+    // list would be at session start).
+    await api.getBosses();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // Perform 201 distinct searchAll queries, pushing the search cache past
+    // its 200-entry cap.
+    for (let i = 0; i < 201; i++) {
+      await api.searchAll(`query-${i}`);
+    }
+    expect(fetchFn).toHaveBeenCalledTimes(1 + 201);
+
+    // The boss-list entry must still be a cache hit, not evicted.
+    await api.getBosses();
+    expect(fetchFn).toHaveBeenCalledTimes(1 + 201);
+
+    // The oldest search entry (query-0) must have been evicted, so repeating
+    // it causes a new fetch.
+    await api.searchAll('query-0');
+    expect(fetchFn).toHaveBeenCalledTimes(1 + 201 + 1);
+
+    // The most recent search entry (query-200) must still be cached.
+    await api.searchAll('query-200');
+    expect(fetchFn).toHaveBeenCalledTimes(1 + 201 + 1);
+  });
 });
