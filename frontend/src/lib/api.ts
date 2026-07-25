@@ -92,6 +92,10 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       }
       const value = (await res.json()) as T;
       if (ttlMs > 0) {
+        if (ttlMs === TTL.search && sessionCache.size >= 200) {
+          const oldestKey = sessionCache.keys().next().value;
+          if (oldestKey) sessionCache.delete(oldestKey);
+        }
         sessionCache.set(path, { expiresAt: now() + ttlMs, value });
       }
       return value;
@@ -168,19 +172,23 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       return request;
     },
     async searchAll(q: string): Promise<SearchSuggestion[]> {
+      const canonicalQuery = q.trim().toLowerCase();
+      if (canonicalQuery.length < 2) {
+        return [];
+      }
       try {
-        return await getJson(`/api/search/all?q=${encodeURIComponent(q)}`);
+        return await getJson(`/api/search/all?q=${encodeURIComponent(canonicalQuery)}`, TTL.search);
       } catch {
         // Rolling-deploy fallback: keep the makeover usable while the
         // currently deployed backend still exposes only the legacy routes.
         const [playerNames, bosses] = await Promise.all([
-          getJson<string[]>(`/api/search?q=${encodeURIComponent(q)}`).catch(() => []),
-          getJson<string[]>('/api/bosses').catch(() => []),
+          getJson<string[]>(`/api/search?q=${encodeURIComponent(canonicalQuery)}`).catch(() => []),
+          getJson<string[]>('/api/bosses', TTL.bossList).catch(() => []),
         ]);
         return [
           ...playerNames.map((value) => ({ type: 'player' as const, value })),
           ...bosses
-            .filter((value) => matchesBossSearch(value, q))
+            .filter((value) => matchesBossSearch(value, canonicalQuery))
             .map((value) => ({ type: 'boss' as const, value })),
         ];
       }

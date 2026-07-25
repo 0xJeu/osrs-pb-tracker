@@ -208,10 +208,11 @@ export function PhaseTwoOsrsPreview() {
       setSuggestions(compactSuggestions);
       return;
     }
+    let alive = true;
     const timer = window.setTimeout(() => {
-      api.searchAll(query).then(setSuggestions).catch(() => setSuggestions([]));
-    }, 200);
-    return () => window.clearTimeout(timer);
+      api.searchAll(query).then((result) => { if (alive) setSuggestions(result); }).catch(() => { if (alive) setSuggestions([]); });
+    }, 275);
+    return () => { alive = false; window.clearTimeout(timer); };
   }, [playerQuery, bosses]);
 
   useEffect(() => {

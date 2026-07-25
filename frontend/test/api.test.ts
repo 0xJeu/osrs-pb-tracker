@@ -265,3 +265,27 @@ describe('request coalescing and session caching', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/leaderboard/zulrah?limit=100&offset=0&highlight=blitzen');
   });
 });
+
+describe('searchAll request controls', () => {
+  it('rejects queries under two characters without calling fetch', async () => {
+    const fetchFn = vi.fn();
+    const api = createApiClient('', fetchFn);
+    expect(await api.searchAll('a')).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('caches a successful searchAll result for repeated identical queries', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([{ type: 'player', value: 'blitzen' }]));
+    const api = createApiClient('', fetchFn);
+    await api.searchAll('blitzen');
+    await api.searchAll('blitzen');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('canonicalizes the query before building the URL', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = createApiClient('', fetchFn);
+    await api.searchAll('  Blitzen  ');
+    expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen');
+  });
+});
