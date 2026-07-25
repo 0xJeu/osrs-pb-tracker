@@ -1,10 +1,11 @@
 // Server-owned homepage "Top Bosses" card list. Deliberately hardcoded (not
 // caller-supplied) so /api/leaderboard-overview always has one stable cache
-// key and can't be used to force an unbounded query. Mirrors the frontend's
-// TOP_BOSS_BASES curated list (frontend/src/components/PhaseTwoOsrsPreview.tsx) -
-// keep them in sync manually since the frontend resolves multi-variant raids
-// (Theatre of Blood, Chambers of Xeric, Tombs of Amascut) to their default
-// mode's first variant, while this list uses exact synced boss keys.
+// key and can't be used to force an unbounded query. Currently diverges from
+// the frontend's own TOP_BOSS_BASES curated list
+// (frontend/src/components/PhaseTwoOsrsPreview.tsx) - the frontend's list is
+// expected to be retired in favor of this endpoint once the frontend
+// view-scoped-fetching plan lands, at which point this becomes the single
+// source of truth and the two lists should be reconciled deliberately.
 export const CURATED_OVERVIEW_BOSSES = [
   'zulrah',
   'vorkath',
