@@ -433,6 +433,7 @@ function HomeView({
           <div className="rule" />
         </div>
         {topBosses.s === 'loading' && <div className="pbt-panel-state">Loading top bosses...</div>}
+        {topBosses.s === 'error' && <div className="pbt-panel-state">Top bosses unavailable.</div>}
         {isLoaded(topBosses) && (
           <div className="pbt-cards">
             {topBosses.data.map((entry, index) => (
