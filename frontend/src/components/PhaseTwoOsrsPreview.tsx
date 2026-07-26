@@ -15,8 +15,8 @@ import { AboutPage } from './AboutPage';
 import { FaqPage } from './FaqPage';
 import { RaidVariantPicker } from './RaidVariantPicker';
 import { SetupGuidePage } from './SetupGuidePage';
+import { isLoaded, type LoadState } from '../lib/loadState';
 
-type LoadState<T> = { s: 'idle' } | { s: 'loading' } | { s: 'error' } | { s: 'loaded'; data: T };
 type PlayerState =
   | { s: 'idle' }
   | { s: 'loading'; name: string }
@@ -63,10 +63,6 @@ function viewFromPreviewPath(): PreviewView {
     return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
   }
   return { name: 'home' };
-}
-
-function isLoaded<T>(state: LoadState<T>): state is { s: 'loaded'; data: T } {
-  return state.s === 'loaded';
 }
 
 function pickInitialBoss(bosses: string[]) {
