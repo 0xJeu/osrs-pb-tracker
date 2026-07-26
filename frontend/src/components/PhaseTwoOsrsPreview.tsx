@@ -22,14 +22,8 @@ import type { Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
 import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard';
 import { useHomeData } from '../hooks/useHomeData';
-
-type PlayerState =
-  | { s: 'idle' }
-  | { s: 'loading'; name: string }
-  | { s: 'error'; name: string }
-  | { s: 'notFound'; name: string }
-  | { s: 'ambiguous'; name: string; count: number }
-  | { s: 'loaded'; player: PlayerPayload };
+import { usePlayerProfile } from '../hooks/usePlayerProfile';
+import type { PlayerState } from '../hooks/usePlayerProfile';
 
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 
@@ -82,7 +76,7 @@ export function PhaseTwoOsrsPreview() {
   const { stats, recentSyncs, topBosses } = useHomeData(route);
   const [playerQuery, setPlayerQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
-  const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
+  const profileState = usePlayerProfile(route);
 
   const bossLeaderboard = useBossLeaderboard(route, bosses);
   const { selectedBoss, leaderboard, rows, leaderboardOffset, setLeaderboardOffset, titleParts, highlight } = bossLeaderboard;
@@ -101,22 +95,6 @@ export function PhaseTwoOsrsPreview() {
     }, 275);
     return () => { alive = false; window.clearTimeout(timer); };
   }, [playerQuery, bosses]);
-
-  useEffect(() => {
-    if (route.name !== 'player') return;
-    const trimmed = route.player.trim();
-    setProfileState({ s: 'loading', name: trimmed });
-    api.lookupPlayer(trimmed).then((result) => {
-      if (result.kind === 'player') {
-        setProfileState({ s: 'loaded', player: result.player });
-        if (result.player.displayName.toLowerCase() !== trimmed.toLowerCase()) {
-          window.history.replaceState({}, '', `/player/${encodeURIComponent(result.player.displayName)}`);
-        }
-      }
-      else if (result.kind === 'ambiguous') setProfileState({ s: 'ambiguous', name: trimmed, count: result.matches.length });
-      else setProfileState({ s: 'notFound', name: trimmed });
-    }).catch(() => setProfileState({ s: 'error', name: trimmed }));
-  }, [route]);
 
   const lookupPlayer = (name: string) => {
     const trimmed = name.trim();
