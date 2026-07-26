@@ -16,7 +16,7 @@ import { usePlayerProfile } from '../hooks/usePlayerProfile';
 
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 
-export function PhaseTwoOsrsPreview() {
+export function PbTrackerApp() {
   const { route, navigate } = useRoute();
   const bosses = useBossList(route);
   const { stats, recentSyncs, topBosses } = useHomeData(route);
@@ -48,7 +48,7 @@ export function PhaseTwoOsrsPreview() {
             PB Tracker — OSRS
           </button>
           <div className="pbt-topbar-rule" />
-          <nav className="pbt-nav" aria-label="Preview navigation">
+          <nav className="pbt-nav" aria-label="Main navigation">
             <button type="button" className={route.name === 'home' ? 'active' : undefined} onClick={() => navigate({ name: 'home' })}>
               Home
             </button>

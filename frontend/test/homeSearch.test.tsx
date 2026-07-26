@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { PhaseTwoOsrsPreview } from '../src/components/PhaseTwoOsrsPreview';
+import { PbTrackerApp } from '../src/components/PbTrackerApp';
 import { api } from '../src/lib/api';
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -30,7 +30,7 @@ describe('home search box', () => {
   });
 
   it('submitting a player name navigates to that player and clears the search box', async () => {
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     const input = await screen.findByPlaceholderText('Search players or bosses');
     fireEvent.change(input, { target: { value: 'Blitzen' } });
     const form = input.closest('form')!;
