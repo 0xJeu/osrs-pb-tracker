@@ -205,7 +205,28 @@ export async function captureInstallRecoveryCandidate(values: {
   // is still active. Invalidating just this player's entries forces the next
   // sync on this account to be evaluated for real, without giving a public
   // caller a way to evict every player's replay protection.
-  await invalidatePlayerSyncReplay(values.playerId);
+  const replayInvalidated = await invalidatePlayerSyncReplay(values.playerId);
+  if (!replayInvalidated && status === 'pending') {
+    // Unlike promotion (where invalidation is best-effort), success here is
+    // a correctness dependency: without it we cannot guarantee the
+    // incumbent's last successful sync isn't still served from cache,
+    // silently bypassing noteIncumbentCredentialSeen(). Fail closed instead
+    // of leaving an unconfirmed candidate promotable.
+    await db
+      .update(installRecoveryCandidates)
+      .set({ status: 'contested' })
+      .where(eq(installRecoveryCandidates.id, candidate.id));
+    await db.insert(installRecoveryEvents).values({
+      candidateId: candidate.id,
+      playerId: values.playerId,
+      eventType: 'replay_invalidation_unconfirmed',
+      actor: 'system',
+      reason:
+        "Could not confirm the incumbent's cached sync replay was invalidated, so this candidate is contested until it is observed again.",
+      createdAt: now,
+    });
+    status = 'contested';
+  }
 
   return {
     id: candidate.id,
