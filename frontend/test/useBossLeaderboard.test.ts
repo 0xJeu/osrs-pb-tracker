@@ -33,6 +33,12 @@ describe('selectDisplayLeaderboard', () => {
     expect(selectDisplayLeaderboard('zulrah', 'vorkath', staleVorkathData)).toEqual({ s: 'loading' });
   });
 
+  it('forces loading when a stale error belongs to a different, previously-selected boss', () => {
+    // Otherwise a "Leaderboard unavailable" message for the old boss could
+    // flash under the new boss's title while its fetch is still pending.
+    expect(selectDisplayLeaderboard('zulrah', 'vorkath', { s: 'error' })).toEqual({ s: 'loading' });
+  });
+
   it('forces loading before any boss has ever been fetched', () => {
     expect(selectDisplayLeaderboard('zulrah', null, { s: 'idle' })).toEqual({ s: 'loading' });
   });
