@@ -21,6 +21,10 @@ const syncReplayCache = getCache({
   keyHashFunction: (key) => key,
 });
 
+function playerReplayTag(playerId: number) {
+  return `${SYNC_REPLAY_TAG}-player-${playerId}`;
+}
+
 function fingerprintValue(value: unknown) {
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
@@ -92,7 +96,12 @@ export async function rememberSuccessfulSync(key: string, result: CachedSyncResu
   try {
     await syncReplayCache.set(key, result, {
       ttl: SYNC_REPLAY_TTL_SECONDS,
-      tags: [SYNC_REPLAY_TAG],
+      // The player-specific tag lets a recovery capture/promotion evict only
+      // this player's cached replay entries instead of the whole namespace -
+      // a global clear would otherwise be a public, unauthenticated way to
+      // evict every player's replay protection via repeated install-secret
+      // mismatches.
+      tags: [SYNC_REPLAY_TAG, playerReplayTag(result.playerId)],
       // The key is already opaque, but suppress its display in cache o11y too.
       name: '',
     });
@@ -126,4 +135,20 @@ export function noteSuccessfulSyncReplay(nowMs: number = Date.now()) {
 
 export async function resetSyncReplayCache() {
   await syncReplayCache.expireTag(SYNC_REPLAY_TAG);
+}
+
+// Invalidates only one player's cached replay entries - used when a recovery
+// candidate is captured or promoted, so that action can't be abused as a
+// public way to evict every player's replay protection. Never throws: a
+// database mutation (candidate capture, promotion) must not be reported as
+// failed just because the follow-up cache invalidation had trouble.
+export async function invalidatePlayerSyncReplay(playerId: number) {
+  try {
+    await syncReplayCache.expireTag(playerReplayTag(playerId));
+  } catch (error) {
+    console.warn('Unable to invalidate PB sync replay cache for player', {
+      playerId,
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
 }

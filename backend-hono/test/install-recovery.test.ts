@@ -178,6 +178,43 @@ describe('install credential recovery', () => {
     expect(staleIncumbentReplay.status).toBe(409);
   });
 
+  it('only invalidates the affected player\'s replay cache, not every player\'s', async () => {
+    await establishIncumbent();
+
+    const otherPlayerSecret = 'd'.repeat(20);
+    const otherPlayerResponse = await app.request('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountHash: 'unrelated-account',
+        displayName: 'Unrelated Player',
+        installSecret: otherPlayerSecret,
+        pbs: { Zulrah: 90 },
+      }),
+    });
+    expect(otherPlayerResponse.status).toBe(200);
+
+    // Creates a candidate for the *first* account only.
+    await syncRequest(candidateSecret, { Zulrah: 75 });
+
+    // The unrelated player's identical, already-cached sync must still be
+    // served from the replay cache - a public caller submitting a mismatched
+    // install secret for one account must not be able to evict every other
+    // player's replay protection and defeat the sync-storm load shedder.
+    const otherPlayerReplay = await app.request('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountHash: 'unrelated-account',
+        displayName: 'Unrelated Player',
+        installSecret: otherPlayerSecret,
+        pbs: { Zulrah: 90 },
+      }),
+    });
+    expect(otherPlayerReplay.status).toBe(200);
+    expect(await otherPlayerReplay.json()).toMatchObject({ deduplicated: true });
+  });
+
   it('promotes the exact pending credential and replays its quarantined faster-only payload', async () => {
     await establishIncumbent();
     const mismatch = await syncRequest(candidateSecret, { Zulrah: 75, Vorkath: 75, Araxxor: 100 });
