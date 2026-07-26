@@ -16,6 +16,8 @@ import { FaqPage } from './FaqPage';
 import { RaidVariantPicker } from './RaidVariantPicker';
 import { SetupGuidePage } from './SetupGuidePage';
 import { isLoaded, type LoadState } from '../lib/loadState';
+import { useRoute } from '../hooks/useRoute';
+import type { Route } from '../hooks/useRoute';
 
 type PlayerState =
   | { s: 'idle' }
@@ -24,19 +26,9 @@ type PlayerState =
   | { s: 'notFound'; name: string }
   | { s: 'ambiguous'; name: string; count: number }
   | { s: 'loaded'; player: PlayerPayload };
-type PreviewView =
-  | { name: 'home' }
-  | { name: 'boss'; boss: string; highlight?: string }
-  | { name: 'player'; player: string }
-  | { name: 'about' }
-  | { name: 'faq' }
-  | { name: 'setup' };
 type BossRecordSort = 'rank' | 'name' | 'time';
 type SortDirection = 'asc' | 'desc';
 
-// Empty base because this experience owns the production root route; its
-// internal pages live at /boss/<key>, /player/<name>, and the static routes.
-const previewBase = '';
 const LEADERBOARD_PAGE_SIZE = 50;
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 const preferredBosses = [
@@ -48,21 +40,6 @@ const preferredBosses = [
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();
   return lower.startsWith('the ') ? lower.slice(4) : lower;
-}
-
-function viewFromPreviewPath(): PreviewView {
-  const rest = window.location.pathname.slice(previewBase.length);
-  if (rest === '/about') return { name: 'about' };
-  if (rest === '/faq') return { name: 'faq' };
-  if (rest === '/setup') return { name: 'setup' };
-  const playerMatch = rest.match(/^\/player\/(.+)$/);
-  if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
-  const bossMatch = rest.match(/^\/boss\/(.+)$/);
-  if (bossMatch) {
-    const highlight = new URLSearchParams(window.location.search).get('highlight') ?? undefined;
-    return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
-  }
-  return { name: 'home' };
 }
 
 function pickInitialBoss(bosses: string[]) {
@@ -113,7 +90,7 @@ function PetIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
 }
 
 export function PhaseTwoOsrsPreview() {
-  const [view, setView] = useState<PreviewView>(viewFromPreviewPath);
+  const { route, navigate } = useRoute();
   const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'idle' });
   const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'idle' });
   const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'idle' });
@@ -125,17 +102,11 @@ export function PhaseTwoOsrsPreview() {
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
 
-  useEffect(() => {
-    const onPop = () => setView(viewFromPreviewPath());
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
-
   // Boss list: needed on home (for Top Bosses key resolution) and boss
   // views. Other views may still get boss suggestions from universal search
   // without preloading the full list.
   useEffect(() => {
-    if ((view.name !== 'home' && view.name !== 'boss') || bosses.s !== 'idle') return;
+    if ((route.name !== 'home' && route.name !== 'boss') || bosses.s !== 'idle') return;
     let alive = true;
     setBosses({ s: 'loading' });
     api.getBosses().then((data) => {
@@ -144,57 +115,57 @@ export function PhaseTwoOsrsPreview() {
       setSelectedBoss((current) => current || pickInitialBoss(data));
     }).catch(() => alive && setBosses({ s: 'error' }));
     return () => { alive = false; };
-  }, [view.name, bosses.s]);
+  }, [route.name, bosses.s]);
 
   useEffect(() => {
-    if (view.name !== 'home' || stats.s !== 'idle') return;
+    if (route.name !== 'home' || stats.s !== 'idle') return;
     let alive = true;
     setStats({ s: 'loading' });
     api.getStats().then((data) => alive && setStats({ s: 'loaded', data })).catch(() => alive && setStats({ s: 'error' }));
     return () => { alive = false; };
-  }, [view.name, stats.s]);
+  }, [route.name, stats.s]);
 
   useEffect(() => {
-    if (view.name !== 'home' || recentSyncs.s !== 'idle') return;
+    if (route.name !== 'home' || recentSyncs.s !== 'idle') return;
     let alive = true;
     setRecentSyncs({ s: 'loading' });
     api.getRecentSyncs(6).then((data) => alive && setRecentSyncs({ s: 'loaded', data })).catch(() => alive && setRecentSyncs({ s: 'error' }));
     return () => { alive = false; };
-  }, [view.name, recentSyncs.s]);
+  }, [route.name, recentSyncs.s]);
 
   // One request replaces the previous 5-request per-boss fan-out (Workstream D).
   useEffect(() => {
-    if (view.name !== 'home' || topBosses.s !== 'idle') return;
+    if (route.name !== 'home' || topBosses.s !== 'idle') return;
     let alive = true;
     setTopBosses({ s: 'loading' });
     api.getLeaderboardOverview()
       .then((data) => alive && setTopBosses({ s: 'loaded', data }))
       .catch(() => alive && setTopBosses({ s: 'error' }));
     return () => { alive = false; };
-  }, [view.name, topBosses.s]);
+  }, [route.name, topBosses.s]);
 
-  // The boss page's selected boss is driven by the URL (view.boss), not the
+  // The boss page's selected boss is driven by the URL (route.boss), not the
   // other way around - landing directly on /boss/<key>, following a link, or
-  // switching via the picker all just change view.boss and this follows.
+  // switching via the picker all just change route.boss and this follows.
   useEffect(() => {
-    if (view.name === 'boss' && view.boss) setSelectedBoss(view.boss);
-  }, [view]);
+    if (route.name === 'boss' && route.boss) setSelectedBoss(route.boss);
+  }, [route]);
 
   useEffect(() => {
     setLeaderboardOffset(0);
   }, [selectedBoss]);
 
-  const highlight = view.name === 'boss' ? view.highlight : undefined;
+  const highlight = route.name === 'boss' ? route.highlight : undefined;
 
   useEffect(() => {
-    if (view.name !== 'boss' || !selectedBoss) return;
+    if (route.name !== 'boss' || !selectedBoss) return;
     let alive = true;
     setLeaderboard({ s: 'loading' });
     api.getLeaderboardPage(selectedBoss, LEADERBOARD_PAGE_SIZE, leaderboardOffset, highlight)
       .then((data) => alive && setLeaderboard({ s: 'loaded', data }))
       .catch(() => alive && setLeaderboard({ s: 'error' }));
     return () => { alive = false; };
-  }, [view.name, selectedBoss, highlight, leaderboardOffset]);
+  }, [route.name, selectedBoss, highlight, leaderboardOffset]);
 
   useEffect(() => {
     const query = playerQuery.trim();
@@ -212,41 +183,20 @@ export function PhaseTwoOsrsPreview() {
   }, [playerQuery, bosses]);
 
   useEffect(() => {
-    if (view.name !== 'player') return;
-    const trimmed = view.player.trim();
+    if (route.name !== 'player') return;
+    const trimmed = route.player.trim();
     setProfileState({ s: 'loading', name: trimmed });
     api.lookupPlayer(trimmed).then((result) => {
       if (result.kind === 'player') {
         setProfileState({ s: 'loaded', player: result.player });
         if (result.player.displayName.toLowerCase() !== trimmed.toLowerCase()) {
-          window.history.replaceState({}, '', `${previewBase}/player/${encodeURIComponent(result.player.displayName)}`);
+          window.history.replaceState({}, '', `/player/${encodeURIComponent(result.player.displayName)}`);
         }
       }
       else if (result.kind === 'ambiguous') setProfileState({ s: 'ambiguous', name: trimmed, count: result.matches.length });
       else setProfileState({ s: 'notFound', name: trimmed });
     }).catch(() => setProfileState({ s: 'error', name: trimmed }));
-  }, [view]);
-
-  const navigate = (next: PreviewView) => {
-    const path =
-      next.name === 'player'
-        ? `${previewBase}/player/${encodeURIComponent(next.player)}`
-        : next.name === 'boss'
-          ? `${previewBase}/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
-          : next.name === 'about'
-            ? `${previewBase}/about`
-          : next.name === 'faq'
-            ? `${previewBase}/faq`
-          : next.name === 'setup'
-            ? `${previewBase}/setup`
-          : previewBase || '/';
-    window.history.pushState({}, '', path);
-    setView(next);
-    // Each of these is its own "page" - switching between them (or between
-    // two different bosses) should always land at the top, not wherever the
-    // previous page happened to be scrolled to.
-    window.scrollTo(0, 0);
-  };
+  }, [route]);
 
   const lookupPlayer = (name: string) => {
     const trimmed = name.trim();
@@ -274,7 +224,7 @@ export function PhaseTwoOsrsPreview() {
   // Only tint the page while actually looking at a boss's leaderboard - Home
   // and player pages stay neutral so the accent reads as "this page is about
   // this boss," not just "whatever was last clicked."
-  const accentColor = view.name === 'boss' && selectedBoss ? bossAccentColor(selectedBoss) : undefined;
+  const accentColor = route.name === 'boss' && selectedBoss ? bossAccentColor(selectedBoss) : undefined;
   const goToBoss = (boss: string) => navigate({ name: 'boss', boss });
 
   return (
@@ -289,21 +239,21 @@ export function PhaseTwoOsrsPreview() {
           </button>
           <div className="pbt-topbar-rule" />
           <nav className="pbt-nav" aria-label="Preview navigation">
-            <button type="button" className={view.name === 'home' ? 'active' : undefined} onClick={() => navigate({ name: 'home' })}>
+            <button type="button" className={route.name === 'home' ? 'active' : undefined} onClick={() => navigate({ name: 'home' })}>
               Home
             </button>
-            <button type="button" className={view.name === 'setup' ? 'active' : undefined} onClick={() => navigate({ name: 'setup' })}>
+            <button type="button" className={route.name === 'setup' ? 'active' : undefined} onClick={() => navigate({ name: 'setup' })}>
               Setup
             </button>
-            <button type="button" className={view.name === 'faq' ? 'active' : undefined} onClick={() => navigate({ name: 'faq' })}>
+            <button type="button" className={route.name === 'faq' ? 'active' : undefined} onClick={() => navigate({ name: 'faq' })}>
               FAQ
             </button>
-            <button type="button" className={view.name === 'about' ? 'active' : undefined} onClick={() => navigate({ name: 'about' })}>
+            <button type="button" className={route.name === 'about' ? 'active' : undefined} onClick={() => navigate({ name: 'about' })}>
               About
             </button>
             <button
               type="button"
-              className={view.name === 'boss' ? 'active' : undefined}
+              className={route.name === 'boss' ? 'active' : undefined}
               onClick={() => goToBoss(selectedBoss || pickInitialBoss(isLoaded(bosses) ? bosses.data : []))}
             >
               Leaderboards
@@ -313,7 +263,7 @@ export function PhaseTwoOsrsPreview() {
       </div>
 
       <div className="pbt-page">
-        {view.name === 'home' && (
+        {route.name === 'home' && (
           <HomeView
             stats={stats}
             recentSyncs={recentSyncs}
@@ -326,7 +276,7 @@ export function PhaseTwoOsrsPreview() {
             goToBoss={goToBoss}
           />
         )}
-        {view.name === 'boss' && (
+        {route.name === 'boss' && (
           <BossView
             titleParts={titleParts}
             bosses={bosses}
@@ -340,10 +290,10 @@ export function PhaseTwoOsrsPreview() {
             lookupPlayer={lookupPlayer}
           />
         )}
-        {view.name === 'player' && <PlayerView state={profileState} navigate={navigate} />}
-        {view.name === 'about' && <AboutPage />}
-        {view.name === 'faq' && <FaqPage />}
-        {view.name === 'setup' && <SetupGuidePage />}
+        {route.name === 'player' && <PlayerView state={profileState} navigate={navigate} />}
+        {route.name === 'about' && <AboutPage />}
+        {route.name === 'faq' && <FaqPage />}
+        {route.name === 'setup' && <SetupGuidePage />}
       </div>
 
       <div className="pbt-footer">
@@ -493,7 +443,7 @@ function BossView({
   selectedBoss: string;
   highlight?: string;
   goToBoss: (boss: string) => void;
-  navigate: (view: PreviewView) => void;
+  navigate: (route: Route) => void;
   leaderboard: LoadState<LeaderboardPage>;
   setLeaderboardOffset: (offset: number) => void;
   rows: LeaderboardRow[];
@@ -650,7 +600,7 @@ function BossView({
   );
 }
 
-function PlayerView({ state, navigate }: { state: PlayerState; navigate: (view: PreviewView) => void }) {
+function PlayerView({ state, navigate }: { state: PlayerState; navigate: (route: Route) => void }) {
   // Hooks must run unconditionally on every render (Rules of Hooks), so this
   // is computed before the early returns below - it just resolves to empty
   // when there's no loaded player yet.
