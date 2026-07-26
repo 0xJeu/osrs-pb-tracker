@@ -335,6 +335,15 @@ describe('searchAll request controls', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen', { signal: controller.signal });
   });
 
+  it('does not amplify a universal-search server failure with legacy fallback requests', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
+    const api = createApiClient('', fetchFn);
+
+    await expect(api.searchAll('blitzen')).rejects.toMatchObject({ status: 500 });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen');
+  });
+
   it('uses a bounded LRU search cache while sparing other cached endpoints', async () => {
     const fetchFn = vi.fn().mockImplementation(async (url: string) => {
       if (url === '/api/bosses') return jsonResponse(['zulrah']);

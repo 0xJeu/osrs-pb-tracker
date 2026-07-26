@@ -23,6 +23,7 @@ describe('universal-search request lifecycle', () => {
     pendingSearches = [];
     window.history.pushState({}, '', '/');
     api.resetForTesting();
+    vi.stubGlobal('scrollTo', vi.fn());
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url.includes('/api/bosses')) return Promise.resolve(jsonResponse(['zulrah', 'vorkath']));
       if (url.includes('/api/stats')) {
@@ -66,5 +67,16 @@ describe('universal-search request lifecycle', () => {
     pendingSearches[0].resolve(jsonResponse([{ type: 'player', value: 'Blit Old' }]));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText('Blit Old')).not.toBeInTheDocument();
+  });
+
+  it('cancels the pending debounce when the user leaves Home', async () => {
+    render(<PhaseTwoOsrsPreview />);
+    const input = screen.getByRole('textbox', { name: 'Search players or bosses' });
+
+    fireEvent.change(input, { target: { value: 'blitzen' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(pendingSearches).toHaveLength(0);
   });
 });

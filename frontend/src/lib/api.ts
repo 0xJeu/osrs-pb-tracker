@@ -248,6 +248,9 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
         if (isAbortError(error, options.signal)) {
           throw error;
         }
+        if (!(error instanceof ApiError) || error.status !== 404) {
+          throw error;
+        }
 
         async function fallbackOrEmpty<T>(request: Promise<T>, fallback: T): Promise<T> {
           try {

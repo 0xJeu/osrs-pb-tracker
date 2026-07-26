@@ -201,6 +201,10 @@ export function PhaseTwoOsrsPreview() {
   }, [view.name, selectedBoss, highlight, leaderboardOffset]);
 
   useEffect(() => {
+    if (view.name !== 'home') {
+      setSuggestions([]);
+      return;
+    }
     const query = playerQuery.trim();
     if (query.length < 2) { setSuggestions([]); return; }
     const compactSuggestions = isLoaded(bosses) ? compactAliasSuggestions(query, bosses.data) : undefined;
@@ -220,13 +224,15 @@ export function PhaseTwoOsrsPreview() {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [playerQuery, bosses]);
+  }, [view.name, playerQuery, bosses]);
 
   useEffect(() => {
     if (view.name !== 'player') return;
+    let alive = true;
     const trimmed = view.player.trim();
     setProfileState({ s: 'loading', name: trimmed });
     api.lookupPlayer(trimmed).then((result) => {
+      if (!alive) return;
       if (result.kind === 'player') {
         setProfileState({ s: 'loaded', player: result.player });
         if (result.player.displayName.toLowerCase() !== trimmed.toLowerCase()) {
@@ -235,7 +241,10 @@ export function PhaseTwoOsrsPreview() {
       }
       else if (result.kind === 'ambiguous') setProfileState({ s: 'ambiguous', name: trimmed, count: result.matches.length });
       else setProfileState({ s: 'notFound', name: trimmed });
-    }).catch(() => setProfileState({ s: 'error', name: trimmed }));
+    }).catch(() => {
+      if (alive) setProfileState({ s: 'error', name: trimmed });
+    });
+    return () => { alive = false; };
   }, [view]);
 
   const navigate = (next: PreviewView) => {
