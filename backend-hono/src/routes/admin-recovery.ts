@@ -29,7 +29,7 @@ import { assessInstallRecovery } from '../lib/recoveryAssessment.js';
 const adminRecovery = new Hono();
 const candidateApi = new Hono();
 
-const statuses = ['pending', 'contested', 'promoted', 'rejected'] as const;
+const statuses = ['pending', 'invalidation_failed', 'contested', 'promoted', 'rejected'] as const;
 type CandidateStatus = (typeof statuses)[number];
 
 interface DecisionBody {
@@ -166,12 +166,18 @@ candidateApi.use('*', requireRecoveryAdmin);
 candidateApi.get('/', async (c) => {
   const requestedStatus = c.req.query('status') ?? 'active';
   if (requestedStatus !== 'active' && requestedStatus !== 'all' && !statuses.includes(requestedStatus as CandidateStatus)) {
-    return c.json({ error: 'status must be active, all, pending, contested, promoted, or rejected' }, 400);
+    return c.json(
+      {
+        error:
+          'status must be active, all, pending, invalidation_failed, contested, promoted, or rejected',
+      },
+      400
+    );
   }
 
   const statusFilter: readonly CandidateStatus[] | undefined =
     requestedStatus === 'active'
-      ? ['pending', 'contested']
+      ? ['pending', 'invalidation_failed', 'contested']
       : requestedStatus === 'all'
         ? undefined
         : [requestedStatus as CandidateStatus];

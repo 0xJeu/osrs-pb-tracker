@@ -15,9 +15,14 @@ import {
 } from './cache.js';
 import { invalidatePlayerSyncReplay } from './syncReplay.js';
 
-const RECOVERABLE_STATUSES = ['pending', 'contested'] as const;
+const RECOVERABLE_STATUSES = ['pending', 'invalidation_failed', 'contested'] as const;
 
-export type RecoveryCandidateStatus = 'pending' | 'contested' | 'promoted' | 'rejected';
+export type RecoveryCandidateStatus =
+  | 'pending'
+  | 'invalidation_failed'
+  | 'contested'
+  | 'promoted'
+  | 'rejected';
 
 export interface RecoveryContinuity {
   equalCount: number;
@@ -212,20 +217,69 @@ export async function captureInstallRecoveryCandidate(values: {
     // incumbent's last successful sync isn't still served from cache,
     // silently bypassing noteIncumbentCredentialSeen(). Fail closed instead
     // of leaving an unconfirmed candidate promotable.
-    await db
+    const transitioned = await db
       .update(installRecoveryCandidates)
-      .set({ status: 'contested' })
-      .where(eq(installRecoveryCandidates.id, candidate.id));
-    await db.insert(installRecoveryEvents).values({
-      candidateId: candidate.id,
-      playerId: values.playerId,
-      eventType: 'replay_invalidation_unconfirmed',
-      actor: 'system',
-      reason:
-        "Could not confirm the incumbent's cached sync replay was invalidated, so this candidate is contested until it is observed again.",
-      createdAt: now,
-    });
-    status = 'contested';
+      .set({ status: 'invalidation_failed' })
+      .where(
+        and(
+          eq(installRecoveryCandidates.id, candidate.id),
+          eq(installRecoveryCandidates.status, 'pending')
+        )
+      )
+      .returning({ id: installRecoveryCandidates.id });
+    if (transitioned.length > 0) {
+      await db.insert(installRecoveryEvents).values({
+        candidateId: candidate.id,
+        playerId: values.playerId,
+        eventType: 'replay_invalidation_unconfirmed',
+        actor: 'system',
+        reason:
+          "Could not confirm the incumbent's cached sync replay was invalidated. Promotion remains disabled until a later observation confirms invalidation.",
+        createdAt: now,
+      });
+      status = 'invalidation_failed';
+    } else {
+      const [current] = await db
+        .select({ status: installRecoveryCandidates.status })
+        .from(installRecoveryCandidates)
+        .where(eq(installRecoveryCandidates.id, candidate.id))
+        .limit(1);
+      status = current.status as RecoveryCandidateStatus;
+    }
+  } else if (replayInvalidated && status === 'invalidation_failed') {
+    // This status records only a transient cache-layer failure. A later
+    // observation may safely restore it to pending after invalidation succeeds.
+    // Any incumbent activity or competing credential changes the status to
+    // contested above/below, which remains intentionally irreversible.
+    const transitioned = await db
+      .update(installRecoveryCandidates)
+      .set({ status: 'pending' })
+      .where(
+        and(
+          eq(installRecoveryCandidates.id, candidate.id),
+          eq(installRecoveryCandidates.status, 'invalidation_failed')
+        )
+      )
+      .returning({ id: installRecoveryCandidates.id });
+    if (transitioned.length > 0) {
+      await db.insert(installRecoveryEvents).values({
+        candidateId: candidate.id,
+        playerId: values.playerId,
+        eventType: 'replay_invalidation_confirmed',
+        actor: 'system',
+        reason:
+          "A later observation confirmed the incumbent's cached sync replay was invalidated. The candidate is pending again.",
+        createdAt: now,
+      });
+      status = 'pending';
+    } else {
+      const [current] = await db
+        .select({ status: installRecoveryCandidates.status })
+        .from(installRecoveryCandidates)
+        .where(eq(installRecoveryCandidates.id, candidate.id))
+        .limit(1);
+      status = current.status as RecoveryCandidateStatus;
+    }
   }
 
   return {
@@ -251,7 +305,7 @@ export async function noteIncumbentCredentialSeen(playerId: number) {
     .where(
       and(
         eq(installRecoveryCandidates.playerId, playerId),
-        eq(installRecoveryCandidates.status, 'pending')
+        inArray(installRecoveryCandidates.status, ['pending', 'invalidation_failed'])
       )
     )
     .returning({ id: installRecoveryCandidates.id });
@@ -363,7 +417,7 @@ export async function rejectInstallRecoveryCandidate(candidateId: number, actor:
     WITH rejected AS (
       UPDATE install_recovery_candidates
       SET status = 'rejected', rejected_at = NOW()
-      WHERE id = ${candidateId} AND status IN ('pending', 'contested')
+      WHERE id = ${candidateId} AND status IN ('pending', 'invalidation_failed', 'contested')
       RETURNING id, player_id
     ),
     recovery_event AS (

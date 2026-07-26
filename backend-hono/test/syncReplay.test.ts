@@ -62,7 +62,7 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
     vi.restoreAllMocks();
   });
 
-  it('fails closed to contested when replay invalidation cannot be confirmed', async () => {
+  it('fails closed but returns to pending after a later successful invalidation', async () => {
     mocks.expireTag.mockRejectedValueOnce(new Error('cache outage'));
 
     const { db } = await import('../src/db/client.js');
@@ -85,33 +85,57 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
       })
       .returning();
 
-    const result = await captureInstallRecoveryCandidate({
+    const candidateValues = {
       playerId: player.id,
       incumbentSecretHash: 'incumbent-secret-hash-for-this-test',
       candidateSecretHash: 'candidate-secret-hash-for-this-test',
       displayName: 'ReplayFailurePlayer',
       receivedCount: 1,
       pbsByBoss: new Map([['zulrah', 80]]),
-    });
+    };
+    const result = await captureInstallRecoveryCandidate(candidateValues);
 
     // Without confirmed invalidation, a still-cached incumbent success could
     // silently bypass noteIncumbentCredentialSeen() - so this must not come
     // back "pending" (promotable) just because the DB write itself succeeded.
-    expect(result.status).toBe('contested');
+    expect(result.status).toBe('invalidation_failed');
 
     const [candidateRow] = await db
       .select()
       .from(installRecoveryCandidates)
       .where(eq(installRecoveryCandidates.id, result.id));
-    expect(candidateRow.status).toBe('contested');
+    expect(candidateRow.status).toBe('invalidation_failed');
 
-    const [event] = await db
+    const [failureEvent] = await db
       .select()
       .from(installRecoveryEvents)
       .where(eq(installRecoveryEvents.candidateId, result.id));
-    expect(event).toMatchObject({
+    expect(failureEvent).toMatchObject({
       eventType: 'replay_invalidation_unconfirmed',
       actor: 'system',
     });
+
+    mocks.expireTag.mockResolvedValueOnce(undefined);
+    const retried = await captureInstallRecoveryCandidate(candidateValues);
+    expect(retried).toMatchObject({
+      id: result.id,
+      status: 'pending',
+      attemptCount: 2,
+    });
+
+    const [retriedRow] = await db
+      .select()
+      .from(installRecoveryCandidates)
+      .where(eq(installRecoveryCandidates.id, result.id));
+    expect(retriedRow.status).toBe('pending');
+
+    const events = await db
+      .select()
+      .from(installRecoveryEvents)
+      .where(eq(installRecoveryEvents.candidateId, result.id));
+    expect(events.map((event) => event.eventType)).toEqual([
+      'replay_invalidation_unconfirmed',
+      'replay_invalidation_confirmed',
+    ]);
   });
 });

@@ -34,6 +34,7 @@ export function recoveryAdminPage(nonce: string) {
     .badge.promoted { background: #20553b; }
     .badge.rejected { background: #633039; }
     .badge.contested { background: #674519; }
+    .badge.invalidation_failed { background: #674519; }
     .explanation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0 14px; }
     .insight { background: #141821; border: 1px solid #303746; border-radius: 10px; padding: 14px; }
     .insight h3, .signals h3, .metrics-title { margin: 0 0 7px; font-size: 14px; }
@@ -90,7 +91,7 @@ export function recoveryAdminPage(nonce: string) {
       </div>
       <section class="controls" aria-label="Recovery controls">
         <label>Actor<input id="actor" value="0xSteph" maxlength="80"></label>
-        <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="pending">Pending</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
+        <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="pending">Pending</option><option value="invalidation_failed">Invalidation failed</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
         <button id="refresh" type="button">Refresh</button>
       </section>
       <p id="message" class="message" role="status"></p>
@@ -262,7 +263,7 @@ export function recoveryAdminPage(nonce: string) {
       promote.addEventListener('click', function () { decide(candidate, 'promote').catch(showError); });
       const reject = textElement('button', 'Reject', 'danger');
       reject.type = 'button';
-      reject.disabled = candidate.status !== 'pending' && candidate.status !== 'contested';
+      reject.disabled = candidate.status !== 'pending' && candidate.status !== 'invalidation_failed' && candidate.status !== 'contested';
       reject.addEventListener('click', function () { decide(candidate, 'reject').catch(showError); });
       actions.append(promote, reject);
 

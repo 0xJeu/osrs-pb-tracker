@@ -59,6 +59,21 @@ describe('install recovery assessment', () => {
     );
   });
 
+  it('waits for an automatic retry after replay invalidation fails', () => {
+    const assessment = assessInstallRecovery(
+      { ...base, status: 'invalidation_failed', attemptCount: 2 },
+      null
+    );
+
+    expect(assessment.recommendation).toMatchObject({
+      action: 'wait_for_retry',
+      tone: 'caution',
+    });
+    expect(assessment.signals.map((signal) => signal.label)).toContain(
+      'Replay invalidation not confirmed'
+    );
+  });
+
   it('marks incomplete or conflicting continuity for investigation', () => {
     const assessment = assessInstallRecovery(
       {

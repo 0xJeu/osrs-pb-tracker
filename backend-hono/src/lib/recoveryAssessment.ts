@@ -96,6 +96,13 @@ export function assessInstallRecovery(
       detail:
         'The incumbent credential has not synced again and no second candidate credential has appeared since this candidate was captured.',
     });
+  } else if (candidate.status === 'invalidation_failed') {
+    signals.push({
+      tone: 'caution',
+      label: 'Replay invalidation not confirmed',
+      detail:
+        'Promotion is disabled until a later observation successfully invalidates this player’s cached replay entries.',
+    });
   } else if (candidate.status === 'contested') {
     signals.push({
       tone: 'danger',
@@ -111,7 +118,15 @@ export function assessInstallRecovery(
     title: string;
     detail: string;
   };
-  if (candidate.status === 'contested') {
+  if (candidate.status === 'invalidation_failed') {
+    recommendation = {
+      action: 'wait_for_retry',
+      tone: 'caution',
+      title: 'Wait for another observation',
+      detail:
+        'The cache layer could not confirm replay invalidation. A later sync from this same credential can retry automatically; do not promote it yet.',
+    };
+  } else if (candidate.status === 'contested') {
     recommendation = {
       action: 'do_not_promote',
       tone: 'danger',

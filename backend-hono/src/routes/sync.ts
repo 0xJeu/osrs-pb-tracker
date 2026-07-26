@@ -313,6 +313,8 @@ sync.post('/', async (c) => {
     const code = recoveryCandidate
       ? recoveryCandidate.status === 'contested'
         ? 'RECOVERY_CONTESTED'
+        : recoveryCandidate.status === 'invalidation_failed'
+          ? 'RECOVERY_INVALIDATION_FAILED'
         : recoveryCandidate.status === 'rejected'
           ? 'RECOVERY_REJECTED'
           : 'RECOVERY_PENDING'
