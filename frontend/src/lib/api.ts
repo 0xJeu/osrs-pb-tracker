@@ -63,6 +63,10 @@ export class ApiError extends Error {
   }
 }
 
+export interface SearchAllOptions {
+  signal?: AbortSignal;
+}
+
 export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) {
   const base = baseUrl.replace(/\/+$/, '');
   const searchCache = new Map<string, Promise<string[]>>();
@@ -78,9 +82,31 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     return Date.now();
   }
 
-  async function getJson<T>(path: string, ttlMs = 0): Promise<T> {
+  function touchSearchCacheKey(path: string) {
+    searchCacheKeys.delete(path);
+    searchCacheKeys.add(path);
+  }
+
+  function isAbortError(error: unknown, signal?: AbortSignal) {
+    return signal?.aborted || (
+      typeof error === 'object'
+      && error !== null
+      && 'name' in error
+      && error.name === 'AbortError'
+    );
+  }
+
+  async function getJson<T>(
+    path: string,
+    ttlMs = 0,
+    signal?: AbortSignal,
+    cacheGroup?: 'search'
+  ): Promise<T> {
     const cached = sessionCache.get(path);
     if (cached && cached.expiresAt > now()) {
+      if (searchCacheKeys.has(path)) {
+        touchSearchCacheKey(path);
+      }
       return cached.value as T;
     }
 
@@ -90,25 +116,57 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     }
 
     const request = (async () => {
-      const res = await fetchFn(`${base}${path}`);
+      const url = `${base}${path}`;
+      const res = signal
+        ? await fetchFn(url, { signal })
+        : await fetchFn(url);
       if (!res.ok) {
         throw new ApiError(res.status);
       }
       const value = (await res.json()) as T;
       if (ttlMs > 0) {
-        if (ttlMs === TTL.search) {
-          searchCacheKeys.add(path);
-          if (searchCacheKeys.size > 200) {
-            const oldestSearchKey = searchCacheKeys.values().next().value;
-            if (oldestSearchKey) {
-              searchCacheKeys.delete(oldestSearchKey);
-              sessionCache.delete(oldestSearchKey);
+        sessionCache.set(path, { expiresAt: now() + ttlMs, value });
+        if (cacheGroup === 'search') {
+          touchSearchCacheKey(path);
+          while (searchCacheKeys.size > 200) {
+            const leastRecentlyUsedKey = searchCacheKeys.values().next().value;
+            if (!leastRecentlyUsedKey) {
+              break;
             }
+            searchCacheKeys.delete(leastRecentlyUsedKey);
+            sessionCache.delete(leastRecentlyUsedKey);
           }
         }
-        sessionCache.set(path, { expiresAt: now() + ttlMs, value });
       }
       return value;
+    })();
+
+    inFlight.set(path, request);
+    try {
+      return await request;
+    } finally {
+      inFlight.delete(path);
+    }
+  }
+
+  async function getPlayer(path: string): Promise<PlayerLookup> {
+    const cached = sessionCache.get(path);
+    if (cached && cached.expiresAt > now()) {
+      return cached.value as PlayerLookup;
+    }
+
+    const pending = inFlight.get(path);
+    if (pending) {
+      return pending as Promise<PlayerLookup>;
+    }
+
+    const request = (async () => {
+      const res = await fetchFn(`${base}${path}`);
+      const result = await playerFrom(res);
+      if (res.ok) {
+        sessionCache.set(path, { expiresAt: now() + TTL.playerProfile, value: result });
+      }
+      return result;
     })();
 
     inFlight.set(path, request);
@@ -124,13 +182,8 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   }
 
   // Endpoint-specific session TTLs from the compute-wake design (Workstream E).
-  // getJson's bounded-eviction logic below compares ttlMs === TTL.search by
-  // raw value, so search's TTL must stay numerically distinct from every
-  // other entry here (currently equal to playerProfile's by coincidence,
-  // which is harmless only because lookupPlayer never routes through
-  // getJson) - changing this value, or routing another cache entry through
-  // getJson with this same number, would silently subject it to search's
-  // 200-entry eviction cap too.
+  // Search entries opt into their bounded LRU explicitly rather than being
+  // inferred from a TTL value that another endpoint could legitimately share.
   const TTL = {
     playerProfile: 5 * 60 * 1000,
     bossList: Number.POSITIVE_INFINITY, // session lifetime
@@ -157,19 +210,10 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     async lookupPlayer(name: string): Promise<PlayerLookup> {
       const canonicalName = name.trim().toLowerCase();
       const path = `/api/players/${encodeURIComponent(canonicalName)}`;
-      const cached = sessionCache.get(path);
-      if (cached && cached.expiresAt > now()) {
-        return playerFrom(new Response(JSON.stringify(cached.value), { status: 200 }));
-      }
-      const res = await fetchFn(`${base}${path}`);
-      if (res.ok) {
-        const cloned = res.clone();
-        void cloned.json().then((value) => sessionCache.set(path, { expiresAt: now() + TTL.playerProfile, value }));
-      }
-      return playerFrom(res);
+      return getPlayer(path);
     },
     async getPlayerById(id: number): Promise<PlayerLookup> {
-      return playerFrom(await fetchFn(`${base}/api/players/by-id/${id}`));
+      return getPlayer(`/api/players/by-id/${id}`);
     },
     search(q: string): Promise<string[]> {
       const canonicalQuery = q.trim().toLowerCase();
@@ -188,19 +232,45 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
       );
       return request;
     },
-    async searchAll(q: string): Promise<SearchSuggestion[]> {
+    async searchAll(q: string, options: SearchAllOptions = {}): Promise<SearchSuggestion[]> {
       const canonicalQuery = q.trim().toLowerCase();
       if (canonicalQuery.length < 2) {
         return [];
       }
       try {
-        return await getJson(`/api/search/all?q=${encodeURIComponent(canonicalQuery)}`, TTL.search);
-      } catch {
+        return await getJson(
+          `/api/search/all?q=${encodeURIComponent(canonicalQuery)}`,
+          TTL.search,
+          options.signal,
+          'search'
+        );
+      } catch (error) {
+        if (isAbortError(error, options.signal)) {
+          throw error;
+        }
+        if (!(error instanceof ApiError) || error.status !== 404) {
+          throw error;
+        }
+
+        async function fallbackOrEmpty<T>(request: Promise<T>, fallback: T): Promise<T> {
+          try {
+            return await request;
+          } catch (fallbackError) {
+            if (isAbortError(fallbackError, options.signal)) {
+              throw fallbackError;
+            }
+            return fallback;
+          }
+        }
+
         // Rolling-deploy fallback: keep the makeover usable while the
         // currently deployed backend still exposes only the legacy routes.
         const [playerNames, bosses] = await Promise.all([
-          getJson<string[]>(`/api/search?q=${encodeURIComponent(canonicalQuery)}`).catch(() => []),
-          getJson<string[]>('/api/bosses', TTL.bossList).catch(() => []),
+          fallbackOrEmpty(
+            getJson<string[]>(`/api/search?q=${encodeURIComponent(canonicalQuery)}`, 0, options.signal),
+            []
+          ),
+          fallbackOrEmpty(getJson<string[]>('/api/bosses', TTL.bossList, options.signal), []),
         ]);
         return [
           ...playerNames.map((value) => ({ type: 'player' as const, value })),

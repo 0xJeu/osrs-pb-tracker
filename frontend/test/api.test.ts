@@ -246,6 +246,33 @@ describe('request coalescing and session caching', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it('coalesces concurrent player lookups and reuses the successful profile cache', async () => {
+    let resolveFetch: (res: Response) => void;
+    const fetchFn = vi.fn().mockImplementation(
+      () => new Promise<Response>((resolve) => { resolveFetch = resolve; })
+    );
+    const api = createApiClient('', fetchFn);
+    const player = {
+      id: 1,
+      displayName: 'Blitzen',
+      updatedAt: '2026-07-04T00:00:00Z',
+      pbs: [{ boss: 'zulrah', timeSeconds: 80, updatedAt: '2026-07-04T00:00:00Z', rank: 1 }],
+    };
+
+    const first = api.lookupPlayer(' Blitzen ');
+    const second = api.lookupPlayer('BLITZEN');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    resolveFetch!(jsonResponse(player));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { kind: 'player', player },
+      { kind: 'player', player },
+    ]);
+
+    await expect(api.lookupPlayer('blitzen')).resolves.toEqual({ kind: 'player', player });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it('does not cache a rejected request, so a retry can succeed', async () => {
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(new Response('err', { status: 500 }))
@@ -289,7 +316,35 @@ describe('searchAll request controls', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen');
   });
 
-  it('bounds search-cache eviction to search entries, sparing other cached endpoints', async () => {
+  it('forwards cancellation and does not start the legacy fallback after an abort', async () => {
+    const fetchFn = vi.fn().mockImplementation((_url: string, init?: RequestInit) => (
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      })
+    ));
+    const api = createApiClient('', fetchFn);
+    const controller = new AbortController();
+
+    const request = api.searchAll('blitzen', { signal: controller.signal });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen', { signal: controller.signal });
+  });
+
+  it('does not amplify a universal-search server failure with legacy fallback requests', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'Internal error' }, 500));
+    const api = createApiClient('', fetchFn);
+
+    await expect(api.searchAll('blitzen')).rejects.toMatchObject({ status: 500 });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=blitzen');
+  });
+
+  it('uses a bounded LRU search cache while sparing other cached endpoints', async () => {
     const fetchFn = vi.fn().mockImplementation(async (url: string) => {
       if (url === '/api/bosses') return jsonResponse(['zulrah']);
       return jsonResponse([{ type: 'player', value: 'p' }]);
@@ -301,24 +356,26 @@ describe('searchAll request controls', () => {
     await api.getBosses();
     expect(fetchFn).toHaveBeenCalledTimes(1);
 
-    // Perform 201 distinct searchAll queries, pushing the search cache past
-    // its 200-entry cap.
-    for (let i = 0; i < 201; i++) {
+    // Fill the 200-entry search cache.
+    for (let i = 0; i < 200; i++) {
       await api.searchAll(`query-${i}`);
     }
+    expect(fetchFn).toHaveBeenCalledTimes(1 + 200);
+
+    // Touch query-0 so query-1 becomes the least recently used entry, then
+    // add one new query to force exactly one eviction.
+    await api.searchAll('query-0');
+    await api.searchAll('query-200');
     expect(fetchFn).toHaveBeenCalledTimes(1 + 201);
 
-    // The boss-list entry must still be a cache hit, not evicted.
-    await api.getBosses();
-    expect(fetchFn).toHaveBeenCalledTimes(1 + 201);
-
-    // The oldest search entry (query-0) must have been evicted, so repeating
-    // it causes a new fetch.
+    // query-1 was evicted, while the recently touched query-0 remains cached.
+    await api.searchAll('query-1');
+    expect(fetchFn).toHaveBeenCalledTimes(1 + 201 + 1);
     await api.searchAll('query-0');
     expect(fetchFn).toHaveBeenCalledTimes(1 + 201 + 1);
 
-    // The most recent search entry (query-200) must still be cached.
-    await api.searchAll('query-200');
+    // The boss-list entry must remain a cache hit too.
+    await api.getBosses();
     expect(fetchFn).toHaveBeenCalledTimes(1 + 201 + 1);
   });
 });

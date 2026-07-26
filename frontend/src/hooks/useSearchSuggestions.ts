@@ -32,10 +32,17 @@ export function useSearchSuggestions(query: string, bosses: LoadState<string[]>)
       return;
     }
     let alive = true;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      api.searchAll(trimmed).then((result) => { if (alive) setSuggestions(result); }).catch(() => { if (alive) setSuggestions([]); });
+      api.searchAll(trimmed, { signal: controller.signal })
+        .then((result) => { if (alive) setSuggestions(result); })
+        .catch(() => { if (alive) setSuggestions([]); });
     }, 275);
-    return () => { alive = false; window.clearTimeout(timer); };
+    return () => {
+      alive = false;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
   }, [query, bosses]);
 
   return suggestions;
