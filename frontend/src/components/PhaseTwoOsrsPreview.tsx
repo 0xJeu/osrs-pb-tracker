@@ -209,10 +209,17 @@ export function PhaseTwoOsrsPreview() {
       return;
     }
     let alive = true;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      api.searchAll(query).then((result) => { if (alive) setSuggestions(result); }).catch(() => { if (alive) setSuggestions([]); });
+      api.searchAll(query, { signal: controller.signal })
+        .then((result) => { if (alive) setSuggestions(result); })
+        .catch(() => { if (alive) setSuggestions([]); });
     }, 275);
-    return () => { alive = false; window.clearTimeout(timer); };
+    return () => {
+      alive = false;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
   }, [playerQuery, bosses]);
 
   useEffect(() => {

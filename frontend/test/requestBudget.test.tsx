@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PhaseTwoOsrsPreview } from '../src/components/PhaseTwoOsrsPreview';
 import { api } from '../src/lib/api';
 
@@ -29,10 +29,12 @@ describe('per-view request budget', () => {
   beforeEach(() => {
     fetchSpy = mockFetch();
     vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('scrollTo', vi.fn());
     api.resetForTesting();
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
   });
 
@@ -71,10 +73,24 @@ describe('per-view request budget', () => {
     expect(paths.some((p) => p.includes('/api/leaderboard-overview'))).toBe(false);
   });
 
-  it('FAQ and Setup views make zero initial API requests', async () => {
-    setPath('/faq');
+  it.each(['/faq', '/setup'])('%s makes zero initial API requests', async (path) => {
+    setPath(path);
     render(<PhaseTwoOsrsPreview />);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not refetch already-loaded home data after navigating away and back', async () => {
+    setPath('/');
+    render(<PhaseTwoOsrsPreview />);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 });
