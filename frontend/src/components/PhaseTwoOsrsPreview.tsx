@@ -173,6 +173,11 @@ function HomeView({
   const [playerQuery, setPlayerQuery] = useState('');
   const suggestions = useSearchSuggestions(playerQuery, bosses);
 
+  // Defensive: navigating to a player normally unmounts HomeView (a
+  // different route.name branch renders instead), which already discards
+  // playerQuery for free. This clears the box immediately in case that
+  // ever stops being true - safe to leave even though it's currently
+  // unreachable in practice.
   const submitLookup = (name: string) => {
     setPlayerQuery('');
     lookupPlayer(name);
