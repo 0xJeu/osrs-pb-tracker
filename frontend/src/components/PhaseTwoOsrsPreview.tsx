@@ -20,6 +20,7 @@ import { isLoaded, type LoadState } from '../lib/loadState';
 import { useRoute } from '../hooks/useRoute';
 import type { Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
+import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard';
 
 type PlayerState =
   | { s: 'idle' }
@@ -29,21 +30,11 @@ type PlayerState =
   | { s: 'ambiguous'; name: string; count: number }
   | { s: 'loaded'; player: PlayerPayload };
 
-const LEADERBOARD_PAGE_SIZE = 50;
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
-const preferredBosses = [
-  'chambers of xeric - challenge mode - fastest overall (3 players)',
-  'chambers of xeric',
-  'zulrah',
-];
 
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();
   return lower.startsWith('the ') ? lower.slice(4) : lower;
-}
-
-function pickInitialBoss(bosses: string[]) {
-  return preferredBosses.find((boss) => bosses.includes(boss)) ?? bosses[0] ?? '';
 }
 
 function statValue(value: number | undefined) {
@@ -89,10 +80,7 @@ export function PhaseTwoOsrsPreview() {
   const bosses = useBossList(route);
   const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'idle' });
   const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'idle' });
-  const [leaderboard, setLeaderboard] = useState<LoadState<LeaderboardPage>>({ s: 'idle' });
-  const [leaderboardOffset, setLeaderboardOffset] = useState(0);
   const [topBosses, setTopBosses] = useState<LoadState<Array<{ boss: string; leader: LeaderboardRow | null }>>>({ s: 'idle' });
-  const [selectedBoss, setSelectedBoss] = useState('');
   const [playerQuery, setPlayerQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
@@ -124,28 +112,8 @@ export function PhaseTwoOsrsPreview() {
     return () => { alive = false; };
   }, [route.name, topBosses.s]);
 
-  // The boss page's selected boss is driven by the URL (route.boss), not the
-  // other way around - landing directly on /boss/<key>, following a link, or
-  // switching via the picker all just change route.boss and this follows.
-  useEffect(() => {
-    if (route.name === 'boss' && route.boss) setSelectedBoss(route.boss);
-  }, [route]);
-
-  useEffect(() => {
-    setLeaderboardOffset(0);
-  }, [selectedBoss]);
-
-  const highlight = route.name === 'boss' ? route.highlight : undefined;
-
-  useEffect(() => {
-    if (route.name !== 'boss' || !selectedBoss) return;
-    let alive = true;
-    setLeaderboard({ s: 'loading' });
-    api.getLeaderboardPage(selectedBoss, LEADERBOARD_PAGE_SIZE, leaderboardOffset, highlight)
-      .then((data) => alive && setLeaderboard({ s: 'loaded', data }))
-      .catch(() => alive && setLeaderboard({ s: 'error' }));
-    return () => { alive = false; };
-  }, [route.name, selectedBoss, highlight, leaderboardOffset]);
+  const bossLeaderboard = useBossLeaderboard(route, bosses);
+  const { selectedBoss, leaderboard, rows, leaderboardOffset, setLeaderboardOffset, titleParts, highlight } = bossLeaderboard;
 
   useEffect(() => {
     const query = playerQuery.trim();
@@ -199,8 +167,6 @@ export function PhaseTwoOsrsPreview() {
     else lookupPlayer(playerQuery);
   };
 
-  const rows = useMemo(() => (isLoaded(leaderboard) ? leaderboard.data.rows : []), [leaderboard]);
-  const titleParts = bossTitleParts(selectedBoss);
   // Only tint the page while actually looking at a boss's leaderboard - Home
   // and player pages stay neutral so the accent reads as "this page is about
   // this boss," not just "whatever was last clicked."
