@@ -62,7 +62,7 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
     vi.restoreAllMocks();
   });
 
-  it('fails closed but returns to pending after a later successful invalidation', async () => {
+  it('stays non-promotable after a later successful invalidation', async () => {
     mocks.expireTag.mockRejectedValueOnce(new Error('cache outage'));
 
     const { db } = await import('../src/db/client.js');
@@ -119,7 +119,7 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
     const retried = await captureInstallRecoveryCandidate(candidateValues);
     expect(retried).toMatchObject({
       id: result.id,
-      status: 'pending',
+      status: 'invalidation_failed',
       attemptCount: 2,
     });
 
@@ -127,7 +127,7 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
       .select()
       .from(installRecoveryCandidates)
       .where(eq(installRecoveryCandidates.id, result.id));
-    expect(retriedRow.status).toBe('pending');
+    expect(retriedRow.status).toBe('invalidation_failed');
 
     const events = await db
       .select()
@@ -135,7 +135,6 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
       .where(eq(installRecoveryEvents.candidateId, result.id));
     expect(events.map((event) => event.eventType)).toEqual([
       'replay_invalidation_unconfirmed',
-      'replay_invalidation_confirmed',
     ]);
   });
 });

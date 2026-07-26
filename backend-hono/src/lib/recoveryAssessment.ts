@@ -101,7 +101,7 @@ export function assessInstallRecovery(
       tone: 'caution',
       label: 'Replay invalidation not confirmed',
       detail:
-        'Promotion is disabled until a later observation successfully invalidates this player’s cached replay entries.',
+        'Promotion is disabled because incumbent activity during the cache outage cannot be ruled out.',
     });
   } else if (candidate.status === 'contested') {
     signals.push({
@@ -120,11 +120,11 @@ export function assessInstallRecovery(
   };
   if (candidate.status === 'invalidation_failed') {
     recommendation = {
-      action: 'wait_for_retry',
-      tone: 'caution',
-      title: 'Wait for another observation',
+      action: 'do_not_promote',
+      tone: 'danger',
+      title: 'Do not promote',
       detail:
-        'The cache layer could not confirm replay invalidation. A later sync from this same credential can retry automatically; do not promote it yet.',
+        'The cache layer could not confirm replay invalidation, so incumbent activity may have gone unobserved. Investigate or reject this candidate; a later retry cannot remove that uncertainty.',
     };
   } else if (candidate.status === 'contested') {
     recommendation = {

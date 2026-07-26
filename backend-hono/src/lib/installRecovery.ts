@@ -234,44 +234,10 @@ export async function captureInstallRecoveryCandidate(values: {
         eventType: 'replay_invalidation_unconfirmed',
         actor: 'system',
         reason:
-          "Could not confirm the incumbent's cached sync replay was invalidated. Promotion remains disabled until a later observation confirms invalidation.",
+          "Could not confirm the incumbent's cached sync replay was invalidated. Promotion remains disabled because activity during the cache outage cannot be ruled out.",
         createdAt: now,
       });
       status = 'invalidation_failed';
-    } else {
-      const [current] = await db
-        .select({ status: installRecoveryCandidates.status })
-        .from(installRecoveryCandidates)
-        .where(eq(installRecoveryCandidates.id, candidate.id))
-        .limit(1);
-      status = current.status as RecoveryCandidateStatus;
-    }
-  } else if (replayInvalidated && status === 'invalidation_failed') {
-    // This status records only a transient cache-layer failure. A later
-    // observation may safely restore it to pending after invalidation succeeds.
-    // Any incumbent activity or competing credential changes the status to
-    // contested above/below, which remains intentionally irreversible.
-    const transitioned = await db
-      .update(installRecoveryCandidates)
-      .set({ status: 'pending' })
-      .where(
-        and(
-          eq(installRecoveryCandidates.id, candidate.id),
-          eq(installRecoveryCandidates.status, 'invalidation_failed')
-        )
-      )
-      .returning({ id: installRecoveryCandidates.id });
-    if (transitioned.length > 0) {
-      await db.insert(installRecoveryEvents).values({
-        candidateId: candidate.id,
-        playerId: values.playerId,
-        eventType: 'replay_invalidation_confirmed',
-        actor: 'system',
-        reason:
-          "A later observation confirmed the incumbent's cached sync replay was invalidated. The candidate is pending again.",
-        createdAt: now,
-      });
-      status = 'pending';
     } else {
       const [current] = await db
         .select({ status: installRecoveryCandidates.status })
