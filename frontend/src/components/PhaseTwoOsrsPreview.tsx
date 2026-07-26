@@ -19,6 +19,7 @@ import { SetupGuidePage } from './SetupGuidePage';
 import { isLoaded, type LoadState } from '../lib/loadState';
 import { useRoute } from '../hooks/useRoute';
 import type { Route } from '../hooks/useRoute';
+import { useBossList } from '../hooks/useBossList';
 
 type PlayerState =
   | { s: 'idle' }
@@ -85,7 +86,7 @@ function PetIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
 
 export function PhaseTwoOsrsPreview() {
   const { route, navigate } = useRoute();
-  const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'idle' });
+  const bosses = useBossList(route);
   const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'idle' });
   const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'idle' });
   const [leaderboard, setLeaderboard] = useState<LoadState<LeaderboardPage>>({ s: 'idle' });
@@ -95,21 +96,6 @@ export function PhaseTwoOsrsPreview() {
   const [playerQuery, setPlayerQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
-
-  // Boss list: needed on home (for Top Bosses key resolution) and boss
-  // views. Other views may still get boss suggestions from universal search
-  // without preloading the full list.
-  useEffect(() => {
-    if ((route.name !== 'home' && route.name !== 'boss') || bosses.s !== 'idle') return;
-    let alive = true;
-    setBosses({ s: 'loading' });
-    api.getBosses().then((data) => {
-      if (!alive) return;
-      setBosses({ s: 'loaded', data });
-      setSelectedBoss((current) => current || pickInitialBoss(data));
-    }).catch(() => alive && setBosses({ s: 'error' }));
-    return () => { alive = false; };
-  }, [route.name, bosses.s]);
 
   useEffect(() => {
     if (route.name !== 'home' || stats.s !== 'idle') return;
