@@ -151,11 +151,15 @@ just relocated into their respective hooks/views.
 
 ## Rollout
 
-Single PR against `dev`, branched from `dev` (this is independent of the two
-in-flight PRs #26/#27 — it touches the same `PhaseTwoOsrsPreview.tsx` file
-that PR #27 already modified, so it should be sequenced *after* #27 merges to
-avoid a large merge conflict, or rebased onto #27's branch if done in
-parallel).
+Stacked on top of PR #27 rather than sequenced after it: branch from
+`frontend-view-scoped-fetching` (PR #27's branch) instead of `dev`, so this
+work starts from the exact code state #27 already introduced (including the
+`useEffect`-per-view split and the `25ea37e` fetch-injection-seam fix) and
+never conflicts with it. Open the PR with base `frontend-view-scoped-fetching`
+rather than `dev`. Once #27 merges into `dev` and its branch is deleted,
+GitHub automatically retargets this PR's base to `dev` — no manual rebase
+needed. This also means this PR's diff, as shown on GitHub, is exactly the
+decomposition changes, not the view-scoped-fetching changes it builds on.
 
 ## Definition of Done
 
