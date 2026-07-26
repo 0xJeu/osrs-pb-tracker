@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createApiClient } from '../src/lib/api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api, createApiClient } from '../src/lib/api';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -320,5 +320,19 @@ describe('searchAll request controls', () => {
     // The most recent search entry (query-200) must still be cached.
     await api.searchAll('query-200');
     expect(fetchFn).toHaveBeenCalledTimes(1 + 201 + 1);
+  });
+});
+
+describe('the default exported api singleton', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('routes requests through the currently-stubbed global fetch, not the fetch bound at module import time', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(['zulrah']));
+    vi.stubGlobal('fetch', fetchFn);
+
+    expect(await api.getBosses()).toEqual(['zulrah']);
+    expect(fetchFn).toHaveBeenCalledWith('/api/bosses');
   });
 });

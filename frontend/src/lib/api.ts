@@ -249,6 +249,16 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
     invalidatePlayerProfile(name: string) {
       invalidate(`/api/players/${encodeURIComponent(name.trim().toLowerCase())}`);
     },
+    // Test-only escape hatch: clears every in-memory cache (session TTL
+    // entries, in-flight coalescing, search dedup) so a shared client - like
+    // the `api` singleton below - starts each test with no memory of prior
+    // ones, without needing vi.resetModules() + a dynamic re-import.
+    resetForTesting() {
+      sessionCache.clear();
+      inFlight.clear();
+      searchCache.clear();
+      searchCacheKeys.clear();
+    },
     async submitFeedback(message: string, context?: string): Promise<void> {
       const res = await fetchFn(`${base}/api/feedback`, {
         method: 'POST',
@@ -262,6 +272,12 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   };
 }
 
+// Delegates to the global `fetch` by name at call time (not captured as a
+// default-parameter value), so `vi.stubGlobal('fetch', mockFn)` in a test's
+// beforeEach reaches this singleton even though it was already constructed at
+// module-import time.
+const globalFetch: typeof fetch = (...args) => fetch(...args);
+
 // VITE_API_BASE_URL unset -> same-origin /api/... paths, per the spec's
 // defined fallback behavior.
-export const api = createApiClient(import.meta.env.VITE_API_BASE_URL ?? '');
+export const api = createApiClient(import.meta.env.VITE_API_BASE_URL ?? '', globalFetch);
