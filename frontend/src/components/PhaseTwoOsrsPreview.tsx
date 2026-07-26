@@ -21,6 +21,7 @@ import { useRoute } from '../hooks/useRoute';
 import type { Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
 import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard';
+import { useHomeData } from '../hooks/useHomeData';
 
 type PlayerState =
   | { s: 'idle' }
@@ -78,39 +79,10 @@ function PetIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
 export function PhaseTwoOsrsPreview() {
   const { route, navigate } = useRoute();
   const bosses = useBossList(route);
-  const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'idle' });
-  const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'idle' });
-  const [topBosses, setTopBosses] = useState<LoadState<Array<{ boss: string; leader: LeaderboardRow | null }>>>({ s: 'idle' });
+  const { stats, recentSyncs, topBosses } = useHomeData(route);
   const [playerQuery, setPlayerQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [profileState, setProfileState] = useState<PlayerState>({ s: 'idle' });
-
-  useEffect(() => {
-    if (route.name !== 'home' || stats.s !== 'idle') return;
-    let alive = true;
-    setStats({ s: 'loading' });
-    api.getStats().then((data) => alive && setStats({ s: 'loaded', data })).catch(() => alive && setStats({ s: 'error' }));
-    return () => { alive = false; };
-  }, [route.name, stats.s]);
-
-  useEffect(() => {
-    if (route.name !== 'home' || recentSyncs.s !== 'idle') return;
-    let alive = true;
-    setRecentSyncs({ s: 'loading' });
-    api.getRecentSyncs(6).then((data) => alive && setRecentSyncs({ s: 'loaded', data })).catch(() => alive && setRecentSyncs({ s: 'error' }));
-    return () => { alive = false; };
-  }, [route.name, recentSyncs.s]);
-
-  // One request replaces the previous 5-request per-boss fan-out (Workstream D).
-  useEffect(() => {
-    if (route.name !== 'home' || topBosses.s !== 'idle') return;
-    let alive = true;
-    setTopBosses({ s: 'loading' });
-    api.getLeaderboardOverview()
-      .then((data) => alive && setTopBosses({ s: 'loaded', data }))
-      .catch(() => alive && setTopBosses({ s: 'error' }));
-    return () => { alive = false; };
-  }, [route.name, topBosses.s]);
 
   const bossLeaderboard = useBossLeaderboard(route, bosses);
   const { selectedBoss, leaderboard, rows, leaderboardOffset, setLeaderboardOffset, titleParts, highlight } = bossLeaderboard;
