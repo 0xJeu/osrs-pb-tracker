@@ -3,7 +3,8 @@ import '../theme-osrs-preview.css';
 import { api } from '../lib/api';
 import type { LeaderboardPage, LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync, SearchSuggestion } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
-import { formatDate, formatTime, titleCase } from '../lib/format';
+import { bossTitleParts, formatDate, formatTime, titleCase } from '../lib/format';
+import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
 import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
 import { bossAccentColor } from '../lib/bossColors';
 import { bossBannerUrl } from '../lib/bossBanners';
@@ -26,8 +27,6 @@ type PlayerState =
   | { s: 'notFound'; name: string }
   | { s: 'ambiguous'; name: string; count: number }
   | { s: 'loaded'; player: PlayerPayload };
-type BossRecordSort = 'rank' | 'name' | 'time';
-type SortDirection = 'asc' | 'desc';
 
 const LEADERBOARD_PAGE_SIZE = 50;
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
@@ -44,11 +43,6 @@ function normalize(boss: string): string {
 
 function pickInitialBoss(bosses: string[]) {
   return preferredBosses.find((boss) => bosses.includes(boss)) ?? bosses[0] ?? '';
-}
-
-function bossTitleParts(boss: string) {
-  const [first, ...rest] = titleCase(boss).split(' - ');
-  return { primary: first || 'Loading Leaderboard', secondary: rest.join(' - ') };
 }
 
 function statValue(value: number | undefined) {
