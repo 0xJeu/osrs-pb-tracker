@@ -149,6 +149,35 @@ describe('install credential recovery', () => {
     });
   });
 
+  it('contests a pending candidate even when the incumbent replays an already-cached payload', async () => {
+    await establishIncumbent();
+    await syncRequest(candidateSecret, { Zulrah: 75 });
+
+    // Identical to establishIncumbent()'s request, so absent the fix this
+    // would be served from the replay cache and never reach upsertPlayer -
+    // leaving the candidate wrongly "pending" while the incumbent is active.
+    const replayedIncumbent = await syncRequest(incumbentSecret, { Zulrah: 80, Vorkath: 70 });
+    expect(replayedIncumbent.status).toBe(200);
+    expect(await replayedIncumbent.json()).not.toMatchObject({ deduplicated: true });
+
+    const [candidate] = await db.select().from(installRecoveryCandidates);
+    expect(candidate.status).toBe('contested');
+  });
+
+  it('does not serve a cached success to the former credential after promotion', async () => {
+    await establishIncumbent();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75, Vorkath: 70, Araxxor: 100 });
+    const recoveryId = (await mismatch.json()).recoveryId as number;
+
+    await promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin', 'Regression test for promotion.');
+
+    // Identical to establishIncumbent()'s request. Absent the fix, this would
+    // be served from the pre-promotion replay cache instead of being
+    // re-evaluated against the now-rebound credential.
+    const staleIncumbentReplay = await syncRequest(incumbentSecret, { Zulrah: 80, Vorkath: 70 });
+    expect(staleIncumbentReplay.status).toBe(409);
+  });
+
   it('promotes the exact pending credential and replays its quarantined faster-only payload', async () => {
     await establishIncumbent();
     const mismatch = await syncRequest(candidateSecret, { Zulrah: 75, Vorkath: 75, Araxxor: 100 });

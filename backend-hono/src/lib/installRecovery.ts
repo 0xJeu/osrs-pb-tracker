@@ -13,6 +13,7 @@ import {
   playerIdCacheTag,
   profileBossBucketCacheTag,
 } from './cache.js';
+import { resetSyncReplayCache } from './syncReplay.js';
 
 const RECOVERABLE_STATUSES = ['pending', 'contested'] as const;
 
@@ -198,6 +199,13 @@ export async function captureInstallRecoveryCandidate(values: {
     }
   }
 
+  // A cached successful-replay entry could otherwise let the incumbent's own
+  // resync of an already-seen payload skip upsertPlayer/noteIncumbentSeen
+  // entirely, leaving this candidate wrongly promotable while the incumbent
+  // is still active. Clearing the cache forces the next sync from any
+  // credential on this account to be evaluated for real.
+  await resetSyncReplayCache();
+
   return {
     id: candidate.id,
     status,
@@ -313,6 +321,11 @@ export async function promoteInstallRecoveryCandidate(candidateId: number, actor
     playerIdCacheTag(promoted.player_id),
     ...promoted.changed_bosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)]),
   ]);
+
+  // The former incumbent's last successful sync may still be a cached replay
+  // hit. Without this, that credential could keep getting served fake 200s
+  // for up to the replay TTL after its binding was just replaced.
+  await resetSyncReplayCache();
 
   return {
     candidateId: promoted.candidate_id,
