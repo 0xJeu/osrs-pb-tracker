@@ -1,7 +1,6 @@
 import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import '../theme-osrs-preview.css';
-import { api } from '../lib/api';
-import type { LeaderboardPage, LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync, SearchSuggestion } from '../lib/api';
+import type { LeaderboardPage, LeaderboardRow, PbEntry, PlayerPayload, QuickStats, RecentSync } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { bossTitleParts, formatDate, formatTime, titleCase } from '../lib/format';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
@@ -24,6 +23,7 @@ import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard
 import { useHomeData } from '../hooks/useHomeData';
 import { usePlayerProfile } from '../hooks/usePlayerProfile';
 import type { PlayerState } from '../hooks/usePlayerProfile';
+import { useSearchSuggestions, compactAliasSuggestions } from '../hooks/useSearchSuggestions';
 
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 
@@ -43,20 +43,6 @@ function visiblePbs(player: PlayerPayload) {
     .sort((a, b) => a.rank - b.rank);
 }
 
-function compactAliasSuggestions(query: string, bosses: string[]): SearchSuggestion[] | undefined {
-  const alias = bossSearchAlias(query);
-  if (!alias) return undefined;
-  const modes = getRaidModes(bosses, alias.base)
-    .filter((mode) => !alias.modeLabel || mode.modeLabel === alias.modeLabel);
-  if (modes.length === 0) return undefined;
-  const raidLabel = titleCase(alias.base);
-  return modes.map((mode) => ({
-    type: 'boss',
-    value: mode.variants[0].key,
-    label: `${raidLabel} — ${mode.modeLabel}`,
-  }));
-}
-
 // Request a thumb ~2x the rendered box (32px sm / 64px lg boxes at 72% fit)
 // so icons stay crisp on retina displays without over-fetching.
 const PET_ICON_PIXEL_WIDTH: Record<'sm' | 'lg', number> = { sm: 64, lg: 128 };
@@ -74,47 +60,15 @@ export function PhaseTwoOsrsPreview() {
   const { route, navigate } = useRoute();
   const bosses = useBossList(route);
   const { stats, recentSyncs, topBosses } = useHomeData(route);
-  const [playerQuery, setPlayerQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const profileState = usePlayerProfile(route);
 
   const bossLeaderboard = useBossLeaderboard(route, bosses);
   const { selectedBoss, leaderboard, rows, leaderboardOffset, setLeaderboardOffset, titleParts, highlight } = bossLeaderboard;
 
-  useEffect(() => {
-    const query = playerQuery.trim();
-    if (query.length < 2) { setSuggestions([]); return; }
-    const compactSuggestions = isLoaded(bosses) ? compactAliasSuggestions(query, bosses.data) : undefined;
-    if (compactSuggestions) {
-      setSuggestions(compactSuggestions);
-      return;
-    }
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      api.searchAll(query).then((result) => { if (alive) setSuggestions(result); }).catch(() => { if (alive) setSuggestions([]); });
-    }, 275);
-    return () => { alive = false; window.clearTimeout(timer); };
-  }, [playerQuery, bosses]);
-
   const lookupPlayer = (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setPlayerQuery('');
-    setSuggestions([]);
     navigate({ name: 'player', player: trimmed });
-  };
-
-  const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const alias = bossSearchAlias(playerQuery);
-    const aliasSuggestions = alias && isLoaded(bosses) ? compactAliasSuggestions(playerQuery, bosses.data) : undefined;
-    const aliasBoss = aliasSuggestions?.[0]?.value;
-    const exactBoss = suggestions.find(
-      (suggestion) => suggestion.type === 'boss' && normalize(suggestion.value) === normalize(playerQuery)
-    );
-    if (aliasBoss) goToBoss(aliasBoss);
-    else if (exactBoss) goToBoss(exactBoss.value);
-    else lookupPlayer(playerQuery);
   };
 
   // Only tint the page while actually looking at a boss's leaderboard - Home
@@ -164,10 +118,7 @@ export function PhaseTwoOsrsPreview() {
             stats={stats}
             recentSyncs={recentSyncs}
             topBosses={topBosses}
-            playerQuery={playerQuery}
-            setPlayerQuery={setPlayerQuery}
-            suggestions={suggestions}
-            onPlayerSubmit={onPlayerSubmit}
+            bosses={bosses}
             lookupPlayer={lookupPlayer}
             goToBoss={goToBoss}
           />
@@ -208,23 +159,38 @@ function HomeView({
   stats,
   recentSyncs,
   topBosses,
-  playerQuery,
-  setPlayerQuery,
-  suggestions,
-  onPlayerSubmit,
+  bosses,
   lookupPlayer,
   goToBoss,
 }: {
   stats: LoadState<QuickStats>;
   recentSyncs: LoadState<RecentSync[]>;
   topBosses: LoadState<Array<{ boss: string; leader: LeaderboardRow | null }>>;
-  playerQuery: string;
-  setPlayerQuery: (value: string) => void;
-  suggestions: SearchSuggestion[];
-  onPlayerSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  bosses: LoadState<string[]>;
   lookupPlayer: (name: string) => void;
   goToBoss: (boss: string) => void;
 }) {
+  const [playerQuery, setPlayerQuery] = useState('');
+  const suggestions = useSearchSuggestions(playerQuery, bosses);
+
+  const submitLookup = (name: string) => {
+    setPlayerQuery('');
+    lookupPlayer(name);
+  };
+
+  const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const alias = bossSearchAlias(playerQuery);
+    const aliasSuggestions = alias && isLoaded(bosses) ? compactAliasSuggestions(playerQuery, bosses.data) : undefined;
+    const aliasBoss = aliasSuggestions?.[0]?.value;
+    const exactBoss = suggestions.find(
+      (suggestion) => suggestion.type === 'boss' && normalize(suggestion.value) === normalize(playerQuery)
+    );
+    if (aliasBoss) goToBoss(aliasBoss);
+    else if (exactBoss) goToBoss(exactBoss.value);
+    else submitLookup(playerQuery);
+  };
+
   return (
     <>
       <div className="pbt-section" style={{ paddingTop: 56 }}>
@@ -252,7 +218,7 @@ function HomeView({
               <button
                 key={`${suggestion.type}:${suggestion.value}`}
                 type="button"
-                onClick={() => suggestion.type === 'boss' ? goToBoss(suggestion.value) : lookupPlayer(suggestion.value)}
+                onClick={() => suggestion.type === 'boss' ? goToBoss(suggestion.value) : submitLookup(suggestion.value)}
               >
                 <span className="pbt-suggestion-type">{suggestion.type}</span>
                 {suggestion.label ?? titleCase(suggestion.value)}
@@ -308,7 +274,7 @@ function HomeView({
         {isLoaded(recentSyncs) && (
           <div className="pbt-rows">
             {recentSyncs.data.map((sync, index) => (
-              <button type="button" className="pbt-row" key={sync.id} onClick={() => lookupPlayer(sync.displayName)}>
+              <button type="button" className="pbt-row" key={sync.id} onClick={() => submitLookup(sync.displayName)}>
                 <span className="rank">{String(index + 1).padStart(2, '0')}</span>
                 <span className="name">{sync.displayName}</span>
                 <span className="time">{sync.pbCount} PBs</span>
