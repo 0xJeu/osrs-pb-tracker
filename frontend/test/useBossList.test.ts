@@ -1,0 +1,44 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { useBossList } from '../src/hooks/useBossList';
+import { api } from '../src/lib/api';
+import type { Route } from '../src/hooks/useRoute';
+
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' }, ...init });
+}
+
+describe('useBossList', () => {
+  beforeEach(() => {
+    api.resetForTesting();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reaches loaded state once the delayed fetch resolves, not stuck on loading', async () => {
+    let resolveFetch: (() => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>((resolve) => {
+      resolveFetch = () => resolve(jsonResponse(['zulrah', 'vorkath']));
+    })));
+
+    const route: Route = { name: 'home' };
+    const { result } = renderHook(() => useBossList(route));
+
+    await waitFor(() => expect(result.current.s).toBe('loading'));
+    resolveFetch?.();
+
+    await waitFor(() => expect(result.current.s).toBe('loaded'));
+    expect(result.current).toMatchObject({ s: 'loaded', data: ['zulrah', 'vorkath'] });
+  });
+
+  it('reaches error state once a delayed fetch rejects, not stuck on loading', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ error: 'boom' }, { status: 500 })));
+
+    const route: Route = { name: 'home' };
+    const { result } = renderHook(() => useBossList(route));
+
+    await waitFor(() => expect(result.current.s).toBe('error'));
+  });
+});
