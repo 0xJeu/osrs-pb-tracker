@@ -16,7 +16,7 @@ import { FaqPage } from './FaqPage';
 import { RaidVariantPicker } from './RaidVariantPicker';
 import { SetupGuidePage } from './SetupGuidePage';
 
-type LoadState<T> = { s: 'loading' } | { s: 'error' } | { s: 'loaded'; data: T };
+type LoadState<T> = { s: 'idle' } | { s: 'loading' } | { s: 'error' } | { s: 'loaded'; data: T };
 type PlayerState =
   | { s: 'idle' }
   | { s: 'loading'; name: string }
@@ -44,11 +44,6 @@ const preferredBosses = [
   'chambers of xeric',
   'zulrah',
 ];
-
-// Curated set for the "Top Bosses" cards - each resolved against the real
-// boss list once it loads, since exact synced-key formatting (raid variant
-// suffixes, dashes) can't be hardcoded reliably.
-const TOP_BOSS_BASES = ['theatre of blood', 'chambers of xeric', 'tombs of amascut', 'inferno', 'vorkath'];
 
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();
@@ -94,18 +89,6 @@ function visiblePbs(player: PlayerPayload) {
     .sort((a, b) => a.rank - b.rank);
 }
 
-// Resolves a curated "base" name (e.g. "theatre of blood") to a real,
-// currently-synced boss key: raid/grouped bosses go through getRaidModes
-// (their default mode's first variant), everything else matches directly
-// against the tracked boss list.
-function resolveBossKey(bosses: string[], base: string): string | undefined {
-  if (isGroupedVariant(base)) {
-    const modes = getRaidModes(bosses, base);
-    return modes[0]?.variants[0]?.key;
-  }
-  return bosses.find((b) => normalize(b) === base || normalize(b).startsWith(base));
-}
-
 function compactAliasSuggestions(query: string, bosses: string[]): SearchSuggestion[] | undefined {
   const alias = bossSearchAlias(query);
   if (!alias) return undefined;
@@ -135,12 +118,12 @@ function PetIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
 
 export function PhaseTwoOsrsPreview() {
   const [view, setView] = useState<PreviewView>(viewFromPreviewPath);
-  const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'loading' });
-  const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'loading' });
-  const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'loading' });
-  const [leaderboard, setLeaderboard] = useState<LoadState<LeaderboardPage>>({ s: 'loading' });
+  const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'idle' });
+  const [stats, setStats] = useState<LoadState<QuickStats>>({ s: 'idle' });
+  const [recentSyncs, setRecentSyncs] = useState<LoadState<RecentSync[]>>({ s: 'idle' });
+  const [leaderboard, setLeaderboard] = useState<LoadState<LeaderboardPage>>({ s: 'idle' });
   const [leaderboardOffset, setLeaderboardOffset] = useState(0);
-  const [topBosses, setTopBosses] = useState<LoadState<Array<{ base: string; label: string; key: string; row?: LeaderboardRow }>>>({ s: 'loading' });
+  const [topBosses, setTopBosses] = useState<LoadState<Array<{ boss: string; leader: LeaderboardRow | null }>>>({ s: 'idle' });
   const [selectedBoss, setSelectedBoss] = useState('');
   const [playerQuery, setPlayerQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
@@ -152,42 +135,47 @@ export function PhaseTwoOsrsPreview() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // Boss list: needed on home (for Top Bosses key resolution) and boss
+  // views. Other views may still get boss suggestions from universal search
+  // without preloading the full list.
   useEffect(() => {
+    if ((view.name !== 'home' && view.name !== 'boss') || bosses.s !== 'idle') return;
     let alive = true;
+    setBosses({ s: 'loading' });
     api.getBosses().then((data) => {
       if (!alive) return;
       setBosses({ s: 'loaded', data });
       setSelectedBoss((current) => current || pickInitialBoss(data));
     }).catch(() => alive && setBosses({ s: 'error' }));
+    return () => { alive = false; };
+  }, [view.name, bosses.s]);
+
+  useEffect(() => {
+    if (view.name !== 'home' || stats.s !== 'idle') return;
+    let alive = true;
+    setStats({ s: 'loading' });
     api.getStats().then((data) => alive && setStats({ s: 'loaded', data })).catch(() => alive && setStats({ s: 'error' }));
+    return () => { alive = false; };
+  }, [view.name, stats.s]);
+
+  useEffect(() => {
+    if (view.name !== 'home' || recentSyncs.s !== 'idle') return;
+    let alive = true;
+    setRecentSyncs({ s: 'loading' });
     api.getRecentSyncs(6).then((data) => alive && setRecentSyncs({ s: 'loaded', data })).catch(() => alive && setRecentSyncs({ s: 'error' }));
     return () => { alive = false; };
-  }, []);
+  }, [view.name, recentSyncs.s]);
 
-  // Bounded (5 requests, once bosses load) fetch of the #1 time for each
-  // curated "Top Bosses" card - not worth a dedicated backend endpoint for a
-  // feasibility spike.
+  // One request replaces the previous 5-request per-boss fan-out (Workstream D).
   useEffect(() => {
-    if (!isLoaded(bosses)) return;
+    if (view.name !== 'home' || topBosses.s !== 'idle') return;
     let alive = true;
-    const resolved = TOP_BOSS_BASES
-      .map((base) => {
-        const key = resolveBossKey(bosses.data, base);
-        return key ? { base, label: titleCase(base), key } : undefined;
-      })
-      .filter((v): v is { base: string; label: string; key: string } => Boolean(v));
-
-    setTopBosses({ s: 'loaded', data: resolved });
-    Promise.all(resolved.map((entry) => api.getLeaderboard(entry.key, 1).catch(() => [] as LeaderboardRow[])))
-      .then((results) => {
-        if (!alive) return;
-        setTopBosses({
-          s: 'loaded',
-          data: resolved.map((entry, i) => ({ ...entry, row: results[i]?.[0] })),
-        });
-      });
+    setTopBosses({ s: 'loading' });
+    api.getLeaderboardOverview()
+      .then((data) => alive && setTopBosses({ s: 'loaded', data }))
+      .catch(() => alive && setTopBosses({ s: 'error' }));
     return () => { alive = false; };
-  }, [bosses]);
+  }, [view.name, topBosses.s]);
 
   // The boss page's selected boss is driven by the URL (view.boss), not the
   // other way around - landing directly on /boss/<key>, following a link, or
@@ -203,16 +191,20 @@ export function PhaseTwoOsrsPreview() {
   const highlight = view.name === 'boss' ? view.highlight : undefined;
 
   useEffect(() => {
-    if (!selectedBoss) return;
+    if (view.name !== 'boss' || !selectedBoss) return;
     let alive = true;
     setLeaderboard({ s: 'loading' });
     api.getLeaderboardPage(selectedBoss, LEADERBOARD_PAGE_SIZE, leaderboardOffset, highlight)
       .then((data) => alive && setLeaderboard({ s: 'loaded', data }))
       .catch(() => alive && setLeaderboard({ s: 'error' }));
     return () => { alive = false; };
-  }, [selectedBoss, highlight, leaderboardOffset]);
+  }, [view.name, selectedBoss, highlight, leaderboardOffset]);
 
   useEffect(() => {
+    if (view.name !== 'home') {
+      setSuggestions([]);
+      return;
+    }
     const query = playerQuery.trim();
     if (query.length < 2) { setSuggestions([]); return; }
     const compactSuggestions = isLoaded(bosses) ? compactAliasSuggestions(query, bosses.data) : undefined;
@@ -220,17 +212,27 @@ export function PhaseTwoOsrsPreview() {
       setSuggestions(compactSuggestions);
       return;
     }
+    let alive = true;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      api.searchAll(query).then(setSuggestions).catch(() => setSuggestions([]));
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [playerQuery, bosses]);
+      api.searchAll(query, { signal: controller.signal })
+        .then((result) => { if (alive) setSuggestions(result); })
+        .catch(() => { if (alive) setSuggestions([]); });
+    }, 275);
+    return () => {
+      alive = false;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [view.name, playerQuery, bosses]);
 
   useEffect(() => {
     if (view.name !== 'player') return;
+    let alive = true;
     const trimmed = view.player.trim();
     setProfileState({ s: 'loading', name: trimmed });
     api.lookupPlayer(trimmed).then((result) => {
+      if (!alive) return;
       if (result.kind === 'player') {
         setProfileState({ s: 'loaded', player: result.player });
         if (result.player.displayName.toLowerCase() !== trimmed.toLowerCase()) {
@@ -239,7 +241,10 @@ export function PhaseTwoOsrsPreview() {
       }
       else if (result.kind === 'ambiguous') setProfileState({ s: 'ambiguous', name: trimmed, count: result.matches.length });
       else setProfileState({ s: 'notFound', name: trimmed });
-    }).catch(() => setProfileState({ s: 'error', name: trimmed }));
+    }).catch(() => {
+      if (alive) setProfileState({ s: 'error', name: trimmed });
+    });
+    return () => { alive = false; };
   }, [view]);
 
   const navigate = (next: PreviewView) => {
@@ -386,7 +391,7 @@ function HomeView({
 }: {
   stats: LoadState<QuickStats>;
   recentSyncs: LoadState<RecentSync[]>;
-  topBosses: LoadState<Array<{ base: string; label: string; key: string; row?: LeaderboardRow }>>;
+  topBosses: LoadState<Array<{ boss: string; leader: LeaderboardRow | null }>>;
   playerQuery: string;
   setPlayerQuery: (value: string) => void;
   suggestions: SearchSuggestion[];
@@ -445,17 +450,18 @@ function HomeView({
           <div className="rule" />
         </div>
         {topBosses.s === 'loading' && <div className="pbt-panel-state">Loading top bosses...</div>}
+        {topBosses.s === 'error' && <div className="pbt-panel-state">Top bosses unavailable.</div>}
         {isLoaded(topBosses) && (
           <div className="pbt-cards">
             {topBosses.data.map((entry, index) => (
-              <button type="button" className="pbt-card" key={entry.base} onClick={() => goToBoss(entry.key)}>
+              <button type="button" className="pbt-card" key={entry.boss} onClick={() => goToBoss(entry.boss)}>
                 <span className="idx">{String(index + 1).padStart(2, '0')}</span>
-                <PetIcon boss={entry.key} size="lg" />
-                <div className="bname">{entry.label}</div>
-                {entry.row ? (
+                <PetIcon boss={entry.boss} size="lg" />
+                <div className="bname">{bossTitleParts(entry.boss).primary}</div>
+                {entry.leader ? (
                   <>
-                    <div className="btime">{formatTime(entry.row.timeSeconds)}</div>
-                    <div className="brank">{entry.row.displayName}</div>
+                    <div className="btime">{formatTime(entry.leader.timeSeconds)}</div>
+                    <div className="brank">{entry.leader.displayName}</div>
                   </>
                 ) : (
                   <div className="brank">No synced time yet</div>
