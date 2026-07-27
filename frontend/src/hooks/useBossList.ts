@@ -8,6 +8,7 @@ import type { Route } from './useRoute';
 // without preloading the full list.
 export function useBossList(route: Route): LoadState<string[]> {
   const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'idle' });
+  const shouldLoadBosses = route.name === 'home' || route.name === 'boss';
 
   useEffect(() => {
     // Deliberately NOT depending on bosses.s: this effect's own
@@ -15,9 +16,10 @@ export function useBossList(route: Route): LoadState<string[]> {
     // dependency React would re-run this effect (tearing down the in-flight
     // request's `alive` flag) before the real fetch had a chance to settle -
     // the loading state would never resolve. Reading bosses.s from the
-    // closure at run time still gets the guard right on the initial mount
-    // and on every subsequent route change that re-triggers this effect.
-    if ((route.name !== 'home' && route.name !== 'boss') || bosses.s !== 'idle') return;
+    // closure at run time still gets the guard right when entering a view
+    // that needs the list. Depending on eligibility rather than route.name
+    // also preserves an in-flight request across Home <-> Boss navigation.
+    if (!shouldLoadBosses || bosses.s !== 'idle') return;
     let alive = true;
     setBosses({ s: 'loading' });
     api.getBosses().then((data) => {
@@ -33,7 +35,7 @@ export function useBossList(route: Route): LoadState<string[]> {
       // 'loaded'/'error' result should stay cached, not be thrown away.
       setBosses((current) => (current.s === 'loading' ? { s: 'idle' } : current));
     };
-  }, [route.name]);
+  }, [shouldLoadBosses]);
 
   return bosses;
 }

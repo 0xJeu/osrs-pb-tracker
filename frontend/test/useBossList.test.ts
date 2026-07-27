@@ -70,4 +70,24 @@ describe('useBossList', () => {
     await waitFor(() => expect(result.current.s).toBe('loaded'));
     expect(result.current).toMatchObject({ s: 'loaded', data: ['zulrah'] });
   });
+
+  it('preserves the pending request when navigating directly from Home to Boss', async () => {
+    let resolveFetch: (() => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>((resolve) => {
+      resolveFetch = () => resolve(jsonResponse(['zulrah']));
+    })));
+
+    const { result, rerender } = renderHook(({ route }: { route: Route }) => useBossList(route), {
+      initialProps: { route: { name: 'home' } as Route },
+    });
+    await waitFor(() => expect(result.current.s).toBe('loading'));
+
+    rerender({ route: { name: 'boss', boss: 'zulrah' } as Route });
+    expect(result.current.s).toBe('loading');
+
+    resolveFetch?.();
+    await waitFor(() => expect(result.current.s).toBe('loaded'));
+    expect(result.current).toMatchObject({ s: 'loaded', data: ['zulrah'] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });
