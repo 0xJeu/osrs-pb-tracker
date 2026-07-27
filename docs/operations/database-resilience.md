@@ -6,15 +6,30 @@
   `br-plain-leaf-aja8iam5`.
 - Inactive standby: Neon project `wispy-lab-76474839`, main branch
   `br-patient-dust-aw4iwynr`.
+- Isolated Preview: Neon project `wild-rice-11832605`, main branch
+  `br-patient-mode-awo4y8j6`. It has the application schema but no copied
+  production rows and is not a failover target.
 - The older project `dry-tooth-70023755` is not part of this topology. It has
   unrelated/stale rows and must not be overwritten as part of standby refresh.
 
-The Vercel backend uses an explicit database selector:
+The Vercel backend uses environment-scoped database settings.
+
+Production only:
 
 - `DATABASE_URL_PRIMARY`: pooled primary connection string.
 - `DATABASE_URL_STANDBY`: pooled standby connection string.
 - `DATABASE_TARGET`: `primary` or `standby`; defaults to `primary`.
 - `DATABASE_URL`: temporary backward-compatible fallback for the primary.
+
+Preview and Development only:
+
+- `DATABASE_URL`: a dedicated non-production database connection string.
+- Do not expose `DATABASE_URL_PRIMARY`, `DATABASE_URL_STANDBY`, or
+  `DATABASE_TARGET` to these environments.
+
+The application ignores the production selectors whenever Vercel reports a
+non-production environment. Preview and Development fail closed if their
+scoped `DATABASE_URL` is missing.
 
 There is no automatic write failover. This is deliberate: automatically
 sending writes to whichever database answers first can create split-brain
@@ -52,20 +67,33 @@ account identifiers, install-secret hashes, and private feedback.
 
 ## Promotion procedure
 
-1. Set `NEON_STANDBY_REFRESH_ENABLED=false` before promotion. Never refresh a
-   database that is serving production.
-2. Record the latest successful standby-refresh workflow and its timestamp.
-3. If the old primary is reachable, run one final manual refresh and verify it.
-4. Set the backend Vercel project's `DATABASE_TARGET` to `standby` for
+1. Set `NEON_STANDBY_REFRESH_ENABLED=false` before promotion. This prevents
+   new refresh jobs from starting, but it does not cancel a job that is already
+   queued or running.
+2. Confirm there are no active refresh jobs:
+
+   ```bash
+   gh run list --repo 0xJeu/osrs-pb-tracker \
+     --workflow "Refresh Neon standby" --status queued
+   gh run list --repo 0xJeu/osrs-pb-tracker \
+     --workflow "Refresh Neon standby" --status in_progress
+   ```
+
+   Both commands must return no runs. Wait for or cancel any active refresh
+   before continuing. Never promote a database while it is being refreshed.
+3. Record the latest successful standby-refresh workflow and its timestamp.
+4. If the old primary is reachable, run one final manual refresh and verify it.
+   Repeat the active-run check after that refresh completes.
+5. Set the backend Vercel project's `DATABASE_TARGET` to `standby` for
    Production. Do not change either database URL.
-5. Redeploy the backend.
-6. Verify:
+6. Redeploy the backend.
+7. Verify:
    - `/api/stats`
    - `/api/bosses`
    - `/api/recent-syncs`
    - one existing player profile
    - one controlled plugin sync
-7. Treat the promoted project as authoritative immediately. Do not point
+8. Treat the promoted project as authoritative immediately. Do not point
    production back at the old primary until changes made after promotion have
    been copied back and verified.
 
@@ -93,7 +121,8 @@ Failback is a migration, not a configuration toggle:
 - Continuous PostgreSQL logical replication is intentionally not used. It can
   keep both computes awake and consume both projects' Free allowances.
 - Before downgrading, cap both computes at the smallest practical size and
-  confirm five-minute scale-to-zero behavior.
+  confirm five-minute scale-to-zero behavior. Apply the same limits to the
+  isolated Preview compute.
 - Review Neon usage at least weekly. The standby is expected to wake only for
   its scheduled refresh.
 - This design has a recovery-point objective of at most six hours. RuneLite's

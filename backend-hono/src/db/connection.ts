@@ -5,11 +5,23 @@ type DatabaseEnvironment = {
   DATABASE_URL?: string;
   DATABASE_URL_PRIMARY?: string;
   DATABASE_URL_STANDBY?: string;
+  VERCEL_ENV?: string;
 };
 
 export function resolveDatabaseUrl(
   env: DatabaseEnvironment = process.env
 ): string {
+  const vercelEnvironment = env.VERCEL_ENV?.trim().toLowerCase();
+
+  if (vercelEnvironment && vercelEnvironment !== 'production') {
+    if (!env.DATABASE_URL) {
+      throw new Error(
+        'Vercel Preview and Development environments require DATABASE_URL'
+      );
+    }
+    return env.DATABASE_URL;
+  }
+
   const target = (env.DATABASE_TARGET ?? 'primary').trim().toLowerCase();
 
   if (target === 'primary') {
