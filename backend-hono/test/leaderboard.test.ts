@@ -69,14 +69,12 @@ describe('GET /api/leaderboard/:boss', () => {
   });
 
   it('extends past the default limit to include a highlighted player beyond it', async () => {
-    for (let i = 0; i < 30; i++) {
-      await insertTestPlayerWithPb({
-        boss: 'zulrah',
-        timeSeconds: 80 + i,
-        displayName: `Player${i}`,
-        accountHash: `acct-${i}`,
-      });
-    }
+    await insertManyTestPlayersWithPbs(Array.from({ length: 30 }, (_, i) => ({
+      boss: 'zulrah',
+      timeSeconds: 80 + i,
+      displayName: `Player${i}`,
+      accountHash: `acct-${i}`,
+    })));
     // Player29 has the slowest time, so sits at rank 30 - past the default
     // limit of 25.
     const res = await app.request('/api/leaderboard/zulrah?limit=25&highlight=player29');

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PhaseTwoOsrsPreview } from '../src/components/PhaseTwoOsrsPreview';
+import { PbTrackerApp } from '../src/components/PbTrackerApp';
 import { api } from '../src/lib/api';
 
 function jsonResponse(body: unknown) {
@@ -51,7 +51,7 @@ describe('universal-search request lifecycle', () => {
   });
 
   it('aborts a superseded request and ignores its late response', async () => {
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     const input = screen.getByRole('textbox', { name: 'Search players or bosses' });
 
     fireEvent.change(input, { target: { value: 'blit' } });
@@ -70,7 +70,7 @@ describe('universal-search request lifecycle', () => {
   });
 
   it('cancels the pending debounce when the user leaves Home', async () => {
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     const input = screen.getByRole('textbox', { name: 'Search players or bosses' });
 
     fireEvent.change(input, { target: { value: 'blitzen' } });

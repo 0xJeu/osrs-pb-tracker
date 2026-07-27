@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { PhaseTwoOsrsPreview } from '../src/components/PhaseTwoOsrsPreview';
+import { PbTrackerApp } from '../src/components/PbTrackerApp';
 import { api } from '../src/lib/api';
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -40,7 +40,7 @@ describe('per-view request budget', () => {
 
   it('home view requests bosses, stats, recent-syncs, and one overview call — no per-boss leaderboard fan-out', async () => {
     setPath('/');
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('/api/leaderboard-overview')));
 
     const paths = fetchSpy.mock.calls.map(([url]) => String(url));
@@ -53,7 +53,7 @@ describe('per-view request budget', () => {
 
   it('player view requests only the player profile', async () => {
     setPath('/player/blitzen');
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('/api/players/blitzen')));
 
     const paths = fetchSpy.mock.calls.map(([url]) => String(url));
@@ -62,7 +62,7 @@ describe('per-view request budget', () => {
 
   it('boss view requests bosses and one leaderboard page, no home data', async () => {
     setPath('/boss/zulrah');
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('/api/leaderboard/zulrah')));
 
     const paths = fetchSpy.mock.calls.map(([url]) => String(url));
@@ -75,14 +75,14 @@ describe('per-view request budget', () => {
 
   it.each(['/faq', '/setup'])('%s makes zero initial API requests', async (path) => {
     setPath(path);
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('does not refetch already-loaded home data after navigating away and back', async () => {
     setPath('/');
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(4));
 
     fireEvent.click(screen.getByRole('button', { name: 'Setup' }));

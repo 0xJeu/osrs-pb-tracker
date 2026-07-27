@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PhaseTwoOsrsPreview } from '../src/components/PhaseTwoOsrsPreview';
+import { PbTrackerApp } from '../src/components/PbTrackerApp';
 import { api } from '../src/lib/api';
 
 function jsonResponse(body: unknown) {
@@ -43,7 +43,7 @@ describe('player lookup lifecycle', () => {
   });
 
   it('ignores a late player result after navigating away', async () => {
-    render(<PhaseTwoOsrsPreview />);
+    render(<PbTrackerApp />);
     await waitFor(() => expect(playerRequestStarted).toBe(true));
 
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
