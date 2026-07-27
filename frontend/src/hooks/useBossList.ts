@@ -23,7 +23,16 @@ export function useBossList(route: Route): LoadState<string[]> {
     api.getBosses().then((data) => {
       if (alive) setBosses({ s: 'loaded', data });
     }).catch(() => alive && setBosses({ s: 'error' }));
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      // If the route changed away before this request settled, the response
+      // above will be silently discarded (correctly - it's for a view we've
+      // left). But without resetting back to 'idle' here, the guard above
+      // would see a permanently stuck 'loading' on return and never start a
+      // replacement request. Only reset while still 'loading' - a completed
+      // 'loaded'/'error' result should stay cached, not be thrown away.
+      setBosses((current) => (current.s === 'loading' ? { s: 'idle' } : current));
+    };
   }, [route.name]);
 
   return bosses;

@@ -59,4 +59,42 @@ describe('useHomeData', () => {
       expect(result.current.topBosses.s).toBe('loaded');
     });
   });
+
+  it('recovers to idle after leaving Home mid-fetch, and reaches loaded on return, rather than staying stuck on loading', async () => {
+    const { result, rerender } = renderHook(({ route }: { route: Route }) => useHomeData(route), {
+      initialProps: { route: { name: 'home' } as Route },
+    });
+
+    await waitFor(() => {
+      expect(result.current.stats.s).toBe('loading');
+      expect(result.current.recentSyncs.s).toBe('loading');
+      expect(result.current.topBosses.s).toBe('loading');
+    });
+
+    // Leave before any request settles.
+    rerender({ route: { name: 'faq' } as Route });
+    await waitFor(() => {
+      expect(result.current.stats.s).toBe('idle');
+      expect(result.current.recentSyncs.s).toBe('idle');
+      expect(result.current.topBosses.s).toBe('idle');
+    });
+
+    // Come back - loading must restart, not stay idle forever.
+    rerender({ route: { name: 'home' } as Route });
+    await waitFor(() => {
+      expect(result.current.stats.s).toBe('loading');
+      expect(result.current.recentSyncs.s).toBe('loading');
+      expect(result.current.topBosses.s).toBe('loading');
+    });
+
+    resolveStats?.();
+    resolveRecentSyncs?.();
+    resolveOverview?.();
+
+    await waitFor(() => {
+      expect(result.current.stats.s).toBe('loaded');
+      expect(result.current.recentSyncs.s).toBe('loaded');
+      expect(result.current.topBosses.s).toBe('loaded');
+    });
+  });
 });

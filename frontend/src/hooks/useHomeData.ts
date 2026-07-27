@@ -22,12 +22,21 @@ export function useHomeData(route: Route): HomeData {
   // chance to settle - the loading state would never resolve to loaded or
   // error. Reading `*.s` from the closure at run time still gets the idle
   // guard right on mount and on every subsequent route change.
+  // Each cleanup below resets its resource back to 'idle' only while it's
+  // still 'loading' at teardown time (i.e. the route changed away before
+  // the request settled). Otherwise the idle guard above would see a
+  // permanently stranded 'loading' on return and never start a replacement
+  // request. A completed 'loaded'/'error' result is left alone - it should
+  // stay cached, not be thrown away just because the view was left.
   useEffect(() => {
     if (route.name !== 'home' || stats.s !== 'idle') return;
     let alive = true;
     setStats({ s: 'loading' });
     api.getStats().then((data) => alive && setStats({ s: 'loaded', data })).catch(() => alive && setStats({ s: 'error' }));
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      setStats((current) => (current.s === 'loading' ? { s: 'idle' } : current));
+    };
   }, [route.name]);
 
   useEffect(() => {
@@ -35,7 +44,10 @@ export function useHomeData(route: Route): HomeData {
     let alive = true;
     setRecentSyncs({ s: 'loading' });
     api.getRecentSyncs(6).then((data) => alive && setRecentSyncs({ s: 'loaded', data })).catch(() => alive && setRecentSyncs({ s: 'error' }));
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      setRecentSyncs((current) => (current.s === 'loading' ? { s: 'idle' } : current));
+    };
   }, [route.name]);
 
   // One request replaces the previous 5-request per-boss fan-out (Workstream D).
@@ -46,7 +58,10 @@ export function useHomeData(route: Route): HomeData {
     api.getLeaderboardOverview()
       .then((data) => alive && setTopBosses({ s: 'loaded', data }))
       .catch(() => alive && setTopBosses({ s: 'error' }));
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      setTopBosses((current) => (current.s === 'loading' ? { s: 'idle' } : current));
+    };
   }, [route.name]);
 
   return { stats, recentSyncs, topBosses };
