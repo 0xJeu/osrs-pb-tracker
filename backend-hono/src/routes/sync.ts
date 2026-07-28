@@ -205,28 +205,25 @@ export async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>
   };
 }
 
-// Bounded to only the boss keys this sync just inserted - never scans the
-// full personal_bests table. A boss is "globally new" if, after this
-// insert, exactly one row anywhere in the database has that boss key (this
-// player's own just-inserted row).
-async function findGloballyNewBosses(insertedBosses: readonly string[]): Promise<Set<string>> {
-  if (insertedBosses.length === 0) {
+// Must run before upsertPbs's insert, not after - see the race analysis in
+// this task's code review. Checking existence before this sync's own write
+// (rather than counting rows after) means a genuine race between two
+// concurrent first-ever syncers for the same boss key both correctly see
+// "didn't exist yet" and both invalidate (a harmless duplicate purge) -
+// instead of the previous shape, where both could see "already exists"
+// (each other's just-committed row) and NEITHER would invalidate, silently
+// missing a truly new boss until the CDN entry's TTL naturally expires.
+async function findAlreadyKnownBosses(bossKeys: readonly string[]): Promise<Set<string>> {
+  if (bossKeys.length === 0) {
     return new Set();
   }
 
-  const counts = await db
-    .select({ boss: personalBests.boss, count: sql<number>`count(*)` })
+  const rows = await db
+    .selectDistinct({ boss: personalBests.boss })
     .from(personalBests)
-    .where(inArray(personalBests.boss, insertedBosses))
-    .groupBy(personalBests.boss);
+    .where(inArray(personalBests.boss, bossKeys));
 
-  const globallyNew = new Set<string>();
-  for (const row of counts) {
-    if (Number(row.count) === 1) {
-      globallyNew.add(row.boss);
-    }
-  }
-  return globallyNew;
+  return new Set(rows.map((row) => row.boss));
 }
 
 sync.post('/', async (c) => {
@@ -322,9 +319,10 @@ sync.post('/', async (c) => {
     }
   }
 
+  const alreadyKnownBosses = await findAlreadyKnownBosses([...pbsByBoss.keys()]);
   const { insertedBosses, improvedBosses } = await upsertPbs(playerId, pbsByBoss);
   const changedBosses = [...insertedBosses, ...improvedBosses];
-  const globallyNewBosses = await findGloballyNewBosses(insertedBosses);
+  const globallyNewBosses = new Set(insertedBosses.filter((boss) => !alreadyKnownBosses.has(boss)));
   const meaningfulChange = created || metadataChanged || changedBosses.length > 0;
   const syncAttemptId = meaningfulChange
     ? await recordSyncAttempt({
@@ -338,6 +336,7 @@ sync.post('/', async (c) => {
     : null;
   const invalidationTags: string[] = [];
 
+  // search: a new player, a rename, or a first-ever boss key.
   if (metadataChanged) {
     invalidationTags.push(
       cacheTags.search,
@@ -347,18 +346,25 @@ sync.post('/', async (c) => {
     );
   }
 
+  // stats: a new player.
   if (created) {
     invalidationTags.push(cacheTags.stats);
   }
 
+  // stats: new player OR any PB insertion, not a faster-time-only update.
   if (insertedBosses.length > 0) {
     invalidationTags.push(cacheTags.stats);
   }
 
+  // bossList/search: only when the first-ever PB for a previously-absent
+  // boss key is inserted, not for a player's own first time on a boss key
+  // that already exists elsewhere in the database.
   if (globallyNewBosses.size > 0) {
     invalidationTags.push(cacheTags.bossList, cacheTags.search);
   }
 
+  // Per-boss/profile/player tags: both insertion and improvement change the
+  // boss leaderboard and this player's rank-bearing profile.
   if (insertedBosses.length > 0 || improvedBosses.length > 0) {
     invalidationTags.push(
       playerIdCacheTag(playerId),

@@ -3,7 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
 import { players, syncAttempts } from '../src/db/schema.js';
-import { cacheTags } from '../src/lib/cache.js';
+import { bossCacheTag, cacheTags, playerIdCacheTag } from '../src/lib/cache.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { pruneExpiredSyncAttempts, upsertPbs } from '../src/routes/sync.js';
@@ -472,13 +472,32 @@ describe('POST /api/sync', () => {
     }
 
     it('invalidates bossList and search when a globally-new boss key is inserted', async () => {
+      const secret = 'a'.repeat(20);
+      // Establish the player on one boss first, so the later sync below is
+      // neither a new-player creation nor a rename - isolating the
+      // globally-new-boss logic under test from metadataChanged/created,
+      // which would otherwise push search/stats on their own and let this
+      // test pass even if the globally-new logic were deleted entirely.
+      await syncRequest({
+        accountHash: 'globally-new-account',
+        displayName: 'Globally New',
+        installSecret: secret,
+        pbs: { Vorkath: 200 },
+      });
+
+      mocks.invalidateByTag.mockReset();
+
+      // "Amoxliatl" has never appeared in personal_bests for any player in
+      // the test database (truncateAll runs before each test), so this is a
+      // genuinely globally-new boss key.
       const res = await syncRequest({
         accountHash: 'globally-new-account',
         displayName: 'Globally New',
-        installSecret: 'a'.repeat(20),
-        pbs: { Zulrah: 80 },
+        installSecret: secret,
+        pbs: { Amoxliatl: 55 },
       });
       expect(res.status).toBe(200);
+      expect((await res.json()).updated).toBe(1);
 
       const tags = invalidatedTags();
       expect(tags).toContain(cacheTags.bossList);
@@ -512,12 +531,18 @@ describe('POST /api/sync', () => {
         pbs: { Zulrah: 70 },
       });
       expect(improved.status).toBe(200);
-      expect((await improved.json()).updated).toBe(1);
+      const improvedJson = await improved.json();
+      expect(improvedJson.updated).toBe(1);
 
       const tags = invalidatedTags();
       expect(tags).not.toContain(cacheTags.bossList);
       expect(tags).not.toContain(cacheTags.search);
       expect(tags).not.toContain(cacheTags.stats);
+      // Positive half: an improvement must still invalidate the per-boss and
+      // per-player tags, so a total-breakage bug (e.g. an empty tag array)
+      // doesn't slip through by only ever checking for absence.
+      expect(tags).toContain(bossCacheTag('zulrah'));
+      expect(tags).toContain(playerIdCacheTag(improvedJson.playerId));
     });
 
     it('invalidates stats but not bossList/search for a player-first-time (not globally-new) boss insertion', async () => {
@@ -552,12 +577,18 @@ describe('POST /api/sync', () => {
         pbs: { Zulrah: 75 },
       });
       expect(inserted.status).toBe(200);
-      expect((await inserted.json()).updated).toBe(1);
+      const insertedJson = await inserted.json();
+      expect(insertedJson.updated).toBe(1);
 
       const tags = invalidatedTags();
       expect(tags).toContain(cacheTags.stats);
       expect(tags).not.toContain(cacheTags.bossList);
       expect(tags).not.toContain(cacheTags.search);
+      // Positive half: this insertion must still invalidate the per-boss and
+      // per-player tags, so a total-breakage bug doesn't slip through by
+      // only ever checking for absence.
+      expect(tags).toContain(bossCacheTag('zulrah'));
+      expect(tags).toContain(playerIdCacheTag(insertedJson.playerId));
     });
   });
 });
