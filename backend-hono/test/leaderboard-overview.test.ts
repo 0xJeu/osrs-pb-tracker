@@ -25,12 +25,36 @@ describe('GET /api/leaderboard-overview', () => {
     const json = (await res.json()) as Array<{ boss: string; leader: { displayName: string; timeSeconds: number } | null }>;
     const zulrah = json.find((row) => row.boss === 'zulrah');
     const vorkath = json.find((row) => row.boss === 'vorkath');
-    const whisperer = json.find((row) => row.boss === 'the whisperer');
+    const whisperer = json.find((row) => row.boss === 'whisperer');
 
     expect(zulrah?.leader).toMatchObject({ displayName: 'Fast', timeSeconds: 80 });
     expect(vorkath?.leader).toMatchObject({ displayName: 'OnlyVorkath', timeSeconds: 45 });
     expect(whisperer?.leader).toBeNull();
     expect(json.map((row) => row.boss)).toEqual([...CURATED_OVERVIEW_BOSSES]);
+  });
+
+  // Regression test: the curated list previously hardcoded 'the whisperer'/
+  // 'the leviathan' with a "the " prefix, but the plugin actually syncs
+  // these boss keys the same bare way as every other curated boss ('whisperer',
+  // 'leviathan' - no "the " prefix, matching 'duke sucellus'/'vorkath'/'zulrah').
+  // The exact-match inArray() query silently matched zero rows for those two,
+  // so the homepage always showed "No synced time yet" for them even with
+  // real PBs on file.
+  it('matches Whisperer and Leviathan PBs synced under their real (no "the") boss keys', async () => {
+    await insertTestPlayerWithPb({ boss: 'whisperer', timeSeconds: 90, displayName: 'WhispererPlayer' });
+    await insertTestPlayerWithPb({ boss: 'leviathan', timeSeconds: 120, displayName: 'LeviathanPlayer' });
+
+    const res = await app.request('/api/leaderboard-overview');
+    const json = (await res.json()) as Array<{ boss: string; leader: { displayName: string; timeSeconds: number } | null }>;
+
+    expect(json.find((row) => row.boss === 'whisperer')?.leader).toMatchObject({
+      displayName: 'WhispererPlayer',
+      timeSeconds: 90,
+    });
+    expect(json.find((row) => row.boss === 'leviathan')?.leader).toMatchObject({
+      displayName: 'LeviathanPlayer',
+      timeSeconds: 120,
+    });
   });
 
   it('breaks a tied fastest time deterministically by display name', async () => {
