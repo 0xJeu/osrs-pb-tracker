@@ -9,7 +9,7 @@
 export const CURATED_OVERVIEW_BOSSES = [
   'zulrah',
   'vorkath',
-  'the whisperer',
+  'whisperer',
   'duke sucellus',
-  'the leviathan',
+  'leviathan',
 ] as const;
