@@ -48,19 +48,31 @@ Required GitHub Actions secrets:
 
 Both must be unpooled Neon connection strings. Never commit or print them.
 
-Required GitHub Actions repository variable:
+Required GitHub Actions repository variables:
 
 - `NEON_STANDBY_REFRESH_ENABLED=true`
+- `PRIMARY_DATABASE_EXPECTED_PROJECT_ID`
+- `PRIMARY_DATABASE_EXPECTED_BRANCH_ID`
+- `STANDBY_DATABASE_EXPECTED_PROJECT_ID`
+- `STANDBY_DATABASE_EXPECTED_BRANCH_ID`
+
+The expected-identity variables are non-secret safeguards. They must identify
+the same projects and branches as their corresponding connection secrets.
 
 The refresh script:
 
 1. Refuses identical or pooled URLs.
-2. Fingerprints the source before and after the dump.
-3. Retries once if source data changed during the backup.
-4. Restores with `--single-transaction`, preserving the previous standby if
+2. Queries both connections for their server-reported Neon project, branch,
+   and database identities.
+3. Refuses unexpected identities or a shared primary/standby project and
+   branch, even when their URL strings differ.
+4. Fingerprints the source before and after the dump.
+5. Retries once if source data changed during the backup.
+6. Re-verifies the standby identity immediately before the destructive restore.
+7. Restores with `--single-transaction`, preserving the previous standby if
    restore fails.
-5. Verifies every application table plus constraints, indexes, and sequences.
-6. Deletes the temporary dump from the runner.
+8. Verifies every application table plus constraints, indexes, and sequences.
+9. Deletes the temporary dump from the runner.
 
 No database dump is uploaded as a GitHub Actions artifact because it contains
 account identifiers, install-secret hashes, and private feedback.
@@ -114,7 +126,10 @@ Failback is a migration, not a configuration toggle:
 6. Update the GitHub Action secrets so `PRIMARY_DATABASE_URL_UNPOOLED` names
    the newly active project and `STANDBY_DATABASE_URL_UNPOOLED` names the newly
    inactive project.
-7. Re-enable scheduled refresh.
+7. Update all four expected project/branch variables to match the newly active
+   and inactive projects. Never swap connection secrets without also swapping
+   and verifying their expected identities.
+8. Re-enable scheduled refresh.
 
 ## Free-tier operating limits
 

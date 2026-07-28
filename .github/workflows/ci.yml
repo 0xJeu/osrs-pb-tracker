@@ -27,6 +27,7 @@ jobs:
           PB_TRACKER_EXPECTED_PROJECT_ID: dry-tooth-70023755
           PB_TRACKER_EXPECTED_BRANCH_ID: br-soft-field-afjdtpjs
       - run: npm run typecheck
+      - run: bash ../scripts/test-refresh-neon-standby.sh
       - run: npm test
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}

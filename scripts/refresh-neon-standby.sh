@@ -5,6 +5,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 : "${PRIMARY_DATABASE_URL_UNPOOLED:?Set PRIMARY_DATABASE_URL_UNPOOLED to the active Neon database}"
 : "${STANDBY_DATABASE_URL_UNPOOLED:?Set STANDBY_DATABASE_URL_UNPOOLED to the inactive Neon standby}"
+: "${PRIMARY_DATABASE_EXPECTED_PROJECT_ID:?Set PRIMARY_DATABASE_EXPECTED_PROJECT_ID}"
+: "${PRIMARY_DATABASE_EXPECTED_BRANCH_ID:?Set PRIMARY_DATABASE_EXPECTED_BRANCH_ID}"
+: "${STANDBY_DATABASE_EXPECTED_PROJECT_ID:?Set STANDBY_DATABASE_EXPECTED_PROJECT_ID}"
+: "${STANDBY_DATABASE_EXPECTED_BRANCH_ID:?Set STANDBY_DATABASE_EXPECTED_BRANCH_ID}"
 
 if [[ "$PRIMARY_DATABASE_URL_UNPOOLED" == "$STANDBY_DATABASE_URL_UNPOOLED" ]]; then
   echo "Refusing to refresh: primary and standby URLs are identical." >&2
@@ -17,12 +21,100 @@ if [[ "$PRIMARY_DATABASE_URL_UNPOOLED" == *"-pooler."* ]] ||
   exit 1
 fi
 
+if [[ "$PRIMARY_DATABASE_EXPECTED_PROJECT_ID" == "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" ]] &&
+   [[ "$PRIMARY_DATABASE_EXPECTED_BRANCH_ID" == "$STANDBY_DATABASE_EXPECTED_BRANCH_ID" ]]; then
+  echo "Refusing to refresh: expected primary and standby identities are identical." >&2
+  exit 1
+fi
+
 for command_name in pg_dump pg_restore psql; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Required command is unavailable: $command_name" >&2
     exit 1
   fi
 done
+
+read_database_identity() {
+  local database_url="$1"
+  psql \
+    --no-psqlrc \
+    --quiet \
+    --tuples-only \
+    --no-align \
+    --set=ON_ERROR_STOP=1 \
+    --dbname="$database_url" \
+    --command="SELECT current_setting('neon.project_id', true) || '|' || current_setting('neon.branch_id', true) || '|' || current_database();"
+}
+
+verify_database_identity() {
+  local label="$1"
+  local database_url="$2"
+  local expected_project_id="$3"
+  local expected_branch_id="$4"
+  local identity
+  local actual_project_id
+  local actual_branch_id
+  local actual_database_name
+  local unexpected_field
+
+  identity="$(read_database_identity "$database_url")"
+  if [[ "$identity" == *$'\n'* ]] || [[ "$identity" == *$'\r'* ]]; then
+    echo "Refusing to refresh: $label returned an invalid Neon identity." >&2
+    exit 1
+  fi
+  IFS='|' read -r \
+    actual_project_id \
+    actual_branch_id \
+    actual_database_name \
+    unexpected_field <<< "$identity"
+
+  if [[ -z "$actual_project_id" ]] ||
+     [[ -z "$actual_branch_id" ]] ||
+     [[ -z "$actual_database_name" ]] ||
+     [[ -n "$unexpected_field" ]]; then
+    echo "Refusing to refresh: $label returned an invalid Neon identity." >&2
+    exit 1
+  fi
+
+  if [[ "$actual_project_id" != "$expected_project_id" ]] ||
+     [[ "$actual_branch_id" != "$expected_branch_id" ]]; then
+    echo "Refusing to refresh: $label does not match its expected Neon project and branch." >&2
+    exit 1
+  fi
+
+  printf '%s|%s|%s\n' \
+    "$actual_project_id" \
+    "$actual_branch_id" \
+    "$actual_database_name"
+}
+
+assert_distinct_database_identities() {
+  local primary_identity="$1"
+  local standby_identity="$2"
+  local primary_project_and_branch="${primary_identity%|*}"
+  local standby_project_and_branch="${standby_identity%|*}"
+
+  if [[ "$primary_project_and_branch" == "$standby_project_and_branch" ]]; then
+    echo "Refusing to refresh: primary and standby resolve to the same Neon project and branch." >&2
+    exit 1
+  fi
+}
+
+primary_identity="$(
+  verify_database_identity \
+    "primary database" \
+    "$PRIMARY_DATABASE_URL_UNPOOLED" \
+    "$PRIMARY_DATABASE_EXPECTED_PROJECT_ID" \
+    "$PRIMARY_DATABASE_EXPECTED_BRANCH_ID"
+)"
+standby_identity="$(
+  verify_database_identity \
+    "standby database" \
+    "$STANDBY_DATABASE_URL_UNPOOLED" \
+    "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" \
+    "$STANDBY_DATABASE_EXPECTED_BRANCH_ID"
+)"
+assert_distinct_database_identities "$primary_identity" "$standby_identity"
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/osrs-pb-standby.XXXXXX")"
 chmod 700 "$work_dir"
@@ -74,6 +166,21 @@ for attempt in 1 2; do
 
   echo "Primary changed during backup attempt; retrying once."
 done
+
+standby_identity_before_restore="$(
+  verify_database_identity \
+    "standby database before restore" \
+    "$STANDBY_DATABASE_URL_UNPOOLED" \
+    "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" \
+    "$STANDBY_DATABASE_EXPECTED_BRANCH_ID"
+)"
+if [[ "$standby_identity_before_restore" != "$standby_identity" ]]; then
+  echo "Refusing to restore: standby identity changed during the refresh." >&2
+  exit 1
+fi
+assert_distinct_database_identities \
+  "$primary_identity" \
+  "$standby_identity_before_restore"
 
 pg_restore \
   --clean \
