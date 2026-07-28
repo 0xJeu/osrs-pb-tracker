@@ -1,12 +1,24 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
-import { syncAttempts } from '../src/db/schema.js';
+import { players, syncAttempts } from '../src/db/schema.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
-import { pruneExpiredSyncAttempts } from '../src/routes/sync.js';
+import { pruneExpiredSyncAttempts, upsertPbs } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
+
+const mocks = vi.hoisted(() => ({
+  invalidateByTag: vi.fn(),
+}));
+
+vi.mock('@vercel/functions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vercel/functions')>();
+  return {
+    ...actual,
+    invalidateByTag: mocks.invalidateByTag,
+  };
+});
 
 function syncRequest(body: unknown) {
   return app.request('/api/sync', {
@@ -17,10 +29,22 @@ function syncRequest(body: unknown) {
 }
 
 describe('POST /api/sync', () => {
+  const originalVercel = process.env.VERCEL;
+
   beforeEach(async () => {
     await resetSyncReplayCache();
     await truncateAll();
     resetRateLimiter();
+    mocks.invalidateByTag.mockReset();
+    process.env.VERCEL = '1';
+  });
+
+  afterEach(() => {
+    if (originalVercel === undefined) {
+      delete process.env.VERCEL;
+    } else {
+      process.env.VERCEL = originalVercel;
+    }
   });
 
   it('rejects a missing accountHash', async () => {
@@ -363,6 +387,60 @@ describe('POST /api/sync', () => {
     expect(selectSpy).not.toHaveBeenCalled();
     selectSpy.mockRestore();
   }, 15_000);
+
+  // NOTE: `upsertPbs` classifies each changed boss as inserted (first PB ever
+  // recorded for that boss) or improved (an existing PB beaten by a faster
+  // time), using Postgres's `xmax = 0` trick. Only the classification itself
+  // is this task's job - teaching the cache-invalidation logic in sync.ts's
+  // route handler to actually treat the two cases differently (e.g. skipping
+  // the `stats` tag on a mere improvement) is a later, separate task. Until
+  // that lands, `invalidateByTag` still receives `stats` on both an insert
+  // and an improvement, so we deliberately do not assert on invalidation
+  // tags here - see the plan's Task 2.
+  it('classifies a changed boss as inserted on first sync and improved on a faster resync', async () => {
+    const [player] = await db
+      .insert(players)
+      .values({
+        accountHash: 'upsert-pbs-probe',
+        displayName: 'Upsert Probe',
+        displayNameLower: 'upsert probe',
+        installSecretHash: 'x',
+        updatedAt: new Date(),
+      })
+      .returning({ id: players.id });
+    const playerId = player.id;
+
+    const inserted = await upsertPbs(playerId, new Map([['zulrah', 80]]));
+    expect(inserted).toEqual({ insertedBosses: ['zulrah'], improvedBosses: [] });
+
+    const improved = await upsertPbs(playerId, new Map([['zulrah', 75]]));
+    expect(improved).toEqual({ insertedBosses: [], improvedBosses: ['zulrah'] });
+
+    // An equal-or-slower resync changes nothing, so the boss is neither
+    // inserted nor improved.
+    const noOp = await upsertPbs(playerId, new Map([['zulrah', 90]]));
+    expect(noOp).toEqual({ insertedBosses: [], improvedBosses: [] });
+  });
+
+  it('still reports the correct total `updated` count for a mixed insert+improve batch', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({
+      accountHash: 'insert-vs-improve',
+      displayName: 'Insert Vs Improve',
+      installSecret: secret,
+      pbs: { Zulrah: 80 },
+    });
+
+    const mixed = await syncRequest({
+      accountHash: 'insert-vs-improve',
+      displayName: 'Insert Vs Improve',
+      installSecret: secret,
+      // Vorkath is a brand-new boss (insert); Zulrah is a faster resync
+      // (improvement). Both must still be counted in `updated`.
+      pbs: { Zulrah: 75, Vorkath: 70 },
+    });
+    expect((await mixed.json()).updated).toBe(2);
+  });
 
   it('opportunistically removes sync attempts older than 90 days', async () => {
     const res = await syncRequest({

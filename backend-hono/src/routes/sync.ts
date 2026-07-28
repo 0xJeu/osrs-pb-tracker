@@ -163,9 +163,9 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
 // or slower resync must leave the existing row (including its timestamp)
 // completely untouched - see sync.test.ts's "only overwrites a PB when the
 // new time is faster" test, which locks this in.
-async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
+export async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
   if (pbsByBoss.size === 0) {
-    return [] as string[];
+    return { insertedBosses: [] as string[], improvedBosses: [] as string[] };
   }
 
   const updatedAt = new Date();
@@ -184,9 +184,25 @@ async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
       set: { timeSeconds: sql`excluded.time_seconds`, updatedAt },
       setWhere: sql`excluded.time_seconds < ${personalBests.timeSeconds}`,
     })
-    .returning({ boss: personalBests.boss });
+    .returning({
+      boss: personalBests.boss,
+      // xmax is a Postgres system column: 0 if this row was inserted by the
+      // current command, non-zero if an existing row was updated instead.
+      // Used to tell "brand-new boss" apart from "existing PB improved" so
+      // the caller can invalidate the global stats cache only on the former.
+      inserted: sql<boolean>`xmax = 0`,
+    });
 
-  return [...new Set(changed.map((row) => row.boss))];
+  const insertedBosses = new Set<string>();
+  const improvedBosses = new Set<string>();
+  for (const row of changed) {
+    (row.inserted ? insertedBosses : improvedBosses).add(row.boss);
+  }
+
+  return {
+    insertedBosses: [...insertedBosses],
+    improvedBosses: [...improvedBosses],
+  };
 }
 
 sync.post('/', async (c) => {
@@ -282,7 +298,8 @@ sync.post('/', async (c) => {
     }
   }
 
-  const changedBosses = await upsertPbs(playerId, pbsByBoss);
+  const { insertedBosses, improvedBosses } = await upsertPbs(playerId, pbsByBoss);
+  const changedBosses = [...insertedBosses, ...improvedBosses];
   const meaningfulChange = created || metadataChanged || changedBosses.length > 0;
   const syncAttemptId = meaningfulChange
     ? await recordSyncAttempt({
