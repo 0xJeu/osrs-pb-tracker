@@ -1,4 +1,4 @@
-import { eq, lt, sql } from 'drizzle-orm';
+import { eq, inArray, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, playerNameHistory, players, syncAttempts } from '../db/schema.js';
@@ -205,6 +205,30 @@ export async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>
   };
 }
 
+// Bounded to only the boss keys this sync just inserted - never scans the
+// full personal_bests table. A boss is "globally new" if, after this
+// insert, exactly one row anywhere in the database has that boss key (this
+// player's own just-inserted row).
+async function findGloballyNewBosses(insertedBosses: readonly string[]): Promise<Set<string>> {
+  if (insertedBosses.length === 0) {
+    return new Set();
+  }
+
+  const counts = await db
+    .select({ boss: personalBests.boss, count: sql<number>`count(*)` })
+    .from(personalBests)
+    .where(inArray(personalBests.boss, insertedBosses))
+    .groupBy(personalBests.boss);
+
+  const globallyNew = new Set<string>();
+  for (const row of counts) {
+    if (Number(row.count) === 1) {
+      globallyNew.add(row.boss);
+    }
+  }
+  return globallyNew;
+}
+
 sync.post('/', async (c) => {
   const body = (await c.req.json().catch(() => null)) as SyncBody | null;
   const accountHash = body?.accountHash;
@@ -300,6 +324,7 @@ sync.post('/', async (c) => {
 
   const { insertedBosses, improvedBosses } = await upsertPbs(playerId, pbsByBoss);
   const changedBosses = [...insertedBosses, ...improvedBosses];
+  const globallyNewBosses = await findGloballyNewBosses(insertedBosses);
   const meaningfulChange = created || metadataChanged || changedBosses.length > 0;
   const syncAttemptId = meaningfulChange
     ? await recordSyncAttempt({
@@ -326,11 +351,16 @@ sync.post('/', async (c) => {
     invalidationTags.push(cacheTags.stats);
   }
 
-  if (changedBosses.length > 0) {
+  if (insertedBosses.length > 0) {
+    invalidationTags.push(cacheTags.stats);
+  }
+
+  if (globallyNewBosses.size > 0) {
+    invalidationTags.push(cacheTags.bossList, cacheTags.search);
+  }
+
+  if (insertedBosses.length > 0 || improvedBosses.length > 0) {
     invalidationTags.push(
-      cacheTags.bossList,
-      cacheTags.search,
-      cacheTags.stats,
       playerIdCacheTag(playerId),
       ...changedBosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)])
     );

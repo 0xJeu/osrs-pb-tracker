@@ -1,12 +1,25 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
 import { players, syncAttempts } from '../src/db/schema.js';
+import { cacheTags } from '../src/lib/cache.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { pruneExpiredSyncAttempts, upsertPbs } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
+
+const mocks = vi.hoisted(() => ({
+  invalidateByTag: vi.fn(),
+}));
+
+vi.mock('@vercel/functions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vercel/functions')>();
+  return {
+    ...actual,
+    invalidateByTag: mocks.invalidateByTag,
+  };
+});
 
 function syncRequest(body: unknown) {
   return app.request('/api/sync', {
@@ -436,5 +449,115 @@ describe('POST /api/sync', () => {
 
     const remaining = await db.select().from(syncAttempts);
     expect(remaining).toEqual([]);
+  });
+
+  describe('cache invalidation truth table', () => {
+    const originalVercel = process.env.VERCEL;
+
+    beforeEach(() => {
+      process.env.VERCEL = '1';
+      mocks.invalidateByTag.mockReset();
+    });
+
+    afterEach(() => {
+      if (originalVercel === undefined) {
+        delete process.env.VERCEL;
+      } else {
+        process.env.VERCEL = originalVercel;
+      }
+    });
+
+    function invalidatedTags(): string[] {
+      return mocks.invalidateByTag.mock.calls.flatMap((call) => call[0] as string[]);
+    }
+
+    it('invalidates bossList and search when a globally-new boss key is inserted', async () => {
+      const res = await syncRequest({
+        accountHash: 'globally-new-account',
+        displayName: 'Globally New',
+        installSecret: 'a'.repeat(20),
+        pbs: { Zulrah: 80 },
+      });
+      expect(res.status).toBe(200);
+
+      const tags = invalidatedTags();
+      expect(tags).toContain(cacheTags.bossList);
+      expect(tags).toContain(cacheTags.search);
+      expect(tags).toContain(cacheTags.stats);
+    });
+
+    it('does not invalidate bossList, search, or stats when only improving an existing (non-globally-new) boss', async () => {
+      const secret = 'a'.repeat(20);
+      // Seed another player with the same boss key first, so it is not
+      // globally new by the time our subject player syncs it.
+      await syncRequest({
+        accountHash: 'seed-account',
+        displayName: 'Seed Player',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+      await syncRequest({
+        accountHash: 'improve-account',
+        displayName: 'Improve Player',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+
+      mocks.invalidateByTag.mockReset();
+
+      const improved = await syncRequest({
+        accountHash: 'improve-account',
+        displayName: 'Improve Player',
+        installSecret: secret,
+        pbs: { Zulrah: 70 },
+      });
+      expect(improved.status).toBe(200);
+      expect((await improved.json()).updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).not.toContain(cacheTags.bossList);
+      expect(tags).not.toContain(cacheTags.search);
+      expect(tags).not.toContain(cacheTags.stats);
+    });
+
+    it('invalidates stats but not bossList/search for a player-first-time (not globally-new) boss insertion', async () => {
+      const secret = 'a'.repeat(20);
+      // Seed another player with the boss key first, so it already exists
+      // globally by the time our subject player inserts their own first PB
+      // for it.
+      await syncRequest({
+        accountHash: 'seed-account-2',
+        displayName: 'Seed Player Two',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+
+      // Establish the subject player on an unrelated boss first, so their
+      // later Zulrah sync is neither a new-player creation nor a rename -
+      // isolating the "boss inserted but not globally new" case from the
+      // unconditional search/stats invalidation those trigger.
+      await syncRequest({
+        accountHash: 'new-to-boss-account',
+        displayName: 'New To Boss',
+        installSecret: secret,
+        pbs: { Vorkath: 200 },
+      });
+
+      mocks.invalidateByTag.mockReset();
+
+      const inserted = await syncRequest({
+        accountHash: 'new-to-boss-account',
+        displayName: 'New To Boss',
+        installSecret: secret,
+        pbs: { Zulrah: 75 },
+      });
+      expect(inserted.status).toBe(200);
+      expect((await inserted.json()).updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).toContain(cacheTags.stats);
+      expect(tags).not.toContain(cacheTags.bossList);
+      expect(tags).not.toContain(cacheTags.search);
+    });
   });
 });
