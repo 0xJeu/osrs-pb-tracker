@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bossCacheTag,
   cachePolicies,
+  fitsExactProfileTags,
   invalidateSharedCache,
   playerNameCacheTag,
   profileBossBucketCacheTag,
+  profileBossExactCacheTag,
   setSharedCache,
 } from '../src/lib/cache.js';
 
@@ -62,6 +64,19 @@ describe('cache tags', () => {
     const tag = profileBossBucketCacheTag('Zulrah');
     expect(profileBossBucketCacheTag(' zulrah ')).toBe(tag);
     expect(tag).toMatch(/^profile-boss-bucket:(?:[0-9]|[12][0-9]|3[01])$/);
+  });
+
+  it('builds an exact per-boss profile dependency tag', () => {
+    expect(profileBossExactCacheTag('Zulrah')).toBe('profile-boss:zulrah');
+    expect(profileBossExactCacheTag(' ZULRAH ')).toBe(profileBossExactCacheTag('zulrah'));
+  });
+
+  it('reports whether a profile fits under the exact-tag threshold', () => {
+    // The name route reserves 2 tag slots (player-name + player-id), so exact
+    // tags are safe up to 126 PBs, keeping the total at or below Vercel's
+    // 128-tag response limit.
+    expect(fitsExactProfileTags(126)).toBe(true);
+    expect(fitsExactProfileTags(127)).toBe(false);
   });
 
   it('deduplicates tags before invalidating on Vercel', async () => {

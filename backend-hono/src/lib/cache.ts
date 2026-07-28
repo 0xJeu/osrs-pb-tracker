@@ -56,6 +56,21 @@ export function profileBossBucketCacheTag(boss: string) {
   return `profile-boss-bucket:${(hash >>> 0) % 32}`;
 }
 
+// 126 PBs is the current safe ceiling: the by-id route needs 1 reserved
+// slot (player-id) and the name route needs 2 (player-name + player-id),
+// so reserving 2 out of Vercel's 128-tag cap keeps both routes safely under
+// the limit at the same threshold. Production's current maximum is 125 PBs
+// (see the design doc's evidence section), so every real profile fits today.
+const MAX_EXACT_PROFILE_TAGS = MAX_CACHE_TAGS - 2;
+
+export function profileBossExactCacheTag(boss: string) {
+  return `profile-boss:${tagPart(boss)}`;
+}
+
+export function fitsExactProfileTags(pbCount: number) {
+  return pbCount <= MAX_EXACT_PROFILE_TAGS;
+}
+
 export function playerIdCacheTag(playerId: number) {
   return `player-id:${playerId}`;
 }
