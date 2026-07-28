@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
@@ -7,18 +7,6 @@ import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { pruneExpiredSyncAttempts, upsertPbs } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
-
-const mocks = vi.hoisted(() => ({
-  invalidateByTag: vi.fn(),
-}));
-
-vi.mock('@vercel/functions', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@vercel/functions')>();
-  return {
-    ...actual,
-    invalidateByTag: mocks.invalidateByTag,
-  };
-});
 
 function syncRequest(body: unknown) {
   return app.request('/api/sync', {
@@ -29,22 +17,10 @@ function syncRequest(body: unknown) {
 }
 
 describe('POST /api/sync', () => {
-  const originalVercel = process.env.VERCEL;
-
   beforeEach(async () => {
     await resetSyncReplayCache();
     await truncateAll();
     resetRateLimiter();
-    mocks.invalidateByTag.mockReset();
-    process.env.VERCEL = '1';
-  });
-
-  afterEach(() => {
-    if (originalVercel === undefined) {
-      delete process.env.VERCEL;
-    } else {
-      process.env.VERCEL = originalVercel;
-    }
   });
 
   it('rejects a missing accountHash', async () => {
