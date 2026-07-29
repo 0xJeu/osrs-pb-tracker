@@ -3,7 +3,13 @@ import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
 import { players, syncAttempts } from '../src/db/schema.js';
-import { bossCacheTag, cacheTags, playerIdCacheTag } from '../src/lib/cache.js';
+import {
+  bossCacheTag,
+  cacheTags,
+  playerIdCacheTag,
+  profileBossBucketCacheTag,
+  profileBossExactCacheTag,
+} from '../src/lib/cache.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { pruneExpiredSyncAttempts, upsertPbs } from '../src/routes/sync.js';
@@ -589,6 +595,22 @@ describe('POST /api/sync', () => {
       // only ever checking for absence.
       expect(tags).toContain(bossCacheTag('zulrah'));
       expect(tags).toContain(playerIdCacheTag(insertedJson.playerId));
+    });
+
+    it('invalidates both the exact and bucket profile tags for a changed boss', async () => {
+      const secret = 'a'.repeat(20);
+      const res = await syncRequest({
+        accountHash: 'exact-and-bucket-account',
+        displayName: 'Exact And Bucket',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).toContain(profileBossExactCacheTag('zulrah'));
+      expect(tags).toContain(profileBossBucketCacheTag('zulrah'));
     });
   });
 });

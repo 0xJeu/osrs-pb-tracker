@@ -9,6 +9,7 @@ import {
   playerIdCacheTag,
   playerNameCacheTag,
   profileBossBucketCacheTag,
+  profileBossExactCacheTag,
 } from '../lib/cache.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
 import {
@@ -364,11 +365,21 @@ sync.post('/', async (c) => {
   }
 
   // Per-boss/profile/player tags: both insertion and improvement change the
-  // boss leaderboard and this player's rank-bearing profile.
+  // boss leaderboard and this player's rank-bearing profile. Both the exact
+  // and bucket tag are invalidated for each boss (not just whichever scheme
+  // players.ts happens to be using for a given profile right now) so a
+  // rolling deploy or an oversized (bucket-fallback) profile can never be
+  // left stale depending on which scheme actually tagged its cached
+  // response - see players.ts's profileCacheTags for the exact/bucket
+  // selection this pairs with.
   if (insertedBosses.length > 0 || improvedBosses.length > 0) {
     invalidationTags.push(
       playerIdCacheTag(playerId),
-      ...changedBosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)])
+      ...changedBosses.flatMap((boss) => [
+        bossCacheTag(boss),
+        profileBossExactCacheTag(boss),
+        profileBossBucketCacheTag(boss),
+      ])
     );
   }
 
