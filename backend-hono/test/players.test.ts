@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
+import { db } from '../src/db/client.js';
+import { personalBests } from '../src/db/schema.js';
 import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
 
 describe('GET /api/players/:name', () => {
@@ -26,10 +28,34 @@ describe('GET /api/players/:name', () => {
     );
     expect(res.headers.get('vercel-cache-tag')).toContain('player-name:blitzen');
     expect(res.headers.get('vercel-cache-tag')).toContain('player-id:');
-    expect(res.headers.get('vercel-cache-tag')).toContain('profile-boss-bucket:');
+    expect(res.headers.get('vercel-cache-tag')).toContain('profile-boss:zulrah');
     const json = await res.json();
     expect(json.displayName).toBe('Blitzen');
     expect(json.pbs).toEqual([{ boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 }]);
+  });
+
+  it('tags a normal-sized profile with exact per-boss tags, not bucket tags, and stays well under the 128-tag cap', async () => {
+    const player = await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
+    const bosses = ['vorkath', 'phantom muspah', 'the whisperer', 'duke sucellus'];
+    await db.insert(personalBests).values(
+      bosses.map((boss) => ({
+        playerId: player.id,
+        boss,
+        timeSeconds: 100,
+        updatedAt: new Date(),
+      }))
+    );
+
+    const res = await app.request('/api/players/blitzen');
+    expect(res.status).toBe(200);
+    const tags = (res.headers.get('vercel-cache-tag') ?? '').split(',');
+
+    const allBosses = ['zulrah', ...bosses];
+    for (const boss of allBosses) {
+      expect(tags).toContain(`profile-boss:${encodeURIComponent(boss)}`);
+    }
+    expect(tags.some((tag) => tag.startsWith('profile-boss-bucket:'))).toBe(false);
+    expect(tags.length).toBeLessThan(128);
   });
 
   it("includes each PB's rank on the boss leaderboard", async () => {

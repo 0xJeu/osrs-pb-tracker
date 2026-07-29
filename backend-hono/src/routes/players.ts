@@ -5,9 +5,11 @@ import { db } from '../db/client.js';
 import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import {
   cachePolicies,
+  fitsExactProfileTags,
   playerIdCacheTag,
   playerNameCacheTag,
   profileBossBucketCacheTag,
+  profileBossExactCacheTag,
   setSharedCache,
 } from '../lib/cache.js';
 
@@ -52,11 +54,20 @@ async function playerWithPbs(player: PublicPlayer) {
   };
 }
 
+// Below a shared per-response cap, tag each PB individually so a boss
+// change only invalidates the profiles that actually depend on it. Above
+// the cap, fall back to the coarser 32-bucket scheme (profileBossBucketCacheTag)
+// so the response never exceeds Vercel's 128-tag limit - see fitsExactProfileTags
+// and profileBossBucketCacheTag in ../lib/cache.js for the full rationale.
+// sync.ts's invalidation path pushes BOTH the exact and bucket tag for every
+// changed boss precisely so this fallback stays correct across a rolling
+// deploy and for any profile currently using either scheme.
 function profileCacheTags(payload: Awaited<ReturnType<typeof playerWithPbs>>) {
-  return [
-    playerIdCacheTag(payload.id),
-    ...payload.pbs.map((pb) => profileBossBucketCacheTag(pb.boss)),
-  ];
+  const bossDependencyTags = fitsExactProfileTags(payload.pbs.length)
+    ? payload.pbs.map((pb) => profileBossExactCacheTag(pb.boss))
+    : payload.pbs.map((pb) => profileBossBucketCacheTag(pb.boss));
+
+  return [playerIdCacheTag(payload.id), ...bossDependencyTags];
 }
 
 playersRoute.get('/by-id/:id', async (c) => {
