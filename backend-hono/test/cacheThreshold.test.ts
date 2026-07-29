@@ -162,6 +162,19 @@ describe('bucket-fallback profile (127+ PBs): player-id/player-name invalidation
     expect(created.status).toBe(200);
     const { playerId } = await created.json();
 
+    // The initial 127-boss seed sync pushes ~380 tags (playerId + 127 *
+    // [boss, exact, bucket]) to invalidateSharedCache, well past Vercel's
+    // 128-tags-per-call limit - regression coverage for the chunking fix in
+    // invalidateSharedCache (src/lib/cache.ts). Without chunking, this would
+    // still be a single oversized call; deleting the chunking loop would not
+    // fail any OTHER existing test, since none else pushes this many tags in
+    // one sync.
+    const seedCalls = mocks.invalidateByTag.mock.calls;
+    expect(seedCalls.length).toBeGreaterThan(1);
+    for (const call of seedCalls) {
+      expect((call[0] as string[]).length).toBeLessThanOrEqual(128);
+    }
+
     mocks.invalidateByTag.mockReset();
 
     // Rename AND improve one boss in the same sync so both the

@@ -383,15 +383,13 @@ describe('POST /api/sync', () => {
     selectSpy.mockRestore();
   }, 15_000);
 
-  // NOTE: `upsertPbs` classifies each changed boss as inserted (first PB ever
+  // `upsertPbs` classifies each changed boss as inserted (first PB ever
   // recorded for that boss) or improved (an existing PB beaten by a faster
-  // time), using Postgres's `xmax = 0` trick. Only the classification itself
-  // is this task's job - teaching the cache-invalidation logic in sync.ts's
-  // route handler to actually treat the two cases differently (e.g. skipping
-  // the `stats` tag on a mere improvement) is a later, separate task. Until
-  // that lands, `invalidateByTag` still receives `stats` on both an insert
-  // and an improvement, so we deliberately do not assert on invalidation
-  // tags here - see the plan's Task 2.
+  // time), using Postgres's `xmax = 0` trick. This test only exercises the
+  // classification itself, at the `upsertPbs` level - the invalidation-tag
+  // truth table built on top of this classification (e.g. skipping `stats`
+  // on a mere improvement) is covered separately by the
+  // "cache invalidation truth table" describe block below.
   it('classifies a changed boss as inserted on first sync and improved on a faster resync', async () => {
     const [player] = await db
       .insert(players)
