@@ -101,6 +101,7 @@ EOF
 cat > "$fake_bin/pg_restore" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "called" > "$FAKE_STATE_DIR/pg-restore-called"
 exit 0
 EOF
 
@@ -123,8 +124,10 @@ run_subject() {
     STANDBY_DATABASE_URL_UNPOOLED="$standby_url" \
     PRIMARY_DATABASE_EXPECTED_PROJECT_ID="primary-project" \
     PRIMARY_DATABASE_EXPECTED_BRANCH_ID="primary-branch" \
+    PRIMARY_DATABASE_EXPECTED_DATABASE_NAME="neondb" \
     STANDBY_DATABASE_EXPECTED_PROJECT_ID="standby-project" \
     STANDBY_DATABASE_EXPECTED_BRANCH_ID="standby-branch" \
+    STANDBY_DATABASE_EXPECTED_DATABASE_NAME="neondb" \
     FAKE_PRIMARY_URL="$primary_url" \
     FAKE_STANDBY_URL="$standby_url" \
     FAKE_PRIMARY_IDENTITY="$primary_identity" \
@@ -155,6 +158,10 @@ assert_failure() {
     echo "$output" >&2
     exit 1
   fi
+  if [[ -f "$test_dir/state-$case_name/pg-restore-called" ]]; then
+    echo "Failure case $case_name reached the destructive restore." >&2
+    exit 1
+  fi
 }
 
 assert_success() {
@@ -168,12 +175,16 @@ assert_success() {
     echo "$output" >&2
     exit 1
   fi
+  if [[ ! -f "$test_dir/state-$case_name/pg-restore-called" ]]; then
+    echo "Success case $case_name did not reach the restore." >&2
+    exit 1
+  fi
 }
 
 assert_failure \
   "missing-expected-identity" \
-  "Set STANDBY_DATABASE_EXPECTED_BRANCH_ID" \
-  STANDBY_DATABASE_EXPECTED_BRANCH_ID=
+  "Set STANDBY_DATABASE_EXPECTED_DATABASE_NAME" \
+  STANDBY_DATABASE_EXPECTED_DATABASE_NAME=
 
 assert_failure \
   "identical-url" \
@@ -186,20 +197,30 @@ assert_failure \
   STANDBY_DATABASE_URL_UNPOOLED="postgresql://standby-pooler.example/neondb"
 
 assert_failure \
-  "identical-expected-identity" \
-  "expected primary and standby identities are identical" \
+  "same-expected-project-different-branch" \
+  "primary and standby must use different Neon projects" \
   STANDBY_DATABASE_EXPECTED_PROJECT_ID="primary-project" \
-  STANDBY_DATABASE_EXPECTED_BRANCH_ID="primary-branch"
+  STANDBY_DATABASE_EXPECTED_BRANCH_ID="different-branch"
 
 assert_failure \
   "same-database-different-url" \
-  "standby database does not match its expected Neon project and branch" \
+  "standby database does not match its expected Neon project, branch, and database" \
   FAKE_STANDBY_IDENTITY="$primary_identity"
 
 assert_failure \
   "wrong-primary-identity" \
-  "primary database does not match its expected Neon project and branch" \
+  "primary database does not match its expected Neon project, branch, and database" \
   FAKE_PRIMARY_IDENTITY="wrong-project|primary-branch|neondb"
+
+assert_failure \
+  "wrong-primary-database-name" \
+  "primary database does not match its expected Neon project, branch, and database" \
+  FAKE_PRIMARY_IDENTITY="primary-project|primary-branch|postgres"
+
+assert_failure \
+  "wrong-standby-database-name" \
+  "standby database does not match its expected Neon project, branch, and database" \
+  FAKE_STANDBY_IDENTITY="standby-project|standby-branch|postgres"
 
 assert_failure \
   "invalid-standby-identity" \
@@ -208,7 +229,7 @@ assert_failure \
 
 assert_failure \
   "standby-changed-before-restore" \
-  "standby identity changed during the refresh" \
+  "standby database before restore does not match its expected Neon project, branch, and database" \
   FAKE_STANDBY_IDENTITY_SECOND="standby-project|standby-branch|other_database"
 
 assert_success "distinct-verified-identities"

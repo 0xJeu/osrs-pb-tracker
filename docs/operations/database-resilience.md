@@ -3,12 +3,12 @@
 ## Topology
 
 - Active primary: Neon project `snowy-fire-96856162`, main branch
-  `br-plain-leaf-aja8iam5`.
+  `br-plain-leaf-aja8iam5`, database `neondb`.
 - Inactive standby: Neon project `wispy-lab-76474839`, main branch
-  `br-patient-dust-aw4iwynr`.
+  `br-patient-dust-aw4iwynr`, database `neondb`.
 - Isolated Preview: Neon project `wild-rice-11832605`, main branch
-  `br-patient-mode-awo4y8j6`. It has the application schema but no copied
-  production rows and is not a failover target.
+  `br-patient-mode-awo4y8j6`, database `neondb`. It has the application schema
+  but no copied production rows and is not a failover target.
 - The older project `dry-tooth-70023755` is not part of this topology. It has
   unrelated/stale rows and must not be overwritten as part of standby refresh.
 
@@ -53,19 +53,22 @@ Required GitHub Actions repository variables:
 - `NEON_STANDBY_REFRESH_ENABLED=true`
 - `PRIMARY_DATABASE_EXPECTED_PROJECT_ID`
 - `PRIMARY_DATABASE_EXPECTED_BRANCH_ID`
+- `PRIMARY_DATABASE_EXPECTED_DATABASE_NAME`
 - `STANDBY_DATABASE_EXPECTED_PROJECT_ID`
 - `STANDBY_DATABASE_EXPECTED_BRANCH_ID`
+- `STANDBY_DATABASE_EXPECTED_DATABASE_NAME`
 
 The expected-identity variables are non-secret safeguards. They must identify
-the same projects and branches as their corresponding connection secrets.
+the same projects, branches, and databases as their corresponding connection
+secrets. Primary and standby must use different Neon project IDs.
 
 The refresh script:
 
 1. Refuses identical or pooled URLs.
 2. Queries both connections for their server-reported Neon project, branch,
    and database identities.
-3. Refuses unexpected identities or a shared primary/standby project and
-   branch, even when their URL strings differ.
+3. Refuses unexpected project, branch, or database identities and refuses a
+   shared primary/standby project, even when their URL strings differ.
 4. Fingerprints the source before and after the dump.
 5. Retries once if source data changed during the backup.
 6. Re-verifies the standby identity immediately before the destructive restore.
@@ -126,9 +129,9 @@ Failback is a migration, not a configuration toggle:
 6. Update the GitHub Action secrets so `PRIMARY_DATABASE_URL_UNPOOLED` names
    the newly active project and `STANDBY_DATABASE_URL_UNPOOLED` names the newly
    inactive project.
-7. Update all four expected project/branch variables to match the newly active
-   and inactive projects. Never swap connection secrets without also swapping
-   and verifying their expected identities.
+7. Update all six expected project/branch/database variables to match the newly
+   active and inactive projects. Never swap connection secrets without also
+   swapping and verifying their expected identities.
 8. Re-enable scheduled refresh.
 
 ## Free-tier operating limits

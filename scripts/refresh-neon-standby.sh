@@ -7,8 +7,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${STANDBY_DATABASE_URL_UNPOOLED:?Set STANDBY_DATABASE_URL_UNPOOLED to the inactive Neon standby}"
 : "${PRIMARY_DATABASE_EXPECTED_PROJECT_ID:?Set PRIMARY_DATABASE_EXPECTED_PROJECT_ID}"
 : "${PRIMARY_DATABASE_EXPECTED_BRANCH_ID:?Set PRIMARY_DATABASE_EXPECTED_BRANCH_ID}"
+: "${PRIMARY_DATABASE_EXPECTED_DATABASE_NAME:?Set PRIMARY_DATABASE_EXPECTED_DATABASE_NAME}"
 : "${STANDBY_DATABASE_EXPECTED_PROJECT_ID:?Set STANDBY_DATABASE_EXPECTED_PROJECT_ID}"
 : "${STANDBY_DATABASE_EXPECTED_BRANCH_ID:?Set STANDBY_DATABASE_EXPECTED_BRANCH_ID}"
+: "${STANDBY_DATABASE_EXPECTED_DATABASE_NAME:?Set STANDBY_DATABASE_EXPECTED_DATABASE_NAME}"
 
 if [[ "$PRIMARY_DATABASE_URL_UNPOOLED" == "$STANDBY_DATABASE_URL_UNPOOLED" ]]; then
   echo "Refusing to refresh: primary and standby URLs are identical." >&2
@@ -21,9 +23,8 @@ if [[ "$PRIMARY_DATABASE_URL_UNPOOLED" == *"-pooler."* ]] ||
   exit 1
 fi
 
-if [[ "$PRIMARY_DATABASE_EXPECTED_PROJECT_ID" == "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" ]] &&
-   [[ "$PRIMARY_DATABASE_EXPECTED_BRANCH_ID" == "$STANDBY_DATABASE_EXPECTED_BRANCH_ID" ]]; then
-  echo "Refusing to refresh: expected primary and standby identities are identical." >&2
+if [[ "$PRIMARY_DATABASE_EXPECTED_PROJECT_ID" == "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" ]]; then
+  echo "Refusing to refresh: primary and standby must use different Neon projects." >&2
   exit 1
 fi
 
@@ -51,6 +52,7 @@ verify_database_identity() {
   local database_url="$2"
   local expected_project_id="$3"
   local expected_branch_id="$4"
+  local expected_database_name="$5"
   local identity
   local actual_project_id
   local actual_branch_id
@@ -77,8 +79,9 @@ verify_database_identity() {
   fi
 
   if [[ "$actual_project_id" != "$expected_project_id" ]] ||
-     [[ "$actual_branch_id" != "$expected_branch_id" ]]; then
-    echo "Refusing to refresh: $label does not match its expected Neon project and branch." >&2
+     [[ "$actual_branch_id" != "$expected_branch_id" ]] ||
+     [[ "$actual_database_name" != "$expected_database_name" ]]; then
+    echo "Refusing to refresh: $label does not match its expected Neon project, branch, and database." >&2
     exit 1
   fi
 
@@ -91,11 +94,11 @@ verify_database_identity() {
 assert_distinct_database_identities() {
   local primary_identity="$1"
   local standby_identity="$2"
-  local primary_project_and_branch="${primary_identity%|*}"
-  local standby_project_and_branch="${standby_identity%|*}"
+  local primary_project="${primary_identity%%|*}"
+  local standby_project="${standby_identity%%|*}"
 
-  if [[ "$primary_project_and_branch" == "$standby_project_and_branch" ]]; then
-    echo "Refusing to refresh: primary and standby resolve to the same Neon project and branch." >&2
+  if [[ "$primary_project" == "$standby_project" ]]; then
+    echo "Refusing to refresh: primary and standby resolve to the same Neon project." >&2
     exit 1
   fi
 }
@@ -105,14 +108,16 @@ primary_identity="$(
     "primary database" \
     "$PRIMARY_DATABASE_URL_UNPOOLED" \
     "$PRIMARY_DATABASE_EXPECTED_PROJECT_ID" \
-    "$PRIMARY_DATABASE_EXPECTED_BRANCH_ID"
+    "$PRIMARY_DATABASE_EXPECTED_BRANCH_ID" \
+    "$PRIMARY_DATABASE_EXPECTED_DATABASE_NAME"
 )"
 standby_identity="$(
   verify_database_identity \
     "standby database" \
     "$STANDBY_DATABASE_URL_UNPOOLED" \
     "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" \
-    "$STANDBY_DATABASE_EXPECTED_BRANCH_ID"
+    "$STANDBY_DATABASE_EXPECTED_BRANCH_ID" \
+    "$STANDBY_DATABASE_EXPECTED_DATABASE_NAME"
 )"
 assert_distinct_database_identities "$primary_identity" "$standby_identity"
 
@@ -172,7 +177,8 @@ standby_identity_before_restore="$(
     "standby database before restore" \
     "$STANDBY_DATABASE_URL_UNPOOLED" \
     "$STANDBY_DATABASE_EXPECTED_PROJECT_ID" \
-    "$STANDBY_DATABASE_EXPECTED_BRANCH_ID"
+    "$STANDBY_DATABASE_EXPECTED_BRANCH_ID" \
+    "$STANDBY_DATABASE_EXPECTED_DATABASE_NAME"
 )"
 if [[ "$standby_identity_before_restore" != "$standby_identity" ]]; then
   echo "Refusing to restore: standby identity changed during the refresh." >&2
