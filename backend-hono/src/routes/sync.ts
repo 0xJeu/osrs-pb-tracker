@@ -347,13 +347,8 @@ sync.post('/', async (c) => {
     );
   }
 
-  // stats: a new player.
-  if (created) {
-    invalidationTags.push(cacheTags.stats);
-  }
-
-  // stats: new player OR any PB insertion, not a faster-time-only update.
-  if (insertedBosses.length > 0) {
+  // stats: a new player OR any PB insertion, not a faster-time-only update.
+  if (created || insertedBosses.length > 0) {
     invalidationTags.push(cacheTags.stats);
   }
 
@@ -372,7 +367,7 @@ sync.post('/', async (c) => {
   // left stale depending on which scheme actually tagged its cached
   // response - see players.ts's profileCacheTags for the exact/bucket
   // selection this pairs with.
-  if (insertedBosses.length > 0 || improvedBosses.length > 0) {
+  if (changedBosses.length > 0) {
     invalidationTags.push(
       playerIdCacheTag(playerId),
       ...changedBosses.flatMap((boss) => [

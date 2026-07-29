@@ -549,6 +549,12 @@ describe('POST /api/sync', () => {
       // doesn't slip through by only ever checking for absence.
       expect(tags).toContain(bossCacheTag('zulrah'));
       expect(tags).toContain(playerIdCacheTag(improvedJson.playerId));
+      // This is the cross-player rank-staleness case dual-tagging exists for:
+      // another player's profile may be tagged either exact or bucket, and
+      // an improvement from a DIFFERENT player must invalidate both so
+      // neither scheme is left stale.
+      expect(tags).toContain(profileBossExactCacheTag('zulrah'));
+      expect(tags).toContain(profileBossBucketCacheTag('zulrah'));
     });
 
     it('invalidates stats but not bossList/search for a player-first-time (not globally-new) boss insertion', async () => {

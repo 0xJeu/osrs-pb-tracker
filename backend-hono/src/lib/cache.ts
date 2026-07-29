@@ -107,7 +107,9 @@ export async function invalidateSharedCache(tags: readonly string[]) {
     // dynamic import keeps local/test execution independent of Vercel while
     // still allowing the deployment bundler to include the package.
     const { invalidateByTag } = await import('@vercel/functions');
-    await invalidateByTag(uniqueTags);
+    for (let i = 0; i < uniqueTags.length; i += MAX_CACHE_TAGS) {
+      await invalidateByTag(uniqueTags.slice(i, i + MAX_CACHE_TAGS));
+    }
   } catch (error) {
     // A cache purge must never turn a successful database write into a failed
     // plugin sync. The long TTL remains a safe fallback and the warning gives
