@@ -59,9 +59,13 @@ async function playerWithPbs(player: PublicPlayer) {
 // the cap, fall back to the coarser 32-bucket scheme (profileBossBucketCacheTag)
 // so the response never exceeds Vercel's 128-tag limit - see fitsExactProfileTags
 // and profileBossBucketCacheTag in ../lib/cache.js for the full rationale.
-// sync.ts's invalidation path pushes BOTH the exact and bucket tag for every
-// changed boss precisely so this fallback stays correct across a rolling
-// deploy and for any profile currently using either scheme.
+// NOTE: sync.ts currently only invalidates the bucket tag on a boss change,
+// not yet the exact tag - a separate, already-planned follow-up task adds
+// that dual-tag push so exact-tagged profiles stay correctly invalidated
+// too. Until then, a boss change from a DIFFERENT player only reliably
+// invalidates bucket-tagged profiles; this player's own profile is still
+// safe either way, since sync.ts already pushes playerIdCacheTag on any
+// change to their own bosses.
 function profileCacheTags(payload: Awaited<ReturnType<typeof playerWithPbs>>) {
   const bossDependencyTags = fitsExactProfileTags(payload.pbs.length)
     ? payload.pbs.map((pb) => profileBossExactCacheTag(pb.boss))
