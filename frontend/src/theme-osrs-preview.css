@@ -195,10 +195,22 @@
     linear-gradient(180deg, rgba(0,0,0,.42), rgba(0,0,0,.88) 72%, #000 100%),
     var(--pbt-banner, none) center 28% / cover no-repeat;
 }
+/* Boss banners (bossBanners.ts) are wiki infobox renders - mostly tall
+   character portraits or square icons, nothing shaped like the wide
+   promotional art the raid banners above were curated from. `cover` on
+   this banner's wide-short box crops those down to an unrecognizable
+   sliver, so boss banners specifically use `contain` anchored to the
+   right (clear of the title text on the left) with more vertical room
+   to actually show the whole image. */
+.pbt-boss-banner {
+  margin-bottom: 24px; min-height: 220px;
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.42), rgba(0,0,0,.88) 72%, #000 100%),
+    var(--pbt-banner, none) right center / contain no-repeat, #000;
+}
 .pbt-crumbs { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 22px; }
 .pbt-crumbs button { background: none; border: none; color: inherit; font: inherit; text-shadow: var(--pbt-shadow); cursor: pointer; padding: 0; text-transform: inherit; letter-spacing: inherit; }
 .pbt-titleline { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-.pbt-boss-banner { margin-bottom: 24px; min-height: 150px; }
 .pbt-boss-banner .meta { display: block; margin-top: 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
 
 .pbt-panel-state { padding: 40px 8px; font-size: 15px; opacity: .7; }
