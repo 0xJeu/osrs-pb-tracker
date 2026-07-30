@@ -1,133 +1,79 @@
-import { createWikiImageResolver, useWikiImageUrl } from './wikiImageResolver';
-
 /**
- * Boss -> wiki image, verified to exist against the OSRS Wiki's MediaWiki
- * API (query&titles=..., checking for a 'missing' page rather than guessing
- * at a URL). Prefers each boss's dedicated "icon.png" - the small square
- * portrait the wiki uses for the same hiscores-style boss icon RuneLite's
- * own Hiscore plugin shows (matching what the plugin's side panel displays)
- * - and falls back to the monster's main infobox render only where no
- * "icon.png" exists on the wiki for it. Raids (no single "monster" of their
- * own) use their final boss as a stand-in - Great Olm for Chambers of Xeric,
- * Verzik Vitur for Theatre of Blood, Tumeken's Warden for Tombs of Amascut -
- * and awakened DT2 variants intentionally share their base form's entry
- * (matched via prefix below), same as the RuneLite plugin's side panel. A
- * few very recently added bosses (Royal Titans, Shellbane Gryphon,
- * Hueycoatl) don't have a suitable cropped image yet - callers fall back to
- * a text monogram for anything with no entry here.
+ * Boss -> local icon file, served from /public/boss-icons/. These are the
+ * exact same 26x26 PNGs the RuneLite plugin bundled at one point (see
+ * pb-tracker-sync commit 20dde34, "Add real boss icons from the OSRS Wiki
+ * to My PBs and Bosses tabs") before it switched to fetching sprites live
+ * from RuneLite's own game-cache SpriteManager - a website has no
+ * equivalent live API, so these bundled files (recovered from that commit
+ * and copied into this repo's public/ folder) are the real fix, not a
+ * substitute. Slug/alias logic below is a straight port of the plugin's
+ * own BossIcons.java, so a boss key resolves to the same icon on both
+ * sides. A boss with no entry (a few very recently added ones not in that
+ * bundle) falls back to a text monogram in the caller.
  */
-const BOSS_ICON_FILES: Record<string, string> = {
-  // Raids (final boss's own icon.png as stand-in)
-  'chambers of xeric': 'Great Olm icon.png',
-  'theatre of blood': 'Verzik Vitur icon.png',
-  'tombs of amascut': "Tumeken's Warden icon.png",
-
-  // TzHaar (no icon.png for Jad itself - its own portrait stands in)
-  'tzhaar-ket-rak': 'TzTok-Jad.png',
-  'tztok-jad': 'TzTok-Jad.png',
-  'tzhaar fight cave': 'TzTok-Jad.png',
-  'tzkal-zuk': 'TzKal-Zuk icon.png',
-  inferno: 'TzKal-Zuk icon.png',
-
-  // DT2 (no icon.png exists for any of these yet - awakened variants match
-  // via prefix, e.g. "duke sucellus (awakened)" starts with "duke
-  // sucellus", so they already share these entries without a separate one).
-  'duke sucellus': 'Duke Sucellus.png',
-  leviathan: 'Leviathan.png',
-  whisperer: 'The Whisperer.png',
-  vardorvis: 'Vardorvis.png',
-
-  // The Nightmare (Phosani's has no distinct wiki image of its own)
-  nightmare: 'The Nightmare icon.png',
-  "phosani's nightmare": 'The Nightmare icon.png',
-
-  // Minigames / solo challenges (no icon.png for these specific ones)
-  gauntlet: 'The Gauntlet.png',
-  'corrupted gauntlet': 'The Corrupted Gauntlet.png',
-  'fortis colosseum': 'Fortis Colosseum.png',
-  'sol heredit': 'Fortis Colosseum.png',
-  tempoross: 'Tempoross icon.png',
-  wintertodt: 'Wintertodt icon.png',
-  'guardians of the rift': 'Guardians of the Rift.png',
-  'hallowed sepulchre': 'Hallowed Sepulchre icon.png',
-
-  // Wilderness bosses (no icon.png for any of these)
-  callisto: 'Callisto.png',
-  artio: 'Artio.png',
-  venenatis: 'Venenatis.png',
-  spindel: 'Spindel.png',
-  "vet'ion": "Vet'ion.png",
-  "calvar'ion": "Calvar'ion.png",
-  'chaos elemental': 'Chaos Elemental.png',
-  'chaos fanatic': 'Chaos Fanatic.png',
-  'crazy archaeologist': 'Crazy archaeologist.png',
-  'deranged archaeologist': 'Deranged archaeologist.png',
-
-  // God Wars Dungeon
-  'general graardor': 'General Graardor icon.png',
-  "kree'arra": "Kree'arra icon.png",
-  'commander zilyana': 'Commander Zilyana icon.png',
-  "k'ril tsutsaroth": "K'ril Tsutsaroth icon.png",
-
-  // Slayer bosses
-  kraken: 'Kraken icon.png',
-  cerberus: 'Cerberus icon.png',
-  'thermonuclear smoke devil': 'Thermonuclear smoke devil icon.png',
-  'alchemical hydra': 'Alchemical Hydra icon.png',
-  'abyssal sire': 'Abyssal Sire icon.png',
-  araxxor: 'Araxxor.png',
-  'grotesque guardians': 'Grotesque Guardians icon.png',
-  skotizo: 'Skotizo icon.png',
-  'kalphite queen': 'Kalphite Queen icon.png',
-
-  // Standalone bosses
-  nex: 'Nex icon.png',
-  zulrah: 'Zulrah icon.png',
-  vorkath: 'Vorkath icon.png',
-  sarachnis: 'Sarachnis icon.png',
-  'king black dragon': 'King Black Dragon icon.png',
-  'giant mole': 'Giant Mole icon.png',
-  zalcano: 'Zalcano icon.png',
-  obor: 'Obor icon.png',
-  bryophyta: 'Bryophyta icon.png',
-  'dagannoth rex': 'Dagannoth Rex.png',
-  'dagannoth prime': 'Dagannoth Prime.png',
-  'dagannoth supreme': 'Dagannoth Supreme.png',
-  'corporeal beast': 'Corporeal Beast icon.png',
-  scorpia: 'Scorpia.png',
-  amoxliatl: 'Amoxliatl chathead.png',
-  brutus: 'Brutus.png',
-  'demonic brutus': 'Brutus.png',
-  'fragment of seren': 'Fragment of Seren.png',
-  galvek: 'Galvek.png',
-  hespori: 'Hespori icon.png',
-  'maggot king': 'Maggot King.png',
-  mimic: 'Mimic.png',
-  'phantom muspah': 'Phantom Muspah (melee).png',
-  scurrius: 'Scurrius.png',
-  yama: 'Yama.png',
-  hueycoatl: 'The Hueycoatl.png',
-  'shellbane gryphon': 'Shellbane gryphon.png',
-  // Two separate titans (Branda/Effigy), no single "icon.png" of its own -
-  // its logo stands in, same idea as raids using their final boss.
-  'royal titans': 'Royal Titans logo.png',
+const ALIASES: Record<string, string> = {
+  'duke_sucellus_(awakened)': 'duke_sucellus',
+  'leviathan_(awakened)': 'leviathan',
+  'vardorvis_(awakened)': 'vardorvis',
+  'whisperer_(awakened)': 'whisperer',
+  demonic_brutus: 'brutus',
+  sol_heredit: 'fortis_colosseum',
+  tzkal_zuk: 'inferno',
+  fight_caves: 'tzhaar_fight_cave',
+  "tzhaar_ket_raks_challenges": 'tztok_jad',
+  tzhaar_ket_raks_first_challenge: 'tztok_jad',
+  tzhaar_ket_raks_second_challenge: 'tztok_jad',
+  tzhaar_ket_raks_third_challenge: 'tztok_jad',
+  tzhaar_ket_raks_fourth_challenge: 'tztok_jad',
+  tzhaar_ket_raks_fifth_challenge: 'tztok_jad',
+  tzhaar_ket_raks_sixth_challenge: 'tztok_jad',
 };
 
-function normalize(boss: string): string {
-  const lower = boss.trim().toLowerCase();
-  return lower.startsWith('the ') ? lower.slice(4) : lower;
+const AVAILABLE_ICONS = new Set([
+  'abyssal_sire', 'alchemical_hydra', 'amoxliatl', 'araxxor', 'artio',
+  'barbarian_assault', 'brutus', 'bryophyta', 'callisto', 'calvarion',
+  'cerberus', 'chambers_of_xeric', 'chaos_elemental', 'chaos_fanatic',
+  'commander_zilyana', 'corporeal_beast', 'corrupted_gauntlet',
+  'crazy_archaeologist', 'dagannoth_prime', 'dagannoth_rex',
+  'dagannoth_supreme', 'deranged_archaeologist', 'duke_sucellus',
+  'fortis_colosseum', 'fragment_of_seren', 'galvek', 'gauntlet',
+  'general_graardor', 'giant_mole', 'grotesque_guardians',
+  'guardians_of_the_rift', 'hallowed_sepulchre', 'hespori', 'hueycoatl',
+  'inferno', 'kalphite_queen', 'king_black_dragon', 'kraken', 'kreearra',
+  'kril_tsutsaroth', 'leviathan', 'maggot_king', 'mimic', 'nex',
+  'nightmare', 'obor', 'phantom_muspah', 'phosanis_nightmare',
+  'royal_titans', 'sarachnis', 'scorpia', 'scurrius', 'shellbane_gryphon',
+  'skotizo', 'spindel', 'tempoross', 'theatre_of_blood',
+  'thermonuclear_smoke_devil', 'tombs_of_amascut', 'tzhaar_fight_cave',
+  'tzhaar_ket_raks_first_challenge', 'tzhaar_ket_raks_fourth_challenge',
+  'tzhaar_ket_raks_second_challenge', 'tzhaar_ket_raks_third_challenge',
+  'tztok_jad', 'vardorvis', 'venenatis', 'vetion', 'vorkath', 'whisperer',
+  'wintertodt', 'yama', 'zalcano', 'zulrah',
+]);
+
+/** Same normalization as the plugin's BossIcons.slugFor() - strips a " - " mode/size suffix and a leading "the ". */
+function slugFor(bossKey: string): string | undefined {
+  if (!bossKey || !bossKey.trim()) return undefined;
+  let base = bossKey.trim().toLowerCase();
+  const dash = base.indexOf(' - ');
+  if (dash >= 0) base = base.slice(0, dash);
+  if (base.startsWith('the ')) base = base.slice(4);
+  return base.replace(/'/g, '').replace(/ /g, '_').replace(/-/g, '_');
 }
 
-/** Boss -> wiki filename (no URL resolution yet). Undefined = no mapped icon, caller shows a monogram. */
+/** Boss -> local icon path, or undefined if there's no bundled icon for it (caller shows a monogram). */
 export function bossIconFile(boss: string): string | undefined {
-  const normalized = normalize(boss);
-  const match = Object.keys(BOSS_ICON_FILES).find((prefix) => normalized.startsWith(prefix));
-  return match ? BOSS_ICON_FILES[match] : undefined;
+  const slug = slugFor(boss);
+  if (!slug) return undefined;
+  const resolved = ALIASES[slug] ?? slug;
+  return AVAILABLE_ICONS.has(resolved) ? `/boss-icons/${resolved}.png` : undefined;
 }
 
-const resolver = createWikiImageResolver();
-
-/** React hook: resolves a boss's portrait icon to a real, cacheable thumb URL. */
-export function useBossIconUrl(boss: string, pixelWidth = 96): string | undefined {
-  return useWikiImageUrl(resolver, bossIconFile(boss), pixelWidth);
+/**
+ * No async resolution needed - these are static local files, not fetched
+ * from the wiki. `pixelWidth` is accepted (unused) so call sites written
+ * for the old wiki-resolver version don't need to change.
+ */
+export function useBossIconUrl(boss: string, _pixelWidth?: number): string | undefined {
+  return bossIconFile(boss);
 }
