@@ -165,7 +165,11 @@ function parseCoxRunOnVariant(key: string): RaidVariant | null {
   const mode = match[1] ?? '';
   const base = 'chambers of xeric';
   const heading = mode ? `${titleCase(base)} - ${titleCase(mode)}` : titleCase(base);
-  return { key, base, mode, heading, subLabel: titleCase(match[2]) };
+  // These are always the 24+-player Fastest Overall bucket (see comment
+  // above) - spelling the subLabel out in full, rather than just the size
+  // ("24+ Players"), is what lets variantKind() below recognize them as
+  // Overall instead of falling through to the Other catch-all.
+  return { key, base, mode, heading, subLabel: `Fastest Overall (${titleCase(match[2])})` };
 }
 
 // DT2 bosses that can be fought in a harder "Awakened" form - synced as a
