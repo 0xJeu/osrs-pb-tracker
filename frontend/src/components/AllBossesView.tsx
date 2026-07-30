@@ -13,16 +13,6 @@ function BossIcon({ boss }: { boss: string }) {
   return url ? <img src={url} alt="" loading="lazy" /> : <span>{bossMonogram(boss)}</span>;
 }
 
-function TrophyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M7 4h10v4a5 5 0 0 1-10 0V4Z" />
-      <path d="M7 5H4a1 1 0 0 0-1 1v1a4 4 0 0 0 4 4M17 5h3a1 1 0 0 1 1 1v1a4 4 0 0 1-4 4" />
-      <path d="M12 13v3M9 20h6M9 20l.5-3.5M15 20l-.5-3.5" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -39,49 +29,6 @@ function ChevronIcon() {
     </svg>
   );
 }
-
-function SwordsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M4 4l7 7M11 11L4 18M4 4v4M4 4h4" />
-      <path d="M20 4l-7 7M13 11l7 7M20 4v4M20 4h-4" />
-    </svg>
-  );
-}
-
-function SkullIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M12 3a7 7 0 0 0-7 7v3l-1 3h4l1 3h6l1-3h4l-1-3v-3a7 7 0 0 0-7-7Z" />
-      <circle cx="9.5" cy="11.5" r="1.3" />
-      <circle cx="14.5" cy="11.5" r="1.3" />
-    </svg>
-  );
-}
-
-function StarIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M12 3l2.6 5.9 6.4.6-4.9 4.2 1.5 6.3L12 16.8 6.4 20l1.5-6.3-4.9-4.2 6.4-.6L12 3Z" />
-    </svg>
-  );
-}
-
-function DiamondIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M12 3l9 9-9 9-9-9 9-9Z" />
-    </svg>
-  );
-}
-
-const CATEGORY_ICON: Record<Category, () => JSX.Element> = {
-  Raids: SwordsIcon,
-  Bosses: SkullIcon,
-  'Slayer Monsters': SkullIcon,
-  'Minigames & Challenges': StarIcon,
-  Other: DiamondIcon,
-};
 
 type CardRow =
   | { type: 'raid-base'; base: string; label: string }
@@ -104,6 +51,83 @@ function buildCardRows(group: ReturnType<typeof groupBosses>[number]): CardRow[]
     label: item.label,
   }));
   return [...baseRows, ...itemRows].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function rowKeyAndIcon(row: CardRow): { key: string; iconKey: string } {
+  return row.type === 'raid-base' ? { key: `base:${row.base}`, iconKey: row.base } : { key: row.key, iconKey: row.key };
+}
+
+/** Page header: title/subtitle on the left, search box on the right. */
+function Header({ query, onQueryChange }: { query: string; onQueryChange: (value: string) => void }) {
+  return (
+    <div className="pbt-lb-header">
+      <div className="pbt-lb-header-left">
+        <h2 className="pbt-display pbt-lb-title">Leaderboards</h2>
+        <p className="pbt-lb-subtitle">Track PvM performance across all content.</p>
+      </div>
+      <label className="pbt-lb-search">
+        <SearchIcon />
+        <input
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="Search bosses, raids..."
+          aria-label="Search bosses, raids"
+        />
+      </label>
+    </div>
+  );
+}
+
+/** Section title + a decorative "View all" label (every section already shows everything - nothing to link to). */
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div className="pbt-lb-section-head">
+      <div className="pbt-lb-section-title">{title}</div>
+      <span className="pbt-lb-viewall">View all <ChevronIcon /></span>
+    </div>
+  );
+}
+
+function RaidCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
+  const { key, iconKey } = rowKeyAndIcon(row);
+  return (
+    <button type="button" className="pbt-lb-raid-card" key={key} onClick={() => onActivate(row)}>
+      <span className="pbt-lb-raid-icon"><BossIcon boss={iconKey} /></span>
+      <span className="pbt-lb-raid-text">
+        <div className="pbt-lb-raid-name">{row.label}</div>
+      </span>
+      <span className="pbt-lb-raid-chevron"><ChevronIcon /></span>
+    </button>
+  );
+}
+
+function BossCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
+  const { key, iconKey } = rowKeyAndIcon(row);
+  return (
+    <button type="button" className="pbt-lb-grid-card" key={key} onClick={() => onActivate(row)}>
+      <span className="pbt-lb-grid-icon"><BossIcon boss={iconKey} /></span>
+      <div className="pbt-lb-grid-name">{row.label}</div>
+    </button>
+  );
+}
+
+function SlayerPill({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
+  const { key } = rowKeyAndIcon(row);
+  return (
+    <button type="button" className="pbt-lb-pill" key={key} onClick={() => onActivate(row)}>
+      {row.label}
+    </button>
+  );
+}
+
+function MinigameCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
+  const { key, iconKey } = rowKeyAndIcon(row);
+  return (
+    <button type="button" className="pbt-lb-scroll-card" key={key} onClick={() => onActivate(row)}>
+      <span className="pbt-lb-scroll-icon"><BossIcon boss={iconKey} /></span>
+      <div className="pbt-lb-scroll-name">{row.label}</div>
+    </button>
+  );
 }
 
 /**
@@ -148,76 +172,45 @@ export function AllBossesView({
         <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / Leaderboards
       </div>
 
-      <div className="pbt-lb-header">
-        <div className="pbt-lb-header-left">
-          <span className="pbt-lb-header-icon"><TrophyIcon /></span>
-          <div>
-            <h2 className="pbt-display pbt-lb-title">Leaderboards</h2>
-            <p className="pbt-lb-subtitle">Track, compare, and find your next personal-best leaderboard.</p>
-          </div>
-        </div>
-        <label className="pbt-lb-search">
-          <SearchIcon />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search bosses, raids, minigames..."
-            aria-label="Search bosses, raids, minigames"
-          />
-        </label>
-      </div>
+      <Header query={query} onQueryChange={setQuery} />
 
       {bosses.s === 'loading' && <div className="pbt-panel-state">Loading bosses...</div>}
       {bosses.s === 'error' && <div className="pbt-panel-state">Boss list unavailable.</div>}
 
       {isLoaded(bosses) && filteredGroups.length === 0 && (
-        <div className="pbt-lb-panel"><div className="pbt-lb-empty">No bosses match "{query}".</div></div>
+        <div className="pbt-lb-empty">No bosses match "{query}".</div>
       )}
 
       {isLoaded(bosses) &&
-        filteredGroups.map(({ group, rows }) => {
-          const Icon = CATEGORY_ICON[group.category];
-          const isRaidsPanel = group.category === 'Raids';
+        filteredGroups.map(({ group, rows }: { group: { category: Category }; rows: CardRow[] }) => (
+          <div className="pbt-lb-section" key={group.category}>
+            <SectionHeader title={group.category} />
 
-          return (
-            <div className="pbt-lb-panel" key={group.category}>
-              <div className="pbt-lb-panel-head">
-                <div className="pbt-lb-panel-title"><Icon /> {group.category}</div>
+            {group.category === 'Raids' && (
+              <div className="pbt-lb-raids">
+                {rows.map((row) => <RaidCard row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />)}
               </div>
+            )}
 
-              {isRaidsPanel ? (
-                <div className="pbt-lb-raids">
-                  {rows.map((row) => {
-                    const key = row.type === 'raid-base' ? row.base : row.key;
-                    const iconKey = row.type === 'raid-base' ? row.base : row.key;
-                    return (
-                      <button type="button" className="pbt-lb-raid-card" key={key} onClick={() => activateRow(row)}>
-                        <span className="pbt-lb-raid-icon"><BossIcon boss={iconKey} /></span>
-                        <span className="pbt-lb-raid-text">
-                          <div className="pbt-lb-raid-name">{row.label}</div>
-                        </span>
-                        <span className="pbt-lb-raid-chevron"><ChevronIcon /></span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="pbt-lb-grid">
-                  {rows.map((row) => {
-                    const key = row.type === 'raid-base' ? `base:${row.base}` : row.key;
-                    const iconKey = row.type === 'raid-base' ? row.base : row.key;
-                    return (
-                      <button type="button" className="pbt-lb-grid-card" key={key} onClick={() => activateRow(row)}>
-                        <span className="pbt-lb-grid-icon"><BossIcon boss={iconKey} /></span>
-                        <div className="pbt-lb-grid-name">{row.label}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            {group.category === 'Slayer Monsters' && (
+              <div className="pbt-lb-pills">
+                {rows.map((row) => <SlayerPill row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />)}
+              </div>
+            )}
+
+            {group.category === 'Minigames & Challenges' && (
+              <div className="pbt-lb-scroll-row">
+                {rows.map((row) => <MinigameCard row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />)}
+              </div>
+            )}
+
+            {(group.category === 'Bosses' || group.category === 'Other') && (
+              <div className="pbt-lb-grid">
+                {rows.map((row) => <BossCard row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />)}
+              </div>
+            )}
+          </div>
+        ))}
     </div>
   );
 }
