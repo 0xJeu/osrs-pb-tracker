@@ -6,15 +6,27 @@ import { PlayerView } from './PlayerView';
 import { HomeView } from './HomeView';
 import { AboutPage } from './AboutPage';
 import { FaqPage } from './FaqPage';
+import { FeedbackButton } from './FeedbackButton';
 import { SetupGuidePage } from './SetupGuidePage';
 import { isLoaded } from '../lib/loadState';
-import { useRoute } from '../hooks/useRoute';
+import { useRoute, type Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
 import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard';
 import { useHomeData } from '../hooks/useHomeData';
 import { usePlayerProfile } from '../hooks/usePlayerProfile';
 
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
+
+function feedbackContext(route: Route): string {
+  switch (route.name) {
+    case 'boss':
+      return `boss:${route.boss}`;
+    case 'player':
+      return `player:${route.player}`;
+    default:
+      return `page:${route.name}`;
+  }
+}
 
 export function PbTrackerApp() {
   const { route, navigate } = useRoute();
@@ -110,6 +122,10 @@ export function PbTrackerApp() {
             <a className="pbt-donate" href={DONATE_URL} target="_blank" rel="noreferrer">Donate</a>
           )}
         </div>
+      </div>
+
+      <div className="feedback-widget">
+        <FeedbackButton context={feedbackContext(route)} />
       </div>
     </div>
   );

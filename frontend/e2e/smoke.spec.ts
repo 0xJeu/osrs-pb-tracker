@@ -23,6 +23,7 @@ const recentSyncs = [
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/bosses', (route) => route.fulfill({ json: ['vorkath', 'zulrah'] }));
+  await page.route('**/api/feedback', (route) => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/search/all**', (route) => route.fulfill({
     json: [{ type: 'player', value: 'Blitzen' }],
   }));
@@ -40,6 +41,49 @@ test('initial load shows the search experience and recent syncs', async ({ page 
   await expect(page.getByText('18,492')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Recent syncs' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Blitzen/ })).toBeVisible();
+});
+
+test('feedback control is visible and submits page-aware context', async ({ page }) => {
+  let submittedBody: unknown;
+  await page.route('**/api/feedback', async (route) => {
+    submittedBody = route.request().postDataJSON();
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/boss/zulrah');
+
+  await page.getByRole('button', { name: 'Feedback' }).click();
+  await expect(page.getByRole('dialog', { name: 'Send feedback' })).toBeVisible();
+  await page.getByLabel('Found a bug, a wrong PB, or something confusing? Say so here.').fill(
+    'The leaderboard looks wrong.'
+  );
+  await page.getByRole('button', { name: 'Send feedback' }).click();
+
+  await expect(page.getByText('Thanks - that helps a lot while this is still in beta.')).toBeVisible();
+  expect(submittedBody).toEqual({
+    message: 'The leaderboard looks wrong.',
+    context: 'boss:zulrah',
+  });
+});
+
+test('feedback panel stays fully usable on a mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  await page.getByRole('button', { name: /Feedback/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Send feedback' });
+  await expect(dialog).toBeVisible();
+
+  const bounds = await dialog.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844);
+
+  await page.getByLabel('Found a bug, a wrong PB, or something confusing? Say so here.').fill(
+    'Mobile feedback check.'
+  );
+  await expect(page.getByRole('button', { name: 'Send feedback' })).toBeEnabled();
 });
 
 test('player search success renders the PB table', async ({ page }) => {
