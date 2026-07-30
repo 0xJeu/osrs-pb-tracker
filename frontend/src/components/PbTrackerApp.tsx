@@ -1,6 +1,6 @@
 import { CSSProperties } from 'react';
 import '../theme-osrs-preview.css';
-import { bossAccentColor, DEFAULT_ACCENT } from '../lib/bossColors';
+import { bossAccentColor } from '../lib/bossColors';
 import { BossView } from './BossView';
 import { AllBossesView } from './AllBossesView';
 import { PlayerView } from './PlayerView';
@@ -44,18 +44,12 @@ export function PbTrackerApp() {
     navigate({ name: 'player', player: trimmed });
   };
 
-  // Only tint the page while actually looking at boss/leaderboard content -
-  // Home and player pages stay neutral so the accent reads as "this page is
-  // about this boss," not just "whatever was last clicked." The all-bosses
-  // listing gets the default orange rather than no tint at all: leaving it
-  // fully neutral made leaving a themed boss page read as the whole site
-  // suddenly going flat black instead of settling back to a normal shade.
-  const accentColor =
-    route.name === 'boss' && selectedBoss
-      ? bossAccentColor(selectedBoss)
-      : route.name === 'leaderboards'
-        ? DEFAULT_ACCENT
-        : undefined;
+  // Only tint the page while actually looking at a boss's own leaderboard -
+  // Home/Player/Leaderboards pages stay neutral so the accent reads as
+  // "this page is about this boss," not just "whatever was last clicked."
+  // The Leaderboards page has its own explicit dark theme (see
+  // AllBossesView's .pbt-lb-page rules) instead of relying on this tint.
+  const accentColor = route.name === 'boss' && selectedBoss ? bossAccentColor(selectedBoss) : undefined;
   const goToBoss = (boss: string) => navigate({ name: 'boss', boss });
 
   return (
