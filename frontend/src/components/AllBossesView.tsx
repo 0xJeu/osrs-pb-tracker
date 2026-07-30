@@ -138,7 +138,7 @@ function PageContainer({ children }: { children: React.ReactNode }) {
   // spacing in effect, matching the OSRSPB-style mockup regardless of what
   // page shell it's mounted inside on this site.
   return (
-    <div className="-mx-10 bg-[#15110d] px-6 pb-16 pt-8 text-[#F2EFEA]">
+    <div className="-mx-10 bg-[#15110d] px-6 pb-16 pt-8 font-sans text-[#F2EFEA] [text-shadow:none] [&_*]:[text-shadow:none]">
       <div className="mx-auto max-w-[1400px]">{children}</div>
     </div>
   );
