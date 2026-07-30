@@ -2,7 +2,7 @@ import { CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import type { LeaderboardPage, LeaderboardRow } from '../lib/api';
 import { isLoaded, type LoadState } from '../lib/loadState';
 import { formatDate, formatTime } from '../lib/format';
-import { bossBannerUrl } from '../lib/bossBanners';
+import { bossBannerFit, bossBannerUrl } from '../lib/bossBanners';
 import { getRaidModes, groupedBaseForKey, isGroupedVariant } from '../lib/bossGroups';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
 import type { Route } from '../hooks/useRoute';
@@ -81,7 +81,7 @@ export function BossView({
   return (
     <div className="pbt-section" style={{ paddingTop: 40 }}>
       <div
-        className="pbt-banner pbt-boss-banner"
+        className={`pbt-banner pbt-boss-banner${bossBannerFit(selectedBoss) === 'contain' ? ' pbt-boss-banner--contain' : ''}`}
         style={bossBannerUrl(selectedBoss) ? ({ '--pbt-banner': `url("${bossBannerUrl(selectedBoss)}")` } as CSSProperties) : undefined}
       >
         <div className="pbt-crumbs">

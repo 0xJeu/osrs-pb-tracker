@@ -86,7 +86,25 @@ const BOSS_BANNERS: Record<string, string> = {
   zulrah: 'https://oldschool.runescape.wiki/images/Zulrah_%28serpentine%29.png',
 };
 
+// The 5 hand-picked entries above are wide promotional artwork, shaped to
+// fill the banner via `cover` with no cropping. Everything else is a wiki
+// infobox render (tall portrait or square icon) that `cover` would blow up
+// and crop into an unrecognizable sliver - those use `contain` instead (see
+// theme-osrs-preview.css's .pbt-boss-banner rules).
+const WIDE_ARTWORK_SLUGS = new Set([
+  'theatre_of_blood',
+  'chambers_of_xeric',
+  'tombs_of_amascut',
+  'inferno',
+  'fortis_colosseum',
+]);
+
 export function bossBannerUrl(boss: string): string | undefined {
   const slug = resolveBossSlug(boss);
   return slug ? BOSS_BANNERS[slug] : undefined;
+}
+
+export function bossBannerFit(boss: string): 'cover' | 'contain' {
+  const slug = resolveBossSlug(boss);
+  return slug && WIDE_ARTWORK_SLUGS.has(slug) ? 'cover' : 'contain';
 }

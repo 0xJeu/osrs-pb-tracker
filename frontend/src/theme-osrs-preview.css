@@ -195,18 +195,22 @@
     linear-gradient(180deg, rgba(0,0,0,.42), rgba(0,0,0,.88) 72%, #000 100%),
     var(--pbt-banner, none) center 28% / cover no-repeat;
 }
-/* Boss banners (bossBanners.ts) are wiki infobox renders - mostly tall
+.pbt-boss-banner { margin-bottom: 24px; }
+/* Most boss/monster banners (bossBanners.ts) are wiki infobox renders - tall
    character portraits or square icons, nothing shaped like the wide
-   promotional art the raid banners above were curated from. `cover` on
-   this banner's wide-short box crops those down to an unrecognizable
-   sliver, so boss banners specifically use `contain` anchored to the
-   right (clear of the title text on the left) with more vertical room
-   to actually show the whole image. */
-.pbt-boss-banner {
-  margin-bottom: 24px; min-height: 220px;
+   promotional art the 5 raid/challenge banners above were curated from.
+   `cover` on this banner's wide-short box crops those down to an
+   unrecognizable sliver, so these specifically use `contain` anchored to
+   the right (clear of the title text on the left), with a colored glow
+   (from the boss's own --pbt-accent, already set per-boss elsewhere) filling
+   the rest of the box instead of flat black. */
+.pbt-boss-banner--contain {
+  min-height: 220px;
   background:
-    linear-gradient(180deg, rgba(0,0,0,.42), rgba(0,0,0,.88) 72%, #000 100%),
-    var(--pbt-banner, none) right center / contain no-repeat, #000;
+    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--pbt-accent, #ff981f) 32%, transparent), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--pbt-accent, #1a1208) 16%, rgba(0,0,0,.55)), rgba(0,0,0,.88) 72%, #000 100%),
+    var(--pbt-banner, none) right center / contain no-repeat,
+    color-mix(in srgb, var(--pbt-accent, #1a1208) 22%, #0a0806);
 }
 .pbt-crumbs { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 22px; }
 .pbt-crumbs button { background: none; border: none; color: inherit; font: inherit; text-shadow: var(--pbt-shadow); cursor: pointer; padding: 0; text-transform: inherit; letter-spacing: inherit; }
