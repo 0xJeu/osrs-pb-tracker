@@ -5,7 +5,7 @@
  * hairlines derive from via color-mix() - see theme-osrs-preview.css.
  * Bosses with no entry fall back to the default OSRS interface orange.
  */
-const DEFAULT_ACCENT = '#ff981f';
+export const DEFAULT_ACCENT = '#ff981f';
 
 const BOSS_ACCENTS: Record<string, string> = {
   'theatre of blood': '#a23b52',

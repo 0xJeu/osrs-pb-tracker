@@ -3,12 +3,12 @@ import { api } from '../lib/api';
 import type { LoadState } from '../lib/loadState';
 import type { Route } from './useRoute';
 
-// Needed on home (for search-alias resolution) and boss (for the picker)
-// views. Other views may still get boss suggestions from universal search
-// without preloading the full list.
+// Needed on home (for search-alias resolution), boss (for the picker), and
+// leaderboards (the full boss listing) views. Other views may still get boss
+// suggestions from universal search without preloading the full list.
 export function useBossList(route: Route): LoadState<string[]> {
   const [bosses, setBosses] = useState<LoadState<string[]>>({ s: 'idle' });
-  const shouldLoadBosses = route.name === 'home' || route.name === 'boss';
+  const shouldLoadBosses = route.name === 'home' || route.name === 'boss' || route.name === 'leaderboards';
 
   useEffect(() => {
     // Deliberately NOT depending on bosses.s: this effect's own

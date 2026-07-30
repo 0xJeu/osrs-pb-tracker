@@ -1,7 +1,8 @@
 import { CSSProperties } from 'react';
 import '../theme-osrs-preview.css';
-import { bossAccentColor } from '../lib/bossColors';
+import { bossAccentColor, DEFAULT_ACCENT } from '../lib/bossColors';
 import { BossView } from './BossView';
+import { AllBossesView } from './AllBossesView';
 import { PlayerView } from './PlayerView';
 import { HomeView } from './HomeView';
 import { AboutPage } from './AboutPage';
@@ -11,7 +12,7 @@ import { SetupGuidePage } from './SetupGuidePage';
 import { isLoaded } from '../lib/loadState';
 import { useRoute, type Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
-import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard';
+import { useBossLeaderboard } from '../hooks/useBossLeaderboard';
 import { useHomeData } from '../hooks/useHomeData';
 import { usePlayerProfile } from '../hooks/usePlayerProfile';
 
@@ -43,10 +44,18 @@ export function PbTrackerApp() {
     navigate({ name: 'player', player: trimmed });
   };
 
-  // Only tint the page while actually looking at a boss's leaderboard - Home
-  // and player pages stay neutral so the accent reads as "this page is about
-  // this boss," not just "whatever was last clicked."
-  const accentColor = route.name === 'boss' && selectedBoss ? bossAccentColor(selectedBoss) : undefined;
+  // Only tint the page while actually looking at boss/leaderboard content -
+  // Home and player pages stay neutral so the accent reads as "this page is
+  // about this boss," not just "whatever was last clicked." The all-bosses
+  // listing gets the default orange rather than no tint at all: leaving it
+  // fully neutral made leaving a themed boss page read as the whole site
+  // suddenly going flat black instead of settling back to a normal shade.
+  const accentColor =
+    route.name === 'boss' && selectedBoss
+      ? bossAccentColor(selectedBoss)
+      : route.name === 'leaderboards'
+        ? DEFAULT_ACCENT
+        : undefined;
   const goToBoss = (boss: string) => navigate({ name: 'boss', boss });
 
   return (
@@ -75,8 +84,8 @@ export function PbTrackerApp() {
             </button>
             <button
               type="button"
-              className={route.name === 'boss' ? 'active' : undefined}
-              onClick={() => goToBoss(selectedBoss || pickInitialBoss(isLoaded(bosses) ? bosses.data : []))}
+              className={route.name === 'boss' || route.name === 'leaderboards' ? 'active' : undefined}
+              onClick={() => navigate({ name: 'leaderboards' })}
             >
               Leaderboards
             </button>
@@ -94,6 +103,9 @@ export function PbTrackerApp() {
             lookupPlayer={lookupPlayer}
             goToBoss={goToBoss}
           />
+        )}
+        {route.name === 'leaderboards' && (
+          <AllBossesView bosses={bosses} goToBoss={goToBoss} navigate={navigate} />
         )}
         {route.name === 'boss' && (
           <BossView

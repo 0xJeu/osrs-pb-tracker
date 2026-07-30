@@ -2,7 +2,8 @@ import { FormEvent, useState } from 'react';
 import type { LeaderboardRow, QuickStats, RecentSync } from '../lib/api';
 import { isLoaded, type LoadState } from '../lib/loadState';
 import { formatDate, formatTime, titleCase, bossTitleParts } from '../lib/format';
-import { bossMonogram, useBossPetIconUrl } from '../lib/bossPetIcons';
+import { bossMonogram } from '../lib/bossPetIcons';
+import { useBossIconUrl } from '../lib/bossIcons';
 import { bossSearchAlias } from '../lib/bossAliases';
 import { useSearchSuggestions, compactAliasSuggestions } from '../hooks/useSearchSuggestions';
 
@@ -18,10 +19,10 @@ function statValue(value: number | undefined) {
 
 // Request a thumb ~2x the rendered box (32px sm / 64px lg boxes at 72% fit)
 // so icons stay crisp on retina displays without over-fetching.
-const PET_ICON_PIXEL_WIDTH: Record<'sm' | 'lg', number> = { sm: 64, lg: 128 };
+const ICON_PIXEL_WIDTH: Record<'sm' | 'lg', number> = { sm: 64, lg: 128 };
 
-function PetIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
-  const url = useBossPetIconUrl(boss, PET_ICON_PIXEL_WIDTH[size]);
+function BossIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
+  const url = useBossIconUrl(boss, ICON_PIXEL_WIDTH[size]);
   return (
     <span className={`pbt-pet ${size}`}>
       {url ? <img src={url} alt="" loading="lazy" /> : bossMonogram(boss)}
@@ -127,7 +128,7 @@ export function HomeView({
             {topBosses.data.map((entry, index) => (
               <button type="button" className="pbt-card" key={entry.boss} onClick={() => goToBoss(entry.boss)}>
                 <span className="idx">{String(index + 1).padStart(2, '0')}</span>
-                <PetIcon boss={entry.boss} size="lg" />
+                <BossIcon boss={entry.boss} size="lg" />
                 <div className="bname">{bossTitleParts(entry.boss).primary}</div>
                 {entry.leader ? (
                   <>

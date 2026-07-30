@@ -85,7 +85,8 @@ export function BossView({
         style={bossBannerUrl(selectedBoss) ? ({ '--pbt-banner': `url("${bossBannerUrl(selectedBoss)}")` } as CSSProperties) : undefined}
       >
         <div className="pbt-crumbs">
-          <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / Leaderboards
+          <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> /{' '}
+          <button type="button" onClick={() => navigate({ name: 'leaderboards' })}>Leaderboards</button>
         </div>
         <h2 className="pbt-display pbt-h2">{titleParts.primary}</h2>
         {titleParts.secondary && <span className="meta">{titleParts.secondary}</span>}
