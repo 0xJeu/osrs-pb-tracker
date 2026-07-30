@@ -8,6 +8,8 @@ import { matchesBossSearch } from '../lib/bossAliases';
 import type { Route } from '../hooks/useRoute';
 import type { LeaderboardRow } from '../lib/api';
 
+const GOLD = '#D9B968';
+
 // Each boss's own bundled icon (see bossIcons.ts) - falls back to a text
 // monogram for the rare boss with no icon recovered.
 function BossIcon({ boss, className }: { boss: string; className?: string }) {
@@ -21,7 +23,7 @@ function BossIcon({ boss, className }: { boss: string; className?: string }) {
 
 function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 shrink-0 text-[#AAB2C0]">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 shrink-0 text-[#8A8074]">
       <circle cx="11" cy="11" r="7" />
       <path d="M21 21l-4.3-4.3" />
     </svg>
@@ -35,6 +37,60 @@ function ArrowIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+function TrophyIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
+      <path d="M8 4h8v4a4 4 0 0 1-8 0V4Z" />
+      <path d="M8 5H5a2 2 0 0 0 2 3.5M16 5h3a2 2 0 0 1-2 3.5" />
+      <path d="M12 12v3M9 19h6M10 19v-2.5a2 2 0 0 1 4 0V19" />
+    </svg>
+  );
+}
+
+function SwordsIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
+      <path d="M4 4l7 7M4 4v4M4 4h4" />
+      <path d="M20 4l-7 7M20 4v4M20 4h-4" />
+      <path d="M4 20l6-6M20 20l-6-6" />
+    </svg>
+  );
+}
+
+function SkullIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
+      <path d="M12 3a7 7 0 0 0-7 7c0 2.6 1.3 4.4 3 5.7V18a1 1 0 0 0 1 1h1v1.5a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5V19h1v1.5a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5V19h1a1 1 0 0 0 1-1v-2.3c1.7-1.3 3-3.1 3-5.7a7 7 0 0 0-7-7Z" />
+      <circle cx="9.5" cy="11" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="14.5" cy="11" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function StarIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M12 2.5l2.6 5.9 6.4.6-4.8 4.3 1.4 6.3L12 16.6l-5.6 3 1.4-6.3-4.8-4.3 6.4-.6L12 2.5Z" />
+    </svg>
+  );
+}
+
+const CATEGORY_ICON: Record<Category, (props: { className?: string }) => JSX.Element> = {
+  Raids: SwordsIcon,
+  Bosses: SkullIcon,
+  'Slayer Monsters': SkullIcon,
+  'Minigames & Challenges': StarIcon,
+  Other: SkullIcon,
+};
+
+const CATEGORY_VIEW_ALL_LABEL: Record<Category, string> = {
+  Raids: 'View all raids',
+  Bosses: 'View all bosses',
+  'Slayer Monsters': 'View all slayer monsters',
+  'Minigames & Challenges': 'View all minigames',
+  Other: 'View all',
+};
 
 type CardRow =
   | { type: 'raid-base'; base: string; label: string }
@@ -79,11 +135,11 @@ function findLeader(overview: TopBossesOverview | undefined, target: string): Le
 function PageContainer({ children }: { children: React.ReactNode }) {
   // Breaks out of the site's own outer page padding (see theme-osrs-preview.css's
   // .pbt-page) so this container's own max-width/padding below is the only
-  // spacing in effect, matching the spec exactly regardless of what page
-  // shell it's mounted inside on this site.
+  // spacing in effect, matching the OSRSPB-style mockup regardless of what
+  // page shell it's mounted inside on this site.
   return (
-    <div className="-mx-10 -mt-10 bg-[#0F1115] px-6 pb-16 pt-6 text-white">
-      <div className="mx-auto max-w-[1200px]">{children}</div>
+    <div className="-mx-10 bg-[#15110d] px-6 pb-16 pt-8 text-[#F2EFEA]">
+      <div className="mx-auto max-w-[1400px]">{children}</div>
     </div>
   );
 }
@@ -91,31 +147,46 @@ function PageContainer({ children }: { children: React.ReactNode }) {
 function Header({ query, onQueryChange }: { query: string; onQueryChange: (value: string) => void }) {
   return (
     <div className="mb-8 flex flex-wrap items-start justify-between gap-6">
-      <div>
-        <h2 className="m-0 text-3xl font-bold text-white">Leaderboards</h2>
-        <p className="mt-1 text-sm text-[#AAB2C0]">Track PvM performance across all content</p>
+      <div className="flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[rgba(217,185,104,0.35)] bg-[#1c1712]" style={{ color: GOLD }}>
+          <TrophyIcon className="h-6 w-6" />
+        </span>
+        <div>
+          <h2 className="m-0 text-3xl font-bold text-[#F2EFEA]">Leaderboards</h2>
+          <p className="mt-1 text-sm text-[#8A8074]">
+            Track, compare and rank your best <span style={{ color: GOLD }}>PvM</span> performances.
+          </p>
+        </div>
       </div>
-      <label className="flex h-10 w-[300px] items-center gap-2 rounded-lg border border-white/5 bg-[#1F2430] px-3">
-        <SearchIcon />
+      <label className="flex h-10 w-[320px] items-center gap-2 rounded-lg border border-[rgba(217,185,104,0.25)] bg-[#1c1712] px-3">
         <input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Search bosses, raids..."
-          aria-label="Search bosses, raids"
-          className="w-full bg-transparent text-sm text-white placeholder:text-[#AAB2C0] focus:outline-none"
+          placeholder="Search bosses, raids, minigames..."
+          aria-label="Search bosses, raids, minigames"
+          className="w-full bg-transparent text-sm text-[#F2EFEA] placeholder:text-[#8A8074] focus:outline-none"
         />
+        <SearchIcon />
       </label>
     </div>
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
+function SectionPanel({ category, children }: { category: Category; children: React.ReactNode }) {
+  const Icon = CATEGORY_ICON[category];
   return (
-    <div className="mb-3 flex items-center justify-between">
-      <h3 className="text-xl font-semibold text-white">{title}</h3>
-      <span className="flex items-center gap-1 text-sm text-[#D4AF37]">
-        View all <ArrowIcon className="h-3.5 w-3.5" />
-      </span>
+    <div className="mb-6 rounded-2xl border border-[rgba(217,185,104,0.18)] bg-[#1c1712] p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-lg font-semibold" style={{ color: GOLD }}>
+          <Icon className="h-4 w-4" />
+          {category}
+        </h3>
+        <span className="flex items-center gap-1 text-xs font-medium" style={{ color: GOLD }}>
+          {CATEGORY_VIEW_ALL_LABEL[category]}
+          <ArrowIcon className="h-3.5 w-3.5" />
+        </span>
+      </div>
+      {children}
     </div>
   );
 }
@@ -127,65 +198,33 @@ function RaidCard({ row, leader, onActivate }: { row: CardRow; leader: Leaderboa
       type="button"
       key={key}
       onClick={() => onActivate(row)}
-      className="flex h-[100px] flex-1 items-center gap-3.5 rounded-xl border border-white/5 bg-[#1F2430] p-4 text-left transition-transform duration-150 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
+      className="flex h-[92px] flex-1 items-center gap-3.5 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-4 text-left transition-transform duration-150 hover:scale-[1.02] hover:border-[rgba(217,185,104,0.6)] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
     >
       <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg">
         <BossIcon boss={iconKey} />
       </span>
       <span className="min-w-0 flex-1">
-        <div className="truncate font-semibold text-white">{row.label}</div>
-        {leader && <div className="mt-0.5 truncate text-sm text-[#AAB2C0]">Top: {leader.displayName}</div>}
+        <div className="truncate font-semibold" style={{ color: GOLD }}>{row.label}</div>
+        {leader && <div className="mt-0.5 truncate text-xs text-[#8A8074]">Top: {leader.displayName}</div>}
       </span>
-      <ArrowIcon className="h-5 w-5 shrink-0 text-[#AAB2C0]" />
+      <ArrowIcon className="h-5 w-5 shrink-0 text-[#8A8074]" />
     </button>
   );
 }
 
-function BossCard({ row, leader, onActivate }: { row: CardRow; leader: LeaderboardRow | null | undefined; onActivate: (row: CardRow) => void }) {
+function GridCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
   const { key, iconKey } = rowKeyAndIcon(row);
   return (
     <button
       type="button"
       key={key}
       onClick={() => onActivate(row)}
-      className="flex aspect-square flex-col items-center justify-center gap-0 rounded-xl border border-white/5 bg-[#1F2430] p-3 text-center transition-transform duration-150 hover:scale-105 hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
+      className="flex aspect-square flex-col items-center justify-center gap-0 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-3 text-center transition-transform duration-150 hover:scale-105 hover:border-[rgba(217,185,104,0.6)] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
     >
       <span className="flex h-10 w-10 items-center justify-center">
         <BossIcon boss={iconKey} />
       </span>
-      <div className="mt-2 truncate text-sm text-white">{row.label}</div>
-      {leader && <div className="mt-0.5 truncate text-xs text-[#AAB2C0]">Top: {leader.displayName}</div>}
-    </button>
-  );
-}
-
-function SlayerPill({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
-  const { key } = rowKeyAndIcon(row);
-  return (
-    <button
-      type="button"
-      key={key}
-      onClick={() => onActivate(row)}
-      className="flex h-12 items-center justify-center rounded-full border border-white/5 bg-[#1F2430] px-4 text-sm text-white transition-colors duration-150 hover:border-[#D4AF37]/60"
-    >
-      {row.label}
-    </button>
-  );
-}
-
-function MinigameCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow) => void }) {
-  const { key, iconKey } = rowKeyAndIcon(row);
-  return (
-    <button
-      type="button"
-      key={key}
-      onClick={() => onActivate(row)}
-      className="flex h-20 w-40 shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-white/5 bg-[#1F2430] text-center transition-transform duration-150 hover:scale-105 hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
-    >
-      <span className="flex h-8 w-8 items-center justify-center">
-        <BossIcon boss={iconKey} />
-      </span>
-      <div className="truncate px-2 text-sm text-white">{row.label}</div>
+      <div className="mt-2 truncate text-sm font-medium" style={{ color: GOLD }}>{row.label}</div>
     </button>
   );
 }
@@ -200,7 +239,6 @@ export function AllBossesView({
   bosses,
   topBosses,
   goToBoss,
-  navigate,
 }: {
   bosses: LoadState<string[]>;
   topBosses: LoadState<TopBossesOverview>;
@@ -231,52 +269,32 @@ export function AllBossesView({
 
   return (
     <PageContainer>
-      <div className="mb-2 text-xs uppercase tracking-wide text-[#AAB2C0]">
-        <button type="button" onClick={() => navigate({ name: 'home' })} className="hover:text-white">Home</button> / Leaderboards
-      </div>
-
       <Header query={query} onQueryChange={setQuery} />
 
-      {bosses.s === 'loading' && <div className="py-4 text-sm text-[#AAB2C0]">Loading bosses...</div>}
-      {bosses.s === 'error' && <div className="py-4 text-sm text-[#AAB2C0]">Boss list unavailable.</div>}
+      {bosses.s === 'loading' && <div className="py-4 text-sm text-[#8A8074]">Loading bosses...</div>}
+      {bosses.s === 'error' && <div className="py-4 text-sm text-[#8A8074]">Boss list unavailable.</div>}
 
       {isLoaded(bosses) && filteredGroups.length === 0 && (
-        <div className="py-4 text-sm text-[#AAB2C0]">No bosses match "{query}".</div>
+        <div className="py-4 text-sm text-[#8A8074]">No bosses match "{query}".</div>
       )}
 
       {isLoaded(bosses) &&
         filteredGroups.map(({ group, rows }: { group: { category: Category }; rows: CardRow[] }) => (
-          <div className="mb-8" key={group.category}>
-            <SectionHeader title={group.category} />
-
-            {group.category === 'Raids' && (
+          <SectionPanel category={group.category} key={group.category}>
+            {group.category === 'Raids' ? (
               <div className="flex flex-wrap gap-4">
                 {rows.map((row) => (
                   <RaidCard row={row} leader={findLeader(overview, rowKeyAndIcon(row).iconKey)} onActivate={activateRow} key={rowKeyAndIcon(row).key} />
                 ))}
               </div>
-            )}
-
-            {group.category === 'Slayer Monsters' && (
-              <div className="flex flex-wrap gap-3">
-                {rows.map((row) => <SlayerPill row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />)}
-              </div>
-            )}
-
-            {group.category === 'Minigames & Challenges' && (
-              <div className="flex gap-4 overflow-x-auto pb-1">
-                {rows.map((row) => <MinigameCard row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />)}
-              </div>
-            )}
-
-            {(group.category === 'Bosses' || group.category === 'Other') && (
-              <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-6">
+            ) : (
+              <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
                 {rows.map((row) => (
-                  <BossCard row={row} leader={findLeader(overview, rowKeyAndIcon(row).iconKey)} onActivate={activateRow} key={rowKeyAndIcon(row).key} />
+                  <GridCard row={row} onActivate={activateRow} key={rowKeyAndIcon(row).key} />
                 ))}
               </div>
             )}
-          </div>
+          </SectionPanel>
         ))}
     </PageContainer>
   );
