@@ -161,9 +161,7 @@ function Header({ query, onQueryChange }: { query: string; onQueryChange: (value
         </span>
         <div>
           <h2 className="m-0 text-4xl font-bold text-[#F2EFEA]">Leaderboards</h2>
-          <p className="mt-1.5 text-base text-[#8A8074]">
-            Track, compare and rank your best <span style={{ color: GOLD }}>PvM</span> performances.
-          </p>
+          <p className="mt-1.5 text-base text-[#8A8074]">Find out where you rank.</p>
         </div>
       </div>
       <label className="flex h-12 w-[360px] items-center gap-2 rounded-lg border border-[rgba(217,185,104,0.25)] bg-[#1c1712] px-4">
