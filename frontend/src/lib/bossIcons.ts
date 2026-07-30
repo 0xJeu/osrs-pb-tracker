@@ -61,12 +61,23 @@ function slugFor(bossKey: string): string | undefined {
   return base.replace(/'/g, '').replace(/ /g, '_').replace(/-/g, '_');
 }
 
-/** Boss -> local icon path, or undefined if there's no bundled icon for it (caller shows a monogram). */
-export function bossIconFile(boss: string): string | undefined {
+/**
+ * Boss -> canonical slug (e.g. "duke sucellus (awakened)" -> "duke_sucellus",
+ * any TzHaar-Ket-Rak's Challenge variant -> "tztok_jad"). Shared by the icon
+ * lookup below and bossBanners.ts, so a boss/variant resolves to the same
+ * underlying identity for both - an awakened DT2 boss or a specific TzHaar
+ * challenge number still gets its base boss's banner, not a missing one.
+ */
+export function resolveBossSlug(boss: string): string | undefined {
   const slug = slugFor(boss);
   if (!slug) return undefined;
-  const resolved = ALIASES[slug] ?? slug;
-  return AVAILABLE_ICONS.has(resolved) ? `/boss-icons/${resolved}.png` : undefined;
+  return ALIASES[slug] ?? slug;
+}
+
+/** Boss -> local icon path, or undefined if there's no bundled icon for it (caller shows a monogram). */
+export function bossIconFile(boss: string): string | undefined {
+  const resolved = resolveBossSlug(boss);
+  return resolved && AVAILABLE_ICONS.has(resolved) ? `/boss-icons/${resolved}.png` : undefined;
 }
 
 /**
