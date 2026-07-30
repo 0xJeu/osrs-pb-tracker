@@ -1,0 +1,6 @@
+/* Tailwind, scoped in effect to the Leaderboards page (AllBossesView.tsx) -
+   preflight is disabled in tailwind.config.js so this can't reset styles
+   across the rest of the site's own hand-written RuneScape theme. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

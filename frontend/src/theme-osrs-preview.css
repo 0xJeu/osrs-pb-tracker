@@ -523,79 +523,10 @@
   text-shadow: none; font-weight: 700; box-shadow: 0 0 0 1px color-mix(in srgb, var(--pbt-orange) 35%, transparent);
 }
 
-/* ============================================================
-   Leaderboards page (AllBossesView.tsx) - matches an exact design
-   spec (colors/sizing/components below), deliberately breaking from
-   the RuneScape bitmap-font/gold-pixel-shadow theme used by the rest
-   of the site. Every rule below is scoped under .pbt-lb-page so it
-   can't leak out. Implemented in plain CSS rather than Tailwind (the
-   spec's stack) to avoid adding a whole new build dependency for
-   visually identical output - every color/size value below is a
-   direct copy of the spec's, so the result should match pixel-for-
-   pixel regardless of which styling mechanism produced it.
-   ============================================================ */
-.pbt-lb-page {
-  --lb-bg: #0F1115; --lb-card: #1F2430; --lb-card-hover: #262c3a;
-  --lb-border: rgba(255,255,255,0.05); --lb-text: #FFFFFF; --lb-text-dim: #AAB2C0; --lb-gold: #D4AF37;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  color: var(--lb-text); text-shadow: none;
-  background: var(--lb-bg);
-  max-width: 1200px; margin: -40px auto 0; padding: 24px;
-}
-.pbt-lb-page .pbt-crumbs { color: var(--lb-text-dim); text-shadow: none; margin-bottom: 8px; }
-.pbt-lb-page .pbt-crumbs button { color: var(--lb-text-dim); }
-
-.pbt-lb-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; }
-.pbt-lb-header-left { display: flex; flex-direction: column; }
-.pbt-lb-title { font-size: 30px; margin: 0; font-weight: 700; color: var(--lb-text); text-shadow: none; }
-.pbt-lb-subtitle { font-size: 14px; margin-top: 4px; color: var(--lb-text-dim); }
-.pbt-lb-search { display: flex; align-items: center; gap: 8px; width: 300px; height: 40px; box-sizing: border-box; background: var(--lb-card); border: 1px solid var(--lb-border); border-radius: 8px; padding: 0 12px; }
-.pbt-lb-search input { background: none; border: none; color: var(--lb-text); font-family: inherit; font-size: 14px; width: 100%; text-shadow: none; }
-.pbt-lb-search input:focus { outline: none; }
-.pbt-lb-search input::placeholder { color: var(--lb-text-dim); }
-.pbt-lb-search svg { width: 16px; height: 16px; color: var(--lb-text-dim); flex-shrink: 0; }
-
-.pbt-lb-section { margin-bottom: 32px; }
-.pbt-lb-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.pbt-lb-section-title { font-size: 20px; font-weight: 600; color: var(--lb-text); }
-.pbt-lb-viewall { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--lb-gold); }
-.pbt-lb-viewall svg { width: 14px; height: 14px; }
-.pbt-lb-empty { opacity: .7; font-size: 14px; padding: 8px 0; color: var(--lb-text-dim); }
-
-.pbt-lb-raids { display: flex; gap: 16px; flex-wrap: wrap; }
-.pbt-lb-raid-card { flex: 1 1 280px; height: 100px; box-sizing: border-box; display: flex; align-items: center; gap: 14px; background: var(--lb-card); border: 1px solid var(--lb-border); border-radius: 12px; padding: 16px; cursor: pointer; text-align: left; font-family: inherit; color: inherit; transition: transform .15s, box-shadow .15s; }
-.pbt-lb-raid-card:hover { transform: scale(1.02); box-shadow: 0 0 20px rgba(212,175,55,.15); }
-.pbt-lb-raid-icon { width: 48px; height: 48px; border-radius: 8px; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-.pbt-lb-raid-icon img { width: 100%; height: 100%; object-fit: contain; }
-.pbt-lb-raid-text { min-width: 0; }
-.pbt-lb-raid-name { font-size: 15px; font-weight: 600; text-shadow: none; color: var(--lb-text); }
-.pbt-lb-raid-chevron { margin-left: auto; color: var(--lb-text-dim); flex-shrink: 0; width: 20px; height: 20px; }
-
-.pbt-lb-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
-.pbt-lb-grid-card { aspect-ratio: 1 / 1; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; background: var(--lb-card); border: 1px solid var(--lb-border); border-radius: 12px; padding: 12px; cursor: pointer; font-family: inherit; color: inherit; text-align: center; transition: transform .15s, box-shadow .15s; }
-.pbt-lb-grid-card:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(212,175,55,.15); }
-.pbt-lb-grid-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
-.pbt-lb-grid-icon img { width: 100%; height: 100%; object-fit: contain; }
-.pbt-lb-grid-name { font-size: 13px; margin-top: 8px; line-height: 1.3; color: var(--lb-text); text-shadow: none; }
-
-.pbt-lb-pills { display: flex; gap: 12px; flex-wrap: wrap; }
-.pbt-lb-pill { height: 48px; box-sizing: border-box; padding: 0 16px; background: var(--lb-card); border: 1px solid var(--lb-border); border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--lb-text); text-shadow: none; font-family: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
-.pbt-lb-pill:hover { border-color: var(--lb-gold); background: var(--lb-card-hover); }
-
-.pbt-lb-scroll-row { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 4px; }
-.pbt-lb-scroll-card { width: 160px; height: 80px; flex-shrink: 0; box-sizing: border-box; background: var(--lb-card); border: 1px solid var(--lb-border); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-family: inherit; color: inherit; text-align: center; transition: transform .15s, box-shadow .15s; }
-.pbt-lb-scroll-card:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(212,175,55,.15); }
-.pbt-lb-scroll-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
-.pbt-lb-scroll-icon img { width: 100%; height: 100%; object-fit: contain; }
-.pbt-lb-scroll-name { font-size: 13px; padding: 0 8px; color: var(--lb-text); text-shadow: none; }
-
-@media (max-width: 1100px) { .pbt-lb-grid { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 700px) {
-  .pbt-lb-grid { grid-template-columns: repeat(3, 1fr); }
-  .pbt-lb-header { flex-direction: column; }
-  .pbt-lb-search { width: 100%; }
-  .pbt-lb-page { margin: -40px 0 0; padding: 40px 16px 60px; }
-}
+/* Leaderboards page (AllBossesView.tsx) is styled with Tailwind directly
+   (src/tailwind.css, tailwind.config.js has preflight disabled so it can't
+   affect the rest of this hand-written theme) - no plain-CSS rules needed
+   here anymore. */
 @media (max-width: 900px) {
   .pbt-page, .pbt-topbar-inner { padding-left: 20px; padding-right: 20px; }
   .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 64px 1fr auto; }
