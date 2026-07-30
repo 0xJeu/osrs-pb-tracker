@@ -38,6 +38,14 @@ function ArrowIcon({ className }: { className?: string }) {
   );
 }
 
+function ChevronIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} style={style}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
 function TrophyIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={className}>
@@ -84,12 +92,12 @@ const CATEGORY_ICON: Record<Category, (props: { className?: string }) => JSX.Ele
   Other: SkullIcon,
 };
 
-const CATEGORY_VIEW_ALL_LABEL: Record<Category, string> = {
-  Raids: 'View all raids',
-  Bosses: 'View all bosses',
-  'Slayer Monsters': 'View all slayer monsters',
-  'Minigames & Challenges': 'View all minigames',
-  Other: 'View all',
+const CATEGORY_DESCRIPTION: Record<Category, string> = {
+  Raids: 'Compete in the biggest PvM encounters.',
+  Bosses: 'Track your kills across all major bosses.',
+  'Slayer Monsters': 'Compare your slayer task performance.',
+  'Minigames & Challenges': 'Minigames, challenges and special content.',
+  Other: 'Everything else.',
 };
 
 type CardRow =
@@ -173,20 +181,26 @@ function Header({ query, onQueryChange }: { query: string; onQueryChange: (value
 }
 
 function SectionPanel({ category, children }: { category: Category; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
   const Icon = CATEGORY_ICON[category];
   return (
-    <div className="mb-8 rounded-2xl border border-[rgba(217,185,104,0.18)] bg-[#1c1712] p-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h3 className="flex items-center gap-2.5 text-2xl font-semibold" style={{ color: GOLD }}>
-          <Icon className="h-6 w-6" />
-          {category}
-        </h3>
-        <span className="flex items-center gap-1 text-sm font-medium" style={{ color: GOLD }}>
-          {CATEGORY_VIEW_ALL_LABEL[category]}
-          <ArrowIcon className="h-4 w-4" />
+    <div className="mb-6 rounded-2xl border-l-4 border-y border-r border-y-[rgba(217,185,104,0.18)] border-r-[rgba(217,185,104,0.18)] bg-[#1c1712]" style={{ borderLeftColor: GOLD }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 bg-transparent p-6 text-left transition-colors duration-150 hover:bg-[rgba(217,185,104,0.05)]"
+      >
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[rgba(217,185,104,0.35)] bg-[#211b14]" style={{ color: GOLD }}>
+          <Icon className="h-7 w-7" />
         </span>
-      </div>
-      {children}
+        <span className="min-w-0 flex-1">
+          <div className="text-2xl font-semibold" style={{ color: GOLD }}>{category}</div>
+          <div className="mt-1 text-sm text-[#8A8074]">{CATEGORY_DESCRIPTION[category]}</div>
+        </span>
+        <ChevronIcon className={`h-6 w-6 shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} style={{ color: GOLD }} />
+      </button>
+      {open && <div className="px-6 pb-6">{children}</div>}
     </div>
   );
 }
@@ -198,14 +212,14 @@ function RaidCard({ row, leader, onActivate }: { row: CardRow; leader: Leaderboa
       type="button"
       key={key}
       onClick={() => onActivate(row)}
-      className="flex h-[120px] flex-1 items-center gap-5 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-5 text-left transition-transform duration-150 hover:scale-[1.02] hover:border-[rgba(217,185,104,0.6)] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
+      className="flex h-[136px] flex-1 items-center gap-5 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-5 text-left transition-transform duration-150 hover:scale-[1.02] hover:border-[rgba(217,185,104,0.6)] hover:bg-[#211b14] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
     >
-      <span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+      <span className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg">
         <BossIcon boss={iconKey} />
       </span>
       <span className="min-w-0 flex-1">
-        <div className="truncate text-xl font-semibold" style={{ color: GOLD }}>{row.label}</div>
-        {leader && <div className="mt-1 truncate text-sm text-[#8A8074]">Top: {leader.displayName}</div>}
+        <div className="truncate text-2xl font-semibold" style={{ color: GOLD }}>{row.label}</div>
+        {leader && <div className="mt-1 truncate text-base text-[#8A8074]">Top: {leader.displayName}</div>}
       </span>
       <ArrowIcon className="h-6 w-6 shrink-0 text-[#8A8074]" />
     </button>
@@ -219,12 +233,12 @@ function GridCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow
       type="button"
       key={key}
       onClick={() => onActivate(row)}
-      className="flex aspect-square flex-col items-center justify-center gap-0 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-4 text-center transition-transform duration-150 hover:scale-105 hover:border-[rgba(217,185,104,0.6)] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
+      className="flex aspect-square flex-col items-center justify-center gap-0 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-4 text-center transition-transform duration-150 hover:scale-105 hover:border-[rgba(217,185,104,0.6)] hover:bg-[#211b14] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
     >
-      <span className="flex h-16 w-16 items-center justify-center">
+      <span className="flex h-20 w-20 items-center justify-center">
         <BossIcon boss={iconKey} />
       </span>
-      <div className="mt-3 truncate text-base font-medium" style={{ color: GOLD }}>{row.label}</div>
+      <div className="mt-3 truncate text-lg font-medium" style={{ color: GOLD }}>{row.label}</div>
     </button>
   );
 }
