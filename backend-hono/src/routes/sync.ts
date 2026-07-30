@@ -17,7 +17,11 @@ import {
   noteSuccessfulSyncReplay,
   rememberSuccessfulSync,
 } from '../lib/syncReplay.js';
-import { isRedundantDuplicateKey, isTrackedBoss } from '../lib/trackedBosses.js';
+import {
+  isReasonablePersonalBestTime,
+  isRedundantDuplicateKey,
+  isTrackedBoss,
+} from '../lib/trackedBosses.js';
 
 const sync = new Hono();
 
@@ -264,7 +268,7 @@ sync.post('/', async (c) => {
   for (const [rawBoss, seconds] of entries) {
     const boss = rawBoss.trim().toLowerCase();
     const timeSeconds = Number(seconds);
-    if (!boss || !Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+    if (!boss || !isReasonablePersonalBestTime(boss, timeSeconds)) {
       continue;
     }
     if (!isTrackedBoss(boss)) {

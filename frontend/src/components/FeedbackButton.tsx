@@ -30,23 +30,43 @@ export function FeedbackButton({ context }: { context?: string }) {
 
   if (!open) {
     return (
-      <button type="button" className="feedback-trigger" onClick={() => setOpen(true)}>
-        Feedback
+      <button
+        type="button"
+        className="feedback-trigger"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      >
+        <span className="feedback-trigger-mark" aria-hidden="true">?</span>
+        <span className="feedback-trigger-copy">
+          <span className="feedback-trigger-label">Feedback</span>
+          <span className="feedback-trigger-meta">Report an issue</span>
+        </span>
       </button>
     );
   }
 
   return (
-    <div className="feedback-panel">
+    <section className="feedback-panel" role="dialog" aria-label="Send feedback">
+      <header className="feedback-panel-header">
+        <div>
+          <span className="feedback-kicker">Community channel</span>
+          <h2>Send feedback</h2>
+        </div>
+        <button type="button" className="feedback-close" onClick={reset} aria-label="Close feedback">
+          ×
+        </button>
+      </header>
+
       {status === 'sent' ? (
-        <>
+        <div className="feedback-body feedback-success" aria-live="polite">
+          <span className="feedback-success-mark" aria-hidden="true">✓</span>
           <p>Thanks - that helps a lot while this is still in beta.</p>
-          <button type="button" onClick={reset}>
+          <button type="button" className="feedback-primary" onClick={reset}>
             Close
           </button>
-        </>
+        </div>
       ) : (
-        <>
+        <div className="feedback-body">
           <label htmlFor="feedback-message">
             Found a bug, a wrong PB, or something confusing? Say so here.
           </label>
@@ -59,18 +79,28 @@ export function FeedbackButton({ context }: { context?: string }) {
             rows={4}
           />
           {status === 'error' && (
-            <p className="feedback-error">Couldn't send that - try again in a moment.</p>
+            <p className="feedback-error" role="alert">Couldn't send that - try again in a moment.</p>
           )}
-          <div className="feedback-actions">
-            <button type="button" onClick={reset} className="feedback-cancel">
-              Cancel
-            </button>
-            <button type="button" onClick={submit} disabled={!message.trim() || status === 'sending'}>
-              {status === 'sending' ? 'Sending...' : 'Send feedback'}
-            </button>
+          <div className="feedback-footer">
+            <span className="feedback-count" aria-live="polite">
+              {message.length} / {MAX_LENGTH}
+            </span>
+            <div className="feedback-actions">
+              <button type="button" onClick={reset} className="feedback-cancel">
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="feedback-primary"
+                onClick={submit}
+                disabled={!message.trim() || status === 'sending'}
+              >
+                {status === 'sending' ? 'Sending...' : 'Send feedback'}
+              </button>
+            </div>
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </section>
   );
 }
