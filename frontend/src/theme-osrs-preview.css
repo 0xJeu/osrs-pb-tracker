@@ -44,7 +44,7 @@
      default orange as a background tint. */
   --pbt-accent:    #ff981f;
   --pbt-tint:      0%;
-  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) var(--pbt-tint), #000);
+  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) var(--pbt-tint), #0c0c0e);
   --pbt-bg-2:      color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 1.25), #0b0b0b);
   --pbt-bg-3:      color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 1.5), #141414);
   --pbt-fill:      color-mix(in srgb, var(--pbt-accent) 16%, #000);
