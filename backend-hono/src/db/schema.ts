@@ -64,7 +64,7 @@ export const installRecoveryCandidates = pgTable(
       .references(() => players.id, { onDelete: 'cascade' }),
     incumbentSecretHash: text('incumbent_secret_hash').notNull(),
     candidateSecretHash: text('candidate_secret_hash').notNull(),
-    status: text('status').notNull().default('pending'),
+    status: text('status').notNull().default('invalidation_pending'),
     displayName: text('display_name').notNull(),
     payload: jsonb('payload').$type<Record<string, number>>().notNull(),
     payloadDigest: text('payload_digest').notNull(),

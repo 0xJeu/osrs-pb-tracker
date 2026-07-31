@@ -43,6 +43,13 @@
       "when": 1785515047911,
       "tag": "0005_long_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785517087996,
+      "tag": "0006_dizzy_brood",
+      "breakpoints": true
     }
   ]
 }

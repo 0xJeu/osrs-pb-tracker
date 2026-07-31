@@ -77,7 +77,7 @@ candidate cannot be promoted by this first implementation; it can only be
 rejected pending a future explicit contested-recovery policy.
 
 Candidates remain non-promotable while replay invalidation is being confirmed.
-Each credential epoch stores at most five distinct candidates, and candidate
+Each credential epoch stores at most five active candidates, and candidate
 records expire after 90 days through opportunistic cleanup.
 
 ### Protected admin interface

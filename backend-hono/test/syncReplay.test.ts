@@ -120,6 +120,57 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
     expect(candidates.map((candidate) => candidate.status)).toEqual(['contested', 'contested']);
   });
 
+  it('does not let a retry adopt an abandoned invalidation attempt', async () => {
+    mocks.expireTag.mockResolvedValue(undefined);
+    const { db } = await import('../src/db/client.js');
+    const { installRecoveryCandidates, players } = await import('../src/db/schema.js');
+    const { captureInstallRecoveryCandidate } = await import('../src/lib/installRecovery.js');
+    const { truncateAll } = await import('./helpers.js');
+
+    await truncateAll();
+    const [player] = await db
+      .insert(players)
+      .values({
+        accountHash: 'abandoned-invalidation-account',
+        displayName: 'AbandonedInvalidationPlayer',
+        displayNameLower: 'abandonedinvalidationplayer',
+        installSecretHash: 'incumbent-secret-hash-for-abandoned-test',
+        updatedAt: new Date(),
+      })
+      .returning();
+    await db.insert(installRecoveryCandidates).values({
+      playerId: player.id,
+      incumbentSecretHash: 'incumbent-secret-hash-for-abandoned-test',
+      candidateSecretHash: 'candidate-secret-hash-for-abandoned-test',
+      status: 'invalidation_pending',
+      displayName: 'AbandonedInvalidationPlayer',
+      payload: { zulrah: 80 },
+      payloadDigest: 'abandoned-invalidation-payload-digest',
+      receivedCount: 1,
+      eligibleCount: 1,
+      equalCount: 0,
+      improvedCount: 0,
+      newCount: 1,
+      slowerCount: 0,
+      missingCount: 0,
+      firstSeenAt: new Date(),
+      lastSeenAt: new Date(),
+    });
+
+    const result = await captureInstallRecoveryCandidate({
+      playerId: player.id,
+      incumbentSecretHash: 'incumbent-secret-hash-for-abandoned-test',
+      candidateSecretHash: 'candidate-secret-hash-for-abandoned-test',
+      displayName: 'AbandonedInvalidationPlayer',
+      receivedCount: 1,
+      pbsByBoss: new Map([['zulrah', 80]]),
+    });
+
+    expect(result.status).toBe('invalidation_pending');
+    expect(result.attemptCount).toBe(2);
+    expect(mocks.expireTag).not.toHaveBeenCalled();
+  });
+
   it('stays non-promotable after a later successful invalidation', async () => {
     mocks.expireTag.mockRejectedValueOnce(new Error('cache outage'));
 

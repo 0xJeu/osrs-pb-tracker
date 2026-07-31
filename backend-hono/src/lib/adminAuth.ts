@@ -119,12 +119,20 @@ export async function reserveRecoveryAdminLoginAttempt(
 
   // Expired keys from other clients are no longer useful. Login volume is low,
   // and the indexed timestamp keeps this global retention pass bounded.
-  await db.delete(recoveryAdminLoginLimits).where(
-    and(
-      sql`${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}`,
-      sql`${recoveryAdminLoginLimits.keyHash} <> ${keyHash}`
-    )
-  );
+  try {
+    await db.delete(recoveryAdminLoginLimits).where(
+      and(
+        sql`${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}`,
+        sql`${recoveryAdminLoginLimits.keyHash} <> ${keyHash}`
+      )
+    );
+  } catch (error) {
+    // Retention must not change whether this already-reserved login attempt is
+    // evaluated. The next request will retry the indexed cleanup.
+    console.warn('Unable to prune expired recovery admin login limits', {
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
 
   return {
     allowed: reserved[0].attemptCount <= LOGIN_FAILURE_LIMIT,

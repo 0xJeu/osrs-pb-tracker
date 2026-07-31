@@ -145,10 +145,19 @@ export async function captureInstallRecoveryCandidate(values: {
   // The player-row lock is the serialization boundary shared with incumbent
   // sync commits and promotion. Candidate upsert, continuity calculation, and
   // competing-candidate contestation therefore commit as one ordered action.
-  const [lockedRows, , , finalRows] = await db.$client.transaction((txn) => [
+  const [lockedRows, previousRows, , , finalRows] = await db.$client.transaction((txn) => [
     txn(
       'SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2 FOR UPDATE',
       [values.playerId, values.incumbentSecretHash]
+    ),
+    txn(
+      `SELECT id, status
+       FROM install_recovery_candidates
+       WHERE player_id = $1
+         AND incumbent_secret_hash = $2
+         AND candidate_secret_hash = $3
+       LIMIT 1`,
+      [values.playerId, values.incumbentSecretHash, values.candidateSecretHash]
     ),
     txn(
       `WITH incoming AS (
@@ -195,6 +204,9 @@ export async function captureInstallRecoveryCandidate(values: {
            FROM install_recovery_candidates AS existing
            WHERE existing.player_id = incumbent.id
              AND existing.incumbent_secret_hash = $2
+             AND existing.status IN (
+               'invalidation_pending', 'pending', 'invalidation_failed', 'contested'
+             )
          ) < $10
        )
        INSERT INTO install_recovery_candidates (
@@ -283,6 +295,10 @@ export async function captureInstallRecoveryCandidate(values: {
     );
   }
   let status = String(candidate.status) as RecoveryCandidateStatus;
+  const previousStatus = previousRows[0]?.status
+    ? (String(previousRows[0].status) as RecoveryCandidateStatus)
+    : null;
+  const ownsInvalidation = previousStatus === null || previousStatus === 'pending';
 
   // A cached successful-replay entry could otherwise let the incumbent's own
   // resync of an already-seen payload skip upsertPlayer/noteIncumbentSeen
@@ -290,7 +306,7 @@ export async function captureInstallRecoveryCandidate(values: {
   // is still active. Invalidating just this player's entries forces the next
   // sync on this account to be evaluated for real, without giving a public
   // caller a way to evict every player's replay protection.
-  if (status === 'invalidation_pending') {
+  if (status === 'invalidation_pending' && ownsInvalidation) {
     const replayInvalidated = await invalidatePlayerSyncReplay(values.playerId);
     const finalStatus = replayInvalidated ? 'pending' : 'invalidation_failed';
     const [, finalizedRows] = await db.$client.transaction((txn) => [

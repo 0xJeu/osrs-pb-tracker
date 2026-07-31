@@ -164,6 +164,26 @@ describe('install credential recovery', () => {
     expect(await db.select().from(installRecoveryCandidates)).toHaveLength(5);
   });
 
+  it('allows a new active candidate after an older candidate is rejected', async () => {
+    await establishIncumbent();
+    for (const character of ['b', 'c', 'd', 'e', 'f']) {
+      await syncRequest(character.repeat(20), { Zulrah: 75 });
+    }
+    const candidates = await db
+      .select({ id: installRecoveryCandidates.id })
+      .from(installRecoveryCandidates)
+      .orderBy(asc(installRecoveryCandidates.id));
+    await rejectInstallRecoveryCandidate(candidates[0].id, 'local-test-admin');
+
+    const replacement = await syncRequest('g'.repeat(20), { Zulrah: 74 });
+
+    expect(await replacement.json()).toMatchObject({
+      code: 'RECOVERY_CONTESTED',
+      recoveryId: expect.any(Number),
+    });
+    expect(await db.select().from(installRecoveryCandidates)).toHaveLength(6);
+  });
+
   it('prunes recovery candidates after the retention window', async () => {
     await establishIncumbent();
     await syncRequest(candidateSecret, { Zulrah: 75 });
