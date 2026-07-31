@@ -15,6 +15,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@vercel/functions', () => ({
   invalidateByTag: mocks.invalidateByTag,
+  // syncReplay.ts calls getCache() at module load, and test/setup.ts imports it
+  // for the global replay-cache reset - so this mock has to provide getCache
+  // even though nothing in this file exercises the replay cache. Without it,
+  // loading the setup file inside this mocked environment throws.
+  getCache: () => ({
+    get: async () => undefined,
+    set: async () => undefined,
+    expireTag: async () => undefined,
+  }),
 }));
 
 describe('cache tags', () => {

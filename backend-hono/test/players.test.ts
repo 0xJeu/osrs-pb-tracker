@@ -1,12 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
-import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { insertTestPlayerWithPb } from './helpers.js';
 
 describe('GET /api/players/:name', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns 404 for an unknown player', async () => {
     const res = await app.request('/api/players/Nobody?ignored=true');
     expect(res.status).toBe(404);
@@ -75,10 +71,6 @@ describe('GET /api/players/:name', () => {
 });
 
 describe('GET /api/players/by-id/:id', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns 404 for an unknown id', async () => {
     const res = await app.request('/api/players/by-id/999999');
     expect(res.status).toBe(404);
