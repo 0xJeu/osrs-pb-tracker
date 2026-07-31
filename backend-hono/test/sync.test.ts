@@ -1,12 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
-import { syncAttempts } from '../src/db/schema.js';
+import { players, syncAttempts } from '../src/db/schema.js';
+import {
+  bossCacheTag,
+  cacheTags,
+  playerIdCacheTag,
+  profileBossBucketCacheTag,
+  profileBossExactCacheTag,
+} from '../src/lib/cache.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
-import { pruneExpiredSyncAttempts } from '../src/routes/sync.js';
+import { pruneExpiredSyncAttempts, upsertPbs } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
+
+const mocks = vi.hoisted(() => ({
+  invalidateByTag: vi.fn(),
+}));
+
+vi.mock('@vercel/functions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vercel/functions')>();
+  return {
+    ...actual,
+    invalidateByTag: mocks.invalidateByTag,
+  };
+});
 
 function syncRequest(body: unknown) {
   return app.request('/api/sync', {
@@ -378,6 +397,58 @@ describe('POST /api/sync', () => {
     selectSpy.mockRestore();
   }, 15_000);
 
+  // `upsertPbs` classifies each changed boss as inserted (first PB ever
+  // recorded for that boss) or improved (an existing PB beaten by a faster
+  // time), using Postgres's `xmax = 0` trick. This test only exercises the
+  // classification itself, at the `upsertPbs` level - the invalidation-tag
+  // truth table built on top of this classification (e.g. skipping `stats`
+  // on a mere improvement) is covered separately by the
+  // "cache invalidation truth table" describe block below.
+  it('classifies a changed boss as inserted on first sync and improved on a faster resync', async () => {
+    const [player] = await db
+      .insert(players)
+      .values({
+        accountHash: 'upsert-pbs-probe',
+        displayName: 'Upsert Probe',
+        displayNameLower: 'upsert probe',
+        installSecretHash: 'x',
+        updatedAt: new Date(),
+      })
+      .returning({ id: players.id });
+    const playerId = player.id;
+
+    const inserted = await upsertPbs(playerId, new Map([['zulrah', 80]]));
+    expect(inserted).toEqual({ insertedBosses: ['zulrah'], improvedBosses: [] });
+
+    const improved = await upsertPbs(playerId, new Map([['zulrah', 75]]));
+    expect(improved).toEqual({ insertedBosses: [], improvedBosses: ['zulrah'] });
+
+    // An equal-or-slower resync changes nothing, so the boss is neither
+    // inserted nor improved.
+    const noOp = await upsertPbs(playerId, new Map([['zulrah', 90]]));
+    expect(noOp).toEqual({ insertedBosses: [], improvedBosses: [] });
+  });
+
+  it('still reports the correct total `updated` count for a mixed insert+improve batch', async () => {
+    const secret = 'a'.repeat(20);
+    await syncRequest({
+      accountHash: 'insert-vs-improve',
+      displayName: 'Insert Vs Improve',
+      installSecret: secret,
+      pbs: { Zulrah: 80 },
+    });
+
+    const mixed = await syncRequest({
+      accountHash: 'insert-vs-improve',
+      displayName: 'Insert Vs Improve',
+      installSecret: secret,
+      // Vorkath is a brand-new boss (insert); Zulrah is a faster resync
+      // (improvement). Both must still be counted in `updated`.
+      pbs: { Zulrah: 75, Vorkath: 70 },
+    });
+    expect((await mixed.json()).updated).toBe(2);
+  });
+
   it('opportunistically removes sync attempts older than 90 days', async () => {
     const res = await syncRequest({
       accountHash: 'retention-account',
@@ -396,5 +467,168 @@ describe('POST /api/sync', () => {
 
     const remaining = await db.select().from(syncAttempts);
     expect(remaining).toEqual([]);
+  });
+
+  describe('cache invalidation truth table', () => {
+    const originalVercel = process.env.VERCEL;
+
+    beforeEach(() => {
+      process.env.VERCEL = '1';
+      mocks.invalidateByTag.mockReset();
+    });
+
+    afterEach(() => {
+      if (originalVercel === undefined) {
+        delete process.env.VERCEL;
+      } else {
+        process.env.VERCEL = originalVercel;
+      }
+    });
+
+    function invalidatedTags(): string[] {
+      return mocks.invalidateByTag.mock.calls.flatMap((call) => call[0] as string[]);
+    }
+
+    it('invalidates bossList and search when a globally-new boss key is inserted', async () => {
+      const secret = 'a'.repeat(20);
+      // Establish the player on one boss first, so the later sync below is
+      // neither a new-player creation nor a rename - isolating the
+      // globally-new-boss logic under test from metadataChanged/created,
+      // which would otherwise push search/stats on their own and let this
+      // test pass even if the globally-new logic were deleted entirely.
+      await syncRequest({
+        accountHash: 'globally-new-account',
+        displayName: 'Globally New',
+        installSecret: secret,
+        pbs: { Vorkath: 200 },
+      });
+
+      mocks.invalidateByTag.mockReset();
+
+      // "Amoxliatl" has never appeared in personal_bests for any player in
+      // the test database (truncateAll runs before each test), so this is a
+      // genuinely globally-new boss key.
+      const res = await syncRequest({
+        accountHash: 'globally-new-account',
+        displayName: 'Globally New',
+        installSecret: secret,
+        pbs: { Amoxliatl: 55 },
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).toContain(cacheTags.bossList);
+      expect(tags).toContain(cacheTags.search);
+      expect(tags).toContain(cacheTags.stats);
+    });
+
+    it('does not invalidate bossList, search, or stats when only improving an existing (non-globally-new) boss', async () => {
+      const secret = 'a'.repeat(20);
+      // Seed another player with the same boss key first, so it is not
+      // globally new by the time our subject player syncs it.
+      await syncRequest({
+        accountHash: 'seed-account',
+        displayName: 'Seed Player',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+      await syncRequest({
+        accountHash: 'improve-account',
+        displayName: 'Improve Player',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+
+      mocks.invalidateByTag.mockReset();
+
+      const improved = await syncRequest({
+        accountHash: 'improve-account',
+        displayName: 'Improve Player',
+        installSecret: secret,
+        pbs: { Zulrah: 70 },
+      });
+      expect(improved.status).toBe(200);
+      const improvedJson = await improved.json();
+      expect(improvedJson.updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).not.toContain(cacheTags.bossList);
+      expect(tags).not.toContain(cacheTags.search);
+      expect(tags).not.toContain(cacheTags.stats);
+      // Positive half: an improvement must still invalidate the per-boss and
+      // per-player tags, so a total-breakage bug (e.g. an empty tag array)
+      // doesn't slip through by only ever checking for absence.
+      expect(tags).toContain(bossCacheTag('zulrah'));
+      expect(tags).toContain(playerIdCacheTag(improvedJson.playerId));
+      // This is the cross-player rank-staleness case dual-tagging exists for:
+      // another player's profile may be tagged either exact or bucket, and
+      // an improvement from a DIFFERENT player must invalidate both so
+      // neither scheme is left stale.
+      expect(tags).toContain(profileBossExactCacheTag('zulrah'));
+      expect(tags).toContain(profileBossBucketCacheTag('zulrah'));
+    });
+
+    it('invalidates stats but not bossList/search for a player-first-time (not globally-new) boss insertion', async () => {
+      const secret = 'a'.repeat(20);
+      // Seed another player with the boss key first, so it already exists
+      // globally by the time our subject player inserts their own first PB
+      // for it.
+      await syncRequest({
+        accountHash: 'seed-account-2',
+        displayName: 'Seed Player Two',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+
+      // Establish the subject player on an unrelated boss first, so their
+      // later Zulrah sync is neither a new-player creation nor a rename -
+      // isolating the "boss inserted but not globally new" case from the
+      // unconditional search/stats invalidation those trigger.
+      await syncRequest({
+        accountHash: 'new-to-boss-account',
+        displayName: 'New To Boss',
+        installSecret: secret,
+        pbs: { Vorkath: 200 },
+      });
+
+      mocks.invalidateByTag.mockReset();
+
+      const inserted = await syncRequest({
+        accountHash: 'new-to-boss-account',
+        displayName: 'New To Boss',
+        installSecret: secret,
+        pbs: { Zulrah: 75 },
+      });
+      expect(inserted.status).toBe(200);
+      const insertedJson = await inserted.json();
+      expect(insertedJson.updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).toContain(cacheTags.stats);
+      expect(tags).not.toContain(cacheTags.bossList);
+      expect(tags).not.toContain(cacheTags.search);
+      // Positive half: this insertion must still invalidate the per-boss and
+      // per-player tags, so a total-breakage bug doesn't slip through by
+      // only ever checking for absence.
+      expect(tags).toContain(bossCacheTag('zulrah'));
+      expect(tags).toContain(playerIdCacheTag(insertedJson.playerId));
+    });
+
+    it('invalidates both the exact and bucket profile tags for a changed boss', async () => {
+      const secret = 'a'.repeat(20);
+      const res = await syncRequest({
+        accountHash: 'exact-and-bucket-account',
+        displayName: 'Exact And Bucket',
+        installSecret: secret,
+        pbs: { Zulrah: 80 },
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).updated).toBe(1);
+
+      const tags = invalidatedTags();
+      expect(tags).toContain(profileBossExactCacheTag('zulrah'));
+      expect(tags).toContain(profileBossBucketCacheTag('zulrah'));
+    });
   });
 });

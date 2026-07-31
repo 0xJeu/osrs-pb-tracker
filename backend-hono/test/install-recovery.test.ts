@@ -510,7 +510,11 @@ describe('install credential recovery', () => {
       pbsByBoss: new Map([['zulrah', 1]]),
     });
 
-    expect(staleCommit).toMatchObject({ authorized: false, changedBosses: [] });
+    expect(staleCommit).toMatchObject({
+      authorized: false,
+      insertedBosses: [],
+      improvedBosses: [],
+    });
     const [player] = await db.select().from(players).where(eq(players.id, playerId));
     expect(player.displayName).toBe('0xSteph Recovery');
     expect(player.installSecretHash).toBe(hashSecret(candidateSecret));

@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players, syncAttempts } from '../db/schema.js';
@@ -9,6 +9,7 @@ import {
   playerIdCacheTag,
   playerNameCacheTag,
   profileBossBucketCacheTag,
+  profileBossExactCacheTag,
 } from '../lib/cache.js';
 import { hashSecret, isRateLimited } from '../lib/secret.js';
 import {
@@ -238,7 +239,7 @@ export async function commitExistingAuthorizedSync(values: {
        ON CONFLICT (player_id, boss) DO UPDATE
          SET time_seconds = EXCLUDED.time_seconds, updated_at = EXCLUDED.updated_at
          WHERE EXCLUDED.time_seconds < personal_bests.time_seconds
-       RETURNING boss`,
+       RETURNING boss, (xmax = 0) AS inserted`,
       [values.playerId, values.secretHash, payload]
     ),
   ]);
@@ -250,7 +251,12 @@ export async function commitExistingAuthorizedSync(values: {
       renamedRows.length === 0
         ? [] as string[]
         : [String(renamedRows[0].old_display_name_lower), values.displayNameLower],
-    changedBosses: [...new Set(changedRows.map((row) => String(row.boss)))],
+    insertedBosses: [
+      ...new Set(changedRows.filter((row) => Boolean(row.inserted)).map((row) => String(row.boss))),
+    ],
+    improvedBosses: [
+      ...new Set(changedRows.filter((row) => !Boolean(row.inserted)).map((row) => String(row.boss))),
+    ],
   };
 }
 
@@ -281,9 +287,9 @@ export function normalizePbEntries(entries: Array<[string, unknown]>) {
 // or slower resync must leave the existing row (including its timestamp)
 // completely untouched - see sync.test.ts's "only overwrites a PB when the
 // new time is faster" test, which locks this in.
-async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
+export async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
   if (pbsByBoss.size === 0) {
-    return [] as string[];
+    return { insertedBosses: [] as string[], improvedBosses: [] as string[] };
   }
 
   const updatedAt = new Date();
@@ -302,9 +308,46 @@ async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>) {
       set: { timeSeconds: sql`excluded.time_seconds`, updatedAt },
       setWhere: sql`excluded.time_seconds < ${personalBests.timeSeconds}`,
     })
-    .returning({ boss: personalBests.boss });
+    .returning({
+      boss: personalBests.boss,
+      // xmax is a Postgres system column: 0 if this row was inserted by the
+      // current command, non-zero if an existing row was updated instead.
+      // Used to tell "brand-new boss" apart from "existing PB improved" so
+      // the caller can invalidate the global stats cache only on the former.
+      inserted: sql<boolean>`xmax = 0`,
+    });
 
-  return [...new Set(changed.map((row) => row.boss))];
+  const insertedBosses = new Set<string>();
+  const improvedBosses = new Set<string>();
+  for (const row of changed) {
+    (row.inserted ? insertedBosses : improvedBosses).add(row.boss);
+  }
+
+  return {
+    insertedBosses: [...insertedBosses],
+    improvedBosses: [...improvedBosses],
+  };
+}
+
+// Must run before upsertPbs's insert, not after - see the race analysis in
+// this task's code review. Checking existence before this sync's own write
+// (rather than counting rows after) means a genuine race between two
+// concurrent first-ever syncers for the same boss key both correctly see
+// "didn't exist yet" and both invalidate (a harmless duplicate purge) -
+// instead of the previous shape, where both could see "already exists"
+// (each other's just-committed row) and NEITHER would invalidate, silently
+// missing a truly new boss until the CDN entry's TTL naturally expires.
+async function findAlreadyKnownBosses(bossKeys: readonly string[]): Promise<Set<string>> {
+  if (bossKeys.length === 0) {
+    return new Set();
+  }
+
+  const rows = await db
+    .selectDistinct({ boss: personalBests.boss })
+    .from(personalBests)
+    .where(inArray(personalBests.boss, bossKeys));
+
+  return new Set(rows.map((row) => row.boss));
 }
 
 sync.post('/', async (c) => {
@@ -422,12 +465,16 @@ sync.post('/', async (c) => {
     );
   }
 
+  // Read before this sync's insert so a genuinely new global boss can never
+  // be mistaken for an existing one. Concurrent first insertions may both
+  // invalidate, which is the safe direction for cache correctness.
+  const alreadyKnownBosses = await findAlreadyKnownBosses([...pbsByBoss.keys()]);
   const committed = created
     ? {
         authorized: true,
         metadataChanged,
         namesToInvalidate,
-        changedBosses: await upsertPbs(playerId, pbsByBoss),
+        ...(await upsertPbs(playerId, pbsByBoss)),
       }
     : await commitExistingAuthorizedSync({
         playerId,
@@ -463,7 +510,9 @@ sync.post('/', async (c) => {
 
   const finalMetadataChanged = created || committed.metadataChanged;
   const finalNamesToInvalidate = created ? namesToInvalidate : committed.namesToInvalidate;
-  const changedBosses = committed.changedBosses;
+  const { insertedBosses, improvedBosses } = committed;
+  const changedBosses = [...insertedBosses, ...improvedBosses];
+  const globallyNewBosses = new Set(insertedBosses.filter((boss) => !alreadyKnownBosses.has(boss)));
   const meaningfulChange = created || finalMetadataChanged || changedBosses.length > 0;
   const syncAttemptId = meaningfulChange
     ? await recordSyncAttempt({
@@ -486,17 +535,34 @@ sync.post('/', async (c) => {
     );
   }
 
-  if (created) {
+  // stats: a new player OR any PB insertion, not a faster-time-only update.
+  if (created || insertedBosses.length > 0) {
     invalidationTags.push(cacheTags.stats);
   }
 
+  // bossList/search: only when the first-ever PB for a previously-absent
+  // boss key is inserted, not for a player's own first time on a boss key
+  // that already exists elsewhere in the database.
+  if (globallyNewBosses.size > 0) {
+    invalidationTags.push(cacheTags.bossList, cacheTags.search);
+  }
+
+  // Per-boss/profile/player tags: both insertion and improvement change the
+  // boss leaderboard and this player's rank-bearing profile. Both the exact
+  // and bucket tag are invalidated for each boss (not just whichever scheme
+  // players.ts happens to be using for a given profile right now) so a
+  // rolling deploy or an oversized (bucket-fallback) profile can never be
+  // left stale depending on which scheme actually tagged its cached
+  // response - see players.ts's profileCacheTags for the exact/bucket
+  // selection this pairs with.
   if (changedBosses.length > 0) {
     invalidationTags.push(
-      cacheTags.bossList,
-      cacheTags.search,
-      cacheTags.stats,
       playerIdCacheTag(playerId),
-      ...changedBosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)])
+      ...changedBosses.flatMap((boss) => [
+        bossCacheTag(boss),
+        profileBossExactCacheTag(boss),
+        profileBossBucketCacheTag(boss),
+      ])
     );
   }
 

@@ -11,6 +11,7 @@ import {
   invalidateSharedCache,
   playerIdCacheTag,
   profileBossBucketCacheTag,
+  profileBossExactCacheTag,
 } from './cache.js';
 import { invalidatePlayerSyncReplay } from './syncReplay.js';
 
@@ -477,7 +478,11 @@ export async function promoteInstallRecoveryCandidate(candidateId: number, actor
     cacheTags.search,
     cacheTags.stats,
     playerIdCacheTag(promoted.player_id),
-    ...promoted.changed_bosses.flatMap((boss) => [bossCacheTag(boss), profileBossBucketCacheTag(boss)]),
+    ...promoted.changed_bosses.flatMap((boss) => [
+      bossCacheTag(boss),
+      profileBossExactCacheTag(boss),
+      profileBossBucketCacheTag(boss),
+    ]),
   ]);
 
   // The former incumbent's last successful sync may still be a cached replay
