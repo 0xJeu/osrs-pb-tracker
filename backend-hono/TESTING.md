@@ -76,6 +76,10 @@ replays the quarantined PBs using the normal faster-only rule. A contested
 candidate cannot be promoted by this first implementation; it can only be
 rejected pending a future explicit contested-recovery policy.
 
+Candidates remain non-promotable while replay invalidation is being confirmed.
+Each credential epoch stores at most five distinct candidates, and candidate
+records expire after 90 days through opportunistic cleanup.
+
 ### Protected admin interface
 
 Set `RECOVERY_ADMIN_PASSWORD` in the ignored environment file for the target.
@@ -96,6 +100,8 @@ eight-hour, signed, HttpOnly, SameSite=Strict session cookie; the password is
 not stored in the browser or database. Admin responses disable caching and
 CORS. Only safe continuity counts, timestamps, statuses, and decision events
 are returned; credential hashes and quarantined PB payloads are never exposed.
+Web decisions are recorded as the authenticated `admin` principal; the caller
+cannot supply a different audit identity.
 
 Production requires a separate strong `RECOVERY_ADMIN_PASSWORD` in the backend
 deployment environment. Never reuse a test/staging password, place it in a URL,

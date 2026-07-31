@@ -62,6 +62,64 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps invalidation in flight non-promotable and returns a concurrent contest', async () => {
+    let releaseInvalidation!: () => void;
+    mocks.expireTag.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        releaseInvalidation = resolve;
+      })
+    );
+
+    const { db } = await import('../src/db/client.js');
+    const { installRecoveryCandidates, players } = await import('../src/db/schema.js');
+    const {
+      captureInstallRecoveryCandidate,
+      promoteInstallRecoveryCandidate,
+      RecoveryDecisionConflictError,
+    } = await import('../src/lib/installRecovery.js');
+    const { truncateAll } = await import('./helpers.js');
+
+    await truncateAll();
+    const [player] = await db
+      .insert(players)
+      .values({
+        accountHash: 'replay-in-flight-account',
+        displayName: 'ReplayInFlightPlayer',
+        displayNameLower: 'replayinflightplayer',
+        installSecretHash: 'incumbent-secret-hash-for-in-flight-test',
+        updatedAt: new Date(),
+      })
+      .returning();
+    const firstValues = {
+      playerId: player.id,
+      incumbentSecretHash: 'incumbent-secret-hash-for-in-flight-test',
+      candidateSecretHash: 'first-candidate-secret-hash',
+      displayName: 'ReplayInFlightPlayer',
+      receivedCount: 1,
+      pbsByBoss: new Map([['zulrah', 80]]),
+    };
+
+    const firstCapture = captureInstallRecoveryCandidate(firstValues);
+    await vi.waitFor(() => expect(mocks.expireTag).toHaveBeenCalledTimes(1));
+    const [inFlight] = await db.select().from(installRecoveryCandidates);
+    expect(inFlight.status).toBe('invalidation_pending');
+    await expect(
+      promoteInstallRecoveryCandidate(inFlight.id, 'local-test-admin')
+    ).rejects.toBeInstanceOf(RecoveryDecisionConflictError);
+
+    const competing = await captureInstallRecoveryCandidate({
+      ...firstValues,
+      candidateSecretHash: 'second-candidate-secret-hash',
+    });
+    expect(competing.status).toBe('contested');
+    releaseInvalidation();
+    const first = await firstCapture;
+
+    expect(first.status).toBe('contested');
+    const candidates = await db.select().from(installRecoveryCandidates);
+    expect(candidates.map((candidate) => candidate.status)).toEqual(['contested', 'contested']);
+  });
+
   it('stays non-promotable after a later successful invalidation', async () => {
     mocks.expireTag.mockRejectedValueOnce(new Error('cache outage'));
 

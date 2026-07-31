@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getCookie } from 'hono/cookie';
 import type { MiddlewareHandler } from 'hono';
 import { db } from '../db/client.js';
@@ -82,26 +82,19 @@ export function verifyRecoveryAdminSession(value: string | undefined, nowMs: num
   return safeEqual(parts[3], sessionSignature(payload, password));
 }
 
-export async function recoveryAdminLoginBlocked(keyHash: string, nowMs: number = Date.now()) {
-  const [limit] = await db
-    .select({
-      failureCount: recoveryAdminLoginLimits.failureCount,
-      windowStartedAt: recoveryAdminLoginLimits.windowStartedAt,
-    })
-    .from(recoveryAdminLoginLimits)
-    .where(eq(recoveryAdminLoginLimits.keyHash, keyHash))
-    .limit(1);
-  return Boolean(
-    limit &&
-      nowMs - limit.windowStartedAt.getTime() < LOGIN_WINDOW_MS &&
-      limit.failureCount >= LOGIN_FAILURE_LIMIT
-  );
+export interface RecoveryAdminLoginReservation {
+  allowed: boolean;
+  attemptCount: number;
+  windowStartedAt: Date;
 }
 
-export async function recordRecoveryAdminLoginFailure(keyHash: string, nowMs: number = Date.now()) {
+export async function reserveRecoveryAdminLoginAttempt(
+  keyHash: string,
+  nowMs: number = Date.now()
+): Promise<RecoveryAdminLoginReservation> {
   const now = new Date(nowMs);
   const cutoff = new Date(nowMs - LOGIN_WINDOW_MS);
-  await db
+  const reserved = await db
     .insert(recoveryAdminLoginLimits)
     .values({ keyHash, failureCount: 1, windowStartedAt: now })
     .onConflictDoUpdate({
@@ -110,7 +103,7 @@ export async function recordRecoveryAdminLoginFailure(keyHash: string, nowMs: nu
         failureCount: sql`CASE
           WHEN ${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}
             THEN 1
-          ELSE ${recoveryAdminLoginLimits.failureCount} + 1
+          ELSE LEAST(${recoveryAdminLoginLimits.failureCount} + 1, ${LOGIN_FAILURE_LIMIT + 1})
         END`,
         windowStartedAt: sql`CASE
           WHEN ${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}
@@ -118,11 +111,41 @@ export async function recordRecoveryAdminLoginFailure(keyHash: string, nowMs: nu
           ELSE ${recoveryAdminLoginLimits.windowStartedAt}
         END`,
       },
+    })
+    .returning({
+      attemptCount: recoveryAdminLoginLimits.failureCount,
+      windowStartedAt: recoveryAdminLoginLimits.windowStartedAt,
     });
+
+  // Expired keys from other clients are no longer useful. Login volume is low,
+  // and the indexed timestamp keeps this global retention pass bounded.
+  await db.delete(recoveryAdminLoginLimits).where(
+    and(
+      sql`${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}`,
+      sql`${recoveryAdminLoginLimits.keyHash} <> ${keyHash}`
+    )
+  );
+
+  return {
+    allowed: reserved[0].attemptCount <= LOGIN_FAILURE_LIMIT,
+    attemptCount: reserved[0].attemptCount,
+    windowStartedAt: reserved[0].windowStartedAt,
+  };
 }
 
-export async function clearRecoveryAdminLoginFailures(keyHash: string) {
-  await db.delete(recoveryAdminLoginLimits).where(eq(recoveryAdminLoginLimits.keyHash, keyHash));
+export async function clearRecoveryAdminLoginFailures(
+  keyHash: string,
+  reservation: RecoveryAdminLoginReservation
+) {
+  // Do not erase attempts that arrived after this successful request reserved
+  // its slot. Those requests may still be evaluating invalid credentials.
+  await db.delete(recoveryAdminLoginLimits).where(
+    and(
+      eq(recoveryAdminLoginLimits.keyHash, keyHash),
+      eq(recoveryAdminLoginLimits.failureCount, reservation.attemptCount),
+      eq(recoveryAdminLoginLimits.windowStartedAt, reservation.windowStartedAt)
+    )
+  );
 }
 
 export async function resetRecoveryAdminLoginLimiter() {

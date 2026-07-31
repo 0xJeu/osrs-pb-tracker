@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   installRecoveryCandidates,
@@ -14,9 +14,19 @@ import {
 } from './cache.js';
 import { invalidatePlayerSyncReplay } from './syncReplay.js';
 
-const RECOVERABLE_STATUSES = ['pending', 'invalidation_failed', 'contested'] as const;
+const RECOVERABLE_STATUSES = [
+  'invalidation_pending',
+  'pending',
+  'invalidation_failed',
+  'contested',
+] as const;
+
+const MAX_CANDIDATES_PER_CREDENTIAL_EPOCH = 5;
+const RECOVERY_CANDIDATE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const RECOVERY_CANDIDATE_CLEANUP_INTERVAL = 100;
 
 export type RecoveryCandidateStatus =
+  | 'invalidation_pending'
   | 'pending'
   | 'invalidation_failed'
   | 'contested'
@@ -96,6 +106,29 @@ function payloadDigest(payload: Record<string, number>) {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
+export async function pruneExpiredInstallRecoveryCandidates(latestCandidateId: number) {
+  if (latestCandidateId % RECOVERY_CANDIDATE_CLEANUP_INTERVAL !== 0) {
+    return;
+  }
+
+  try {
+    await db
+      .delete(installRecoveryCandidates)
+      .where(
+        lt(
+          installRecoveryCandidates.lastSeenAt,
+          new Date(Date.now() - RECOVERY_CANDIDATE_RETENTION_MS)
+        )
+      );
+  } catch (error) {
+    // Retention is opportunistic and must never turn a safely rejected sync
+    // into a server error. Candidate/event foreign keys handle cleanup.
+    console.error('Failed to prune expired install recovery candidates', {
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
+}
+
 export async function captureInstallRecoveryCandidate(values: {
   playerId: number;
   incumbentSecretHash: string;
@@ -112,7 +145,7 @@ export async function captureInstallRecoveryCandidate(values: {
   // The player-row lock is the serialization boundary shared with incumbent
   // sync commits and promotion. Candidate upsert, continuity calculation, and
   // competing-candidate contestation therefore commit as one ordered action.
-  const [, , , finalRows] = await db.$client.transaction((txn) => [
+  const [lockedRows, , , finalRows] = await db.$client.transaction((txn) => [
     txn(
       'SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2 FOR UPDATE',
       [values.playerId, values.incumbentSecretHash]
@@ -148,20 +181,40 @@ export async function captureInstallRecoveryCandidate(values: {
          WHERE stored.player_id = $1 AND incoming.boss IS NULL
        ), incumbent AS (
          SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2
+       ), admitted AS (
+         SELECT incumbent.id
+         FROM incumbent
+         WHERE EXISTS (
+           SELECT 1
+           FROM install_recovery_candidates AS existing
+           WHERE existing.player_id = incumbent.id
+             AND existing.incumbent_secret_hash = $2
+             AND existing.candidate_secret_hash = $3
+         ) OR (
+           SELECT COUNT(*)
+           FROM install_recovery_candidates AS existing
+           WHERE existing.player_id = incumbent.id
+             AND existing.incumbent_secret_hash = $2
+         ) < $10
        )
        INSERT INTO install_recovery_candidates (
-         player_id, incumbent_secret_hash, candidate_secret_hash, display_name,
+         player_id, incumbent_secret_hash, candidate_secret_hash, status, display_name,
          payload, payload_digest, received_count, eligible_count,
          equal_count, improved_count, new_count, slower_count, missing_count,
          first_seen_at, last_seen_at
        )
-       SELECT incumbent.id, $2, $3, $4, $5::jsonb, $6, $7, $8,
+       SELECT admitted.id, $2, $3, 'invalidation_pending', $4, $5::jsonb, $6, $7, $8,
               continuity.equal_count, continuity.improved_count,
               continuity.new_count, continuity.slower_count,
               missing.missing_count, $9, $9
-       FROM incumbent CROSS JOIN continuity CROSS JOIN missing
+       FROM admitted CROSS JOIN continuity CROSS JOIN missing
        ON CONFLICT (player_id, incumbent_secret_hash, candidate_secret_hash)
        DO UPDATE SET
+         status = CASE
+           WHEN install_recovery_candidates.status = 'pending'
+             THEN 'invalidation_pending'
+           ELSE install_recovery_candidates.status
+         END,
          display_name = EXCLUDED.display_name,
          payload = EXCLUDED.payload,
          payload_digest = EXCLUDED.payload_digest,
@@ -185,18 +238,19 @@ export async function captureInstallRecoveryCandidate(values: {
         values.receivedCount,
         values.pbsByBoss.size,
         now,
+        MAX_CANDIDATES_PER_CREDENTIAL_EPOCH,
       ]
     ),
     txn(
       `UPDATE install_recovery_candidates
        SET status = 'contested'
        WHERE player_id = $1
-         AND status IN ('pending', 'invalidation_failed', 'contested')
+         AND status IN ('invalidation_pending', 'pending', 'invalidation_failed', 'contested')
          AND (
            SELECT COUNT(*)
            FROM install_recovery_candidates
            WHERE player_id = $1
-             AND status IN ('pending', 'invalidation_failed', 'contested')
+             AND status IN ('invalidation_pending', 'pending', 'invalidation_failed', 'contested')
          ) > 1`,
       [values.playerId]
     ),
@@ -219,6 +273,11 @@ export async function captureInstallRecoveryCandidate(values: {
 
   const candidate = finalRows[0];
   if (!candidate) {
+    if (lockedRows.length > 0) {
+      throw new RecoveryCandidateLimitError(
+        'Too many recovery candidates exist for the current credential epoch.'
+      );
+    }
     throw new RecoveryDecisionConflictError(
       'The incumbent credential changed while the recovery candidate was being captured.'
     );
@@ -231,43 +290,44 @@ export async function captureInstallRecoveryCandidate(values: {
   // is still active. Invalidating just this player's entries forces the next
   // sync on this account to be evaluated for real, without giving a public
   // caller a way to evict every player's replay protection.
-  const replayInvalidated = await invalidatePlayerSyncReplay(values.playerId);
-  if (!replayInvalidated && status === 'pending') {
-    // Unlike promotion (where invalidation is best-effort), success here is
-    // a correctness dependency: without it we cannot guarantee the
-    // incumbent's last successful sync isn't still served from cache,
-    // silently bypassing noteIncumbentCredentialSeen(). Fail closed instead
-    // of leaving an unconfirmed candidate promotable.
-    const transitioned = await db
-      .update(installRecoveryCandidates)
-      .set({ status: 'invalidation_failed' })
-      .where(
-        and(
-          eq(installRecoveryCandidates.id, candidate.id),
-          eq(installRecoveryCandidates.status, 'pending')
-        )
-      )
-      .returning({ id: installRecoveryCandidates.id });
-    if (transitioned.length > 0) {
-      await db.insert(installRecoveryEvents).values({
-        candidateId: candidate.id,
-        playerId: values.playerId,
-        eventType: 'replay_invalidation_unconfirmed',
-        actor: 'system',
-        reason:
-          "Could not confirm the incumbent's cached sync replay was invalidated. Promotion remains disabled because activity during the cache outage cannot be ruled out.",
-        createdAt: now,
-      });
-      status = 'invalidation_failed';
-    } else {
-      const [current] = await db
-        .select({ status: installRecoveryCandidates.status })
-        .from(installRecoveryCandidates)
-        .where(eq(installRecoveryCandidates.id, candidate.id))
-        .limit(1);
-      status = current.status as RecoveryCandidateStatus;
-    }
+  if (status === 'invalidation_pending') {
+    const replayInvalidated = await invalidatePlayerSyncReplay(values.playerId);
+    const finalStatus = replayInvalidated ? 'pending' : 'invalidation_failed';
+    const [, finalizedRows] = await db.$client.transaction((txn) => [
+      txn('SELECT id FROM players WHERE id = $1 FOR UPDATE', [values.playerId]),
+      txn(
+        `WITH transitioned AS (
+           UPDATE install_recovery_candidates
+           SET status = $4
+           WHERE id = $2
+             AND status = 'invalidation_pending'
+             AND EXISTS (
+               SELECT 1 FROM players
+               WHERE id = $1 AND install_secret_hash = $3
+             )
+           RETURNING id, player_id, status
+         ), failure_event AS (
+           INSERT INTO install_recovery_events
+             (candidate_id, player_id, event_type, actor, reason, created_at)
+           SELECT id, player_id, 'replay_invalidation_unconfirmed', 'system',
+                  'Could not confirm the incumbent cached sync replay was invalidated. Promotion remains disabled because activity during the cache outage cannot be ruled out.',
+                  NOW()
+           FROM transitioned
+           WHERE $4 = 'invalidation_failed'
+         )
+         SELECT status FROM transitioned
+         UNION ALL
+         SELECT status
+         FROM install_recovery_candidates
+         WHERE id = $2
+           AND NOT EXISTS (SELECT 1 FROM transitioned)`,
+        [values.playerId, candidate.id, values.incumbentSecretHash, finalStatus]
+      ),
+    ]);
+    status = String(finalizedRows[0]?.status ?? status) as RecoveryCandidateStatus;
   }
+
+  await pruneExpiredInstallRecoveryCandidates(Number(candidate.id));
 
   return {
     id: Number(candidate.id),
@@ -293,7 +353,7 @@ export async function noteIncumbentCredentialSeen(playerId: number) {
          UPDATE install_recovery_candidates
          SET status = 'contested'
          WHERE player_id = $1
-           AND status IN ('pending', 'invalidation_failed')
+           AND status IN ('invalidation_pending', 'pending', 'invalidation_failed')
          RETURNING id
        )
        INSERT INTO install_recovery_events
@@ -308,83 +368,88 @@ export async function noteIncumbentCredentialSeen(playerId: number) {
 
 export class RecoveryDecisionConflictError extends Error {}
 
-export async function promoteInstallRecoveryCandidate(candidateId: number, actor: string, reason?: string) {
-  const result = await db.execute<{
-    candidate_id: number;
-    player_id: number;
-    changed_bosses: string[];
-  }>(sql`
-    WITH candidate AS (
-      SELECT *
-      FROM install_recovery_candidates
-      WHERE id = ${candidateId} AND status = 'pending'
-    ),
-    locked_player AS MATERIALIZED (
-      SELECT player.id
-      FROM players AS player
-      JOIN candidate ON candidate.player_id = player.id
-      WHERE player.install_secret_hash = candidate.incumbent_secret_hash
-      FOR UPDATE OF player
-    ),
-    selected AS (
-      SELECT candidate.*
-      FROM candidate
-      JOIN locked_player ON locked_player.id = candidate.player_id
-      WHERE NOT EXISTS (
-        SELECT 1
-        FROM install_recovery_candidates AS competing
-        WHERE competing.player_id = candidate.player_id
-          AND competing.id <> candidate.id
-          AND competing.status IN ('pending', 'invalidation_failed', 'contested')
-      )
-    ),
-    promoted_player AS (
-      UPDATE players AS player
-      SET install_secret_hash = selected.candidate_secret_hash
-      FROM selected
-      WHERE player.id = selected.player_id
-        AND player.install_secret_hash = selected.incumbent_secret_hash
-      RETURNING player.id
-    ),
-    promoted_candidate AS (
-      UPDATE install_recovery_candidates AS candidate
-      SET status = 'promoted', promoted_at = NOW()
-      FROM selected, promoted_player
-      WHERE candidate.id = selected.id
-      RETURNING candidate.*
-    ),
-    upserted AS (
-      INSERT INTO personal_bests (player_id, boss, time_seconds, updated_at)
-      SELECT promoted_candidate.player_id,
-             payload.key,
-             (payload.value #>> '{}')::real,
-             NOW()
-      FROM promoted_candidate
-      CROSS JOIN LATERAL jsonb_each(promoted_candidate.payload) AS payload
-      ON CONFLICT (player_id, boss) DO UPDATE
-        SET time_seconds = EXCLUDED.time_seconds,
-            updated_at = EXCLUDED.updated_at
-        WHERE EXCLUDED.time_seconds < personal_bests.time_seconds
-      RETURNING boss
-    ),
-    recovery_event AS (
-      INSERT INTO install_recovery_events
-        (candidate_id, player_id, event_type, actor, reason, created_at)
-      SELECT promoted_candidate.id,
-             promoted_candidate.player_id,
-             'promoted',
-             ${actor},
-             ${reason ?? null},
-             NOW()
-      FROM promoted_candidate
-    )
-    SELECT promoted_candidate.id AS candidate_id,
-           promoted_candidate.player_id,
-           COALESCE((SELECT array_agg(upserted.boss) FROM upserted), ARRAY[]::text[]) AS changed_bosses
-    FROM promoted_candidate
-  `);
+export class RecoveryCandidateLimitError extends Error {}
 
-  const promoted = result.rows[0];
+export async function promoteInstallRecoveryCandidate(candidateId: number, actor: string, reason?: string) {
+  // The lock and decision deliberately use separate READ COMMITTED statements.
+  // If this waits behind an incumbent sync or competing capture, the second
+  // statement receives a fresh snapshot and sees the state transition that
+  // occurred before the lock became available.
+  const [, promotedRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT player.id
+       FROM players AS player
+       JOIN install_recovery_candidates AS candidate ON candidate.player_id = player.id
+       WHERE candidate.id = $1
+       FOR UPDATE OF player`,
+      [candidateId]
+    ),
+    txn(
+      `WITH candidate AS MATERIALIZED (
+         SELECT candidate.*
+         FROM install_recovery_candidates AS candidate
+         JOIN players AS player ON player.id = candidate.player_id
+         WHERE candidate.id = $1
+           AND candidate.status = 'pending'
+           AND player.install_secret_hash = candidate.incumbent_secret_hash
+           AND NOT EXISTS (
+             SELECT 1
+             FROM install_recovery_candidates AS competing
+             WHERE competing.player_id = candidate.player_id
+               AND competing.id <> candidate.id
+               AND competing.status IN (
+                 'invalidation_pending', 'pending', 'invalidation_failed', 'contested'
+               )
+           )
+       ), promoted_player AS (
+         UPDATE players AS player
+         SET install_secret_hash = candidate.candidate_secret_hash
+         FROM candidate
+         WHERE player.id = candidate.player_id
+           AND player.install_secret_hash = candidate.incumbent_secret_hash
+         RETURNING player.id
+       ), promoted_candidate AS (
+         UPDATE install_recovery_candidates AS stored_candidate
+         SET status = 'promoted', promoted_at = NOW()
+         FROM candidate, promoted_player
+         WHERE stored_candidate.id = candidate.id
+           AND stored_candidate.status = 'pending'
+         RETURNING stored_candidate.*
+       ), upserted AS (
+         INSERT INTO personal_bests (player_id, boss, time_seconds, updated_at)
+         SELECT promoted_candidate.player_id,
+                payload.key,
+                (payload.value #>> '{}')::real,
+                NOW()
+         FROM promoted_candidate
+         CROSS JOIN LATERAL jsonb_each(promoted_candidate.payload) AS payload
+         ON CONFLICT (player_id, boss) DO UPDATE
+           SET time_seconds = EXCLUDED.time_seconds,
+               updated_at = EXCLUDED.updated_at
+           WHERE EXCLUDED.time_seconds < personal_bests.time_seconds
+         RETURNING boss
+       ), recovery_event AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT promoted_candidate.id,
+                promoted_candidate.player_id,
+                'promoted', $2, $3, NOW()
+         FROM promoted_candidate
+       )
+       SELECT promoted_candidate.id AS candidate_id,
+              promoted_candidate.player_id,
+              COALESCE(
+                (SELECT array_agg(upserted.boss) FROM upserted),
+                ARRAY[]::text[]
+              ) AS changed_bosses
+       FROM promoted_candidate`,
+      [candidateId, actor, reason ?? null]
+    ),
+  ]);
+
+  const promoted = promotedRows[0] as
+    | { candidate_id: number; player_id: number; changed_bosses: string[] }
+    | undefined;
   if (!promoted) {
     throw new RecoveryDecisionConflictError(
       'Recovery candidate is no longer pending or the incumbent credential changed.'
@@ -414,24 +479,39 @@ export async function promoteInstallRecoveryCandidate(candidateId: number, actor
 }
 
 export async function rejectInstallRecoveryCandidate(candidateId: number, actor: string, reason?: string) {
-  const result = await db.execute<{ candidate_id: number; player_id: number }>(sql`
-    WITH rejected AS (
-      UPDATE install_recovery_candidates
-      SET status = 'rejected', rejected_at = NOW()
-      WHERE id = ${candidateId} AND status IN ('pending', 'invalidation_failed', 'contested')
-      RETURNING id, player_id
+  const [, rejectedRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT player.id
+       FROM players AS player
+       JOIN install_recovery_candidates AS candidate ON candidate.player_id = player.id
+       WHERE candidate.id = $1
+       FOR UPDATE OF player`,
+      [candidateId]
     ),
-    recovery_event AS (
-      INSERT INTO install_recovery_events
-        (candidate_id, player_id, event_type, actor, reason, created_at)
-      SELECT rejected.id, rejected.player_id, 'rejected', ${actor}, ${reason ?? null}, NOW()
-      FROM rejected
-    )
-    SELECT rejected.id AS candidate_id, rejected.player_id
-    FROM rejected
-  `);
+    txn(
+      `WITH rejected AS (
+         UPDATE install_recovery_candidates
+         SET status = 'rejected', rejected_at = NOW()
+         WHERE id = $1
+           AND status IN (
+             'invalidation_pending', 'pending', 'invalidation_failed', 'contested'
+           )
+         RETURNING id, player_id
+       ), recovery_event AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT rejected.id, rejected.player_id, 'rejected', $2, $3, NOW()
+         FROM rejected
+       )
+       SELECT rejected.id AS candidate_id, rejected.player_id
+       FROM rejected`,
+      [candidateId, actor, reason ?? null]
+    ),
+  ]);
 
-  const rejected = result.rows[0];
+  const rejected = rejectedRows[0] as
+    | { candidate_id: number; player_id: number }
+    | undefined;
   if (!rejected) {
     throw new RecoveryDecisionConflictError('Recovery candidate is no longer pending or contested.');
   }

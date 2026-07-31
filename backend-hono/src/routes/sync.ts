@@ -13,6 +13,7 @@ import {
 import { hashSecret, isRateLimited } from '../lib/secret.js';
 import {
   captureInstallRecoveryCandidate,
+  RecoveryCandidateLimitError,
 } from '../lib/installRecovery.js';
 import {
   buildSyncReplayKey,
@@ -214,7 +215,7 @@ export async function commitExistingAuthorizedSync(values: {
          SET status = 'contested'
          FROM authorized
          WHERE player_id = authorized.id
-           AND status IN ('pending', 'invalidation_failed')
+           AND status IN ('invalidation_pending', 'pending', 'invalidation_failed')
          RETURNING install_recovery_candidates.id
        )
        INSERT INTO install_recovery_events
@@ -382,10 +383,12 @@ sync.post('/', async (c) => {
     } catch (error) {
       // Recovery support must not turn a safe credential rejection into a 500.
       // Keep this credential- and payload-free for retained server logs.
-      console.error('Failed to capture install recovery candidate', {
-        playerId,
-        error: error instanceof Error ? error.message : 'unknown error',
-      });
+      if (!(error instanceof RecoveryCandidateLimitError)) {
+        console.error('Failed to capture install recovery candidate', {
+          playerId,
+          error: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
     }
 
     const syncAttemptId = await recordSyncAttempt({
@@ -397,7 +400,9 @@ sync.post('/', async (c) => {
       recoveryCandidateId: recoveryCandidate?.id,
     });
     const code = recoveryCandidate
-      ? recoveryCandidate.status === 'contested'
+      ? recoveryCandidate.status === 'invalidation_pending'
+        ? 'RECOVERY_INVALIDATION_PENDING'
+        : recoveryCandidate.status === 'contested'
         ? 'RECOVERY_CONTESTED'
         : recoveryCandidate.status === 'invalidation_failed'
           ? 'RECOVERY_INVALIDATION_FAILED'

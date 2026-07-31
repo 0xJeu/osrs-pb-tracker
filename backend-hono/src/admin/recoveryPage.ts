@@ -34,6 +34,7 @@ export function recoveryAdminPage(nonce: string) {
     .badge.promoted { background: #20553b; }
     .badge.rejected { background: #633039; }
     .badge.contested { background: #674519; }
+    .badge.invalidation_pending { background: #674519; }
     .badge.invalidation_failed { background: #674519; }
     .explanation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0 14px; }
     .insight { background: #141821; border: 1px solid #303746; border-radius: 10px; padding: 14px; }
@@ -90,8 +91,7 @@ export function recoveryAdminPage(nonce: string) {
         <button id="logout" type="button" class="secondary">Sign out</button>
       </div>
       <section class="controls" aria-label="Recovery controls">
-        <label>Actor<input id="actor" value="0xSteph" maxlength="80"></label>
-        <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="pending">Pending</option><option value="invalidation_failed">Invalidation failed</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
+        <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="invalidation_pending">Invalidation pending</option><option value="pending">Pending</option><option value="invalidation_failed">Invalidation failed</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
         <button id="refresh" type="button">Refresh</button>
       </section>
       <p id="message" class="message" role="status"></p>
@@ -107,7 +107,6 @@ export function recoveryAdminPage(nonce: string) {
     const loginButton = document.querySelector('#login');
     const loginMessage = document.querySelector('#login-message');
     const logoutButton = document.querySelector('#logout');
-    const actorInput = document.querySelector('#actor');
     const statusInput = document.querySelector('#status');
     const refreshButton = document.querySelector('#refresh');
     const message = document.querySelector('#message');
@@ -200,8 +199,6 @@ export function recoveryAdminPage(nonce: string) {
     }
 
     async function decide(candidate, decision) {
-      const actor = actorInput.value.trim();
-      if (!actor) throw new Error('Enter the actor responsible for this decision.');
       const reason = window.prompt('Reason for ' + decision + 'ing candidate ' + candidate.id + ':');
       if (reason === null) return;
       if (reason.trim().length < 5) throw new Error('Decision reason must be at least 5 characters.');
@@ -209,7 +206,7 @@ export function recoveryAdminPage(nonce: string) {
 
       await request('/api/admin/recovery/candidates/' + candidate.id + '/' + decision, {
         method: 'POST',
-        body: JSON.stringify({ actor: actor, reason: reason.trim() })
+        body: JSON.stringify({ reason: reason.trim() })
       });
       message.textContent = 'Candidate ' + candidate.id + ' was ' + (decision === 'promote' ? 'promoted' : 'rejected') + '.';
       await load();
@@ -263,7 +260,7 @@ export function recoveryAdminPage(nonce: string) {
       promote.addEventListener('click', function () { decide(candidate, 'promote').catch(showError); });
       const reject = textElement('button', 'Reject', 'danger');
       reject.type = 'button';
-      reject.disabled = candidate.status !== 'pending' && candidate.status !== 'invalidation_failed' && candidate.status !== 'contested';
+      reject.disabled = candidate.status !== 'invalidation_pending' && candidate.status !== 'pending' && candidate.status !== 'invalidation_failed' && candidate.status !== 'contested';
       reject.addEventListener('click', function () { decide(candidate, 'reject').catch(showError); });
       actions.append(promote, reject);
 

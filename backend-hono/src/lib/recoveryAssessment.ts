@@ -89,7 +89,13 @@ export function assessInstallRecovery(
       detail: `The incumbent credential completed an accepted sync at ${lastAcceptedSyncAt.toISOString()}.`,
     });
   }
-  if (candidate.status === 'pending') {
+  if (candidate.status === 'invalidation_pending') {
+    signals.push({
+      tone: 'caution',
+      label: 'Replay invalidation in progress',
+      detail: 'Promotion remains disabled until the incumbent replay cache is confirmed invalidated.',
+    });
+  } else if (candidate.status === 'pending') {
     signals.push({
       tone: 'positive',
       label: 'No credential contest detected',
@@ -118,7 +124,14 @@ export function assessInstallRecovery(
     title: string;
     detail: string;
   };
-  if (candidate.status === 'invalidation_failed') {
+  if (candidate.status === 'invalidation_pending') {
+    recommendation = {
+      action: 'wait',
+      tone: 'caution',
+      title: 'Wait for replay invalidation',
+      detail: 'This candidate is not promotable while replay invalidation is still being confirmed.',
+    };
+  } else if (candidate.status === 'invalidation_failed') {
     recommendation = {
       action: 'do_not_promote',
       tone: 'danger',

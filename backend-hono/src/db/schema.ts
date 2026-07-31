@@ -129,11 +129,19 @@ export const installRecoveryEvents = pgTable(
 // client key is stored; raw IP/header values never reach the database. Keeping
 // this state in Postgres makes the limit survive Vercel cold starts and apply
 // consistently across concurrent serverless instances.
-export const recoveryAdminLoginLimits = pgTable('recovery_admin_login_limits', {
-  keyHash: text('key_hash').primaryKey(),
-  failureCount: integer('failure_count').notNull().default(0),
-  windowStartedAt: timestamp('window_started_at', { withTimezone: true }).notNull(),
-});
+export const recoveryAdminLoginLimits = pgTable(
+  'recovery_admin_login_limits',
+  {
+    keyHash: text('key_hash').primaryKey(),
+    failureCount: integer('failure_count').notNull().default(0),
+    windowStartedAt: timestamp('window_started_at', { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    windowStartedAtIdx: index('idx_recovery_admin_login_window_started_at').on(
+      table.windowStartedAt
+    ),
+  })
+);
 
 // Operational support trail for meaningful accepted changes and rejected
 // install bindings. Accepted no-ops and rate-limited requests are deliberately

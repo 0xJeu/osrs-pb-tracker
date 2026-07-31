@@ -74,6 +74,18 @@ describe('install recovery assessment', () => {
     );
   });
 
+  it('keeps a candidate non-promotable while replay invalidation is in flight', () => {
+    const assessment = assessInstallRecovery(
+      { ...base, status: 'invalidation_pending', attemptCount: 2 },
+      null
+    );
+
+    expect(assessment.recommendation).toMatchObject({ action: 'wait', tone: 'caution' });
+    expect(assessment.signals.map((signal) => signal.label)).toContain(
+      'Replay invalidation in progress'
+    );
+  });
+
   it('marks incomplete or conflicting continuity for investigation', () => {
     const assessment = assessInstallRecovery(
       {

@@ -13,10 +13,9 @@ import {
   RECOVERY_ADMIN_COOKIE_PATH,
   RECOVERY_ADMIN_SESSION_SECONDS,
   RECOVERY_ADMIN_USERNAME,
-  recordRecoveryAdminLoginFailure,
   recoveryAdminClientKey,
   recoveryAdminIsConfigured,
-  recoveryAdminLoginBlocked,
+  reserveRecoveryAdminLoginAttempt,
   requireRecoveryAdmin,
 } from '../lib/adminAuth.js';
 import {
@@ -30,11 +29,17 @@ import { assessInstallRecovery } from '../lib/recoveryAssessment.js';
 const adminRecovery = new Hono();
 const candidateApi = new Hono();
 
-const statuses = ['pending', 'invalidation_failed', 'contested', 'promoted', 'rejected'] as const;
+const statuses = [
+  'invalidation_pending',
+  'pending',
+  'invalidation_failed',
+  'contested',
+  'promoted',
+  'rejected',
+] as const;
 type CandidateStatus = (typeof statuses)[number];
 
 interface DecisionBody {
-  actor?: unknown;
   reason?: unknown;
 }
 
@@ -63,15 +68,11 @@ function parseCandidateId(value: string | undefined) {
 }
 
 function parseDecisionBody(body: DecisionBody | null) {
-  const actor = typeof body?.actor === 'string' ? body.actor.trim() : '';
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
-  if (!actor || actor.length > 80) {
-    return { error: 'actor is required and must be at most 80 characters' } as const;
-  }
   if (reason.length < 5 || reason.length > 500) {
     return { error: 'reason is required and must be between 5 and 500 characters' } as const;
   }
-  return { actor, reason } as const;
+  return { reason } as const;
 }
 
 function serializeCandidate(
@@ -129,7 +130,8 @@ adminRecovery.post('/login', async (c) => {
   if (!clientKey) {
     return c.json({ error: 'Recovery admin is not configured.' }, 503);
   }
-  if (await recoveryAdminLoginBlocked(clientKey)) {
+  const reservation = await reserveRecoveryAdminLoginAttempt(clientKey);
+  if (!reservation.allowed) {
     return c.json({ error: 'Too many failed login attempts. Try again later.' }, 429);
   }
 
@@ -141,11 +143,10 @@ adminRecovery.post('/login', async (c) => {
     password.length > 1_024 ||
     !authenticateRecoveryAdmin(username, password)
   ) {
-    await recordRecoveryAdminLoginFailure(clientKey);
     return c.json({ error: 'Invalid username or password.' }, 401);
   }
 
-  await clearRecoveryAdminLoginFailures(clientKey);
+  await clearRecoveryAdminLoginFailures(clientKey, reservation);
   setCookie(c, RECOVERY_ADMIN_COOKIE, createRecoveryAdminSession(), {
     httpOnly: true,
     secure: secureCookies(),
@@ -177,7 +178,7 @@ candidateApi.get('/', async (c) => {
     return c.json(
       {
         error:
-          'status must be active, all, pending, invalidation_failed, contested, promoted, or rejected',
+          'status must be active, all, invalidation_pending, pending, invalidation_failed, contested, promoted, or rejected',
       },
       400
     );
@@ -185,7 +186,7 @@ candidateApi.get('/', async (c) => {
 
   const statusFilter: readonly CandidateStatus[] | undefined =
     requestedStatus === 'active'
-      ? ['pending', 'invalidation_failed', 'contested']
+      ? ['invalidation_pending', 'pending', 'invalidation_failed', 'contested']
       : requestedStatus === 'all'
         ? undefined
         : [requestedStatus as CandidateStatus];
@@ -257,7 +258,11 @@ async function decide(c: Context, decision: 'promote' | 'reject') {
 
   try {
     if (decision === 'promote') {
-      const result = await promoteInstallRecoveryCandidate(candidateId, parsed.actor, parsed.reason);
+      const result = await promoteInstallRecoveryCandidate(
+        candidateId,
+        RECOVERY_ADMIN_USERNAME,
+        parsed.reason
+      );
       return c.json({
         ok: true,
         decision,
@@ -267,7 +272,11 @@ async function decide(c: Context, decision: 'promote' | 'reject') {
       });
     }
 
-    const result = await rejectInstallRecoveryCandidate(candidateId, parsed.actor, parsed.reason);
+    const result = await rejectInstallRecoveryCandidate(
+      candidateId,
+      RECOVERY_ADMIN_USERNAME,
+      parsed.reason
+    );
     return c.json({
       ok: true,
       decision,

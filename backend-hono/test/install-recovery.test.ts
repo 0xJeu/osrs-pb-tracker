@@ -11,6 +11,7 @@ import {
 } from '../src/db/schema.js';
 import {
   promoteInstallRecoveryCandidate,
+  pruneExpiredInstallRecoveryCandidates,
   RecoveryDecisionConflictError,
   rejectInstallRecoveryCandidate,
 } from '../src/lib/installRecovery.js';
@@ -148,6 +149,33 @@ describe('install credential recovery', () => {
     expect(candidates).toEqual([{ status: 'contested' }, { status: 'contested' }]);
   });
 
+  it('caps candidates within one credential epoch', async () => {
+    await establishIncumbent();
+
+    for (const character of ['b', 'c', 'd', 'e', 'f']) {
+      expect((await syncRequest(character.repeat(20), { Zulrah: 75 })).status).toBe(409);
+    }
+    const capped = await syncRequest('g'.repeat(20), { Zulrah: 74 });
+
+    expect(await capped.json()).toMatchObject({
+      code: 'INSTALL_SECRET_MISMATCH',
+      recoveryId: null,
+    });
+    expect(await db.select().from(installRecoveryCandidates)).toHaveLength(5);
+  });
+
+  it('prunes recovery candidates after the retention window', async () => {
+    await establishIncumbent();
+    await syncRequest(candidateSecret, { Zulrah: 75 });
+    await db
+      .update(installRecoveryCandidates)
+      .set({ lastSeenAt: new Date(Date.now() - 91 * 24 * 60 * 60 * 1000) });
+
+    await pruneExpiredInstallRecoveryCandidates(100);
+
+    expect(await db.select().from(installRecoveryCandidates)).toHaveLength(0);
+  });
+
   it('marks a pending candidate contested when the incumbent credential returns', async () => {
     await establishIncumbent();
     await syncRequest(candidateSecret, { Zulrah: 75 });
@@ -273,6 +301,32 @@ describe('install credential recovery', () => {
     ).rejects.toBeInstanceOf(RecoveryDecisionConflictError);
   });
 
+  it('serializes simultaneous promote and reject decisions', async () => {
+    await establishIncumbent();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    const recoveryId = (await mismatch.json()).recoveryId as number;
+
+    const decisions = await Promise.allSettled([
+      promoteInstallRecoveryCandidate(recoveryId, 'promoting-admin'),
+      rejectInstallRecoveryCandidate(recoveryId, 'rejecting-admin'),
+    ]);
+
+    expect(decisions.filter((decision) => decision.status === 'fulfilled')).toHaveLength(1);
+    expect(decisions.filter((decision) => decision.status === 'rejected')).toHaveLength(1);
+    const [candidate] = await db.select().from(installRecoveryCandidates);
+    const [player] = await db.select().from(players);
+    const [event] = await db.select().from(installRecoveryEvents);
+    expect(event.eventType).toBe(candidate.status);
+    if (candidate.status === 'promoted') {
+      expect(player.installSecretHash).toBe(hashSecret(candidateSecret));
+      expect(event.actor).toBe('promoting-admin');
+    } else {
+      expect(candidate.status).toBe('rejected');
+      expect(player.installSecretHash).toBe(hashSecret(incumbentSecret));
+      expect(event.actor).toBe('rejecting-admin');
+    }
+  });
+
   it('rejects a candidate without changing the incumbent credential or PBs', async () => {
     await establishIncumbent();
     const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
@@ -386,6 +440,36 @@ describe('install credential recovery', () => {
       .where(eq(personalBests.boss, 'zulrah'));
     expect(zulrah.timeSeconds).toBe(80);
   });
+
+  it('rechecks candidate state after promotion waits for the player lock', async () => {
+    const incumbent = await establishIncumbent();
+    const { playerId } = await incumbent.json();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    const recoveryId = (await mismatch.json()).recoveryId as number;
+
+    const contestingTransaction = Promise.resolve(
+      db.$client.transaction((txn) => [
+        txn('SELECT id FROM players WHERE id = $1 FOR UPDATE', [playerId]),
+        txn('SELECT pg_sleep(3)'),
+        txn(
+          `UPDATE install_recovery_candidates
+           SET status = 'contested'
+           WHERE id = $1`,
+          [recoveryId]
+        ),
+      ])
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+    const promotion = promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin');
+    await contestingTransaction;
+    await expect(promotion).rejects.toBeInstanceOf(RecoveryDecisionConflictError);
+
+    const [candidate] = await db.select().from(installRecoveryCandidates);
+    const [player] = await db.select().from(players).where(eq(players.id, playerId));
+    expect(candidate.status).toBe('contested');
+    expect(player.installSecretHash).toBe(hashSecret(incumbentSecret));
+  }, 15_000);
 
   it('rejects a stale authorized commit after recovery promotion replaces the credential', async () => {
     const incumbent = await establishIncumbent();

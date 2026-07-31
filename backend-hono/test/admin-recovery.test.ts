@@ -158,9 +158,33 @@ describe('recovery admin', () => {
     expect((await login(adminPassword, 'admin', '192.0.2.2')).response.status).toBe(200);
 
     const [persistedLimit] = await db.select().from(recoveryAdminLoginLimits);
-    expect(persistedLimit.failureCount).toBe(5);
+    expect(persistedLimit.failureCount).toBe(6);
     expect(persistedLimit.keyHash).toMatch(/^[a-f0-9]{64}$/);
     expect(persistedLimit.keyHash).not.toContain('192.0.2.1');
+  });
+
+  it('atomically limits parallel login guesses from one source', async () => {
+    const attempts = await Promise.all(
+      Array.from({ length: 20 }, () => login('wrong-password-value', 'admin', '192.0.2.70'))
+    );
+    const statuses = attempts.map(({ response }) => response.status);
+
+    expect(statuses.filter((status) => status === 401)).toHaveLength(5);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(15);
+    const [persistedLimit] = await db.select().from(recoveryAdminLoginLimits);
+    expect(persistedLimit.failureCount).toBe(6);
+  });
+
+  it('prunes expired login limiter keys while reserving a new attempt', async () => {
+    await db.insert(recoveryAdminLoginLimits).values({
+      keyHash: 'f'.repeat(64),
+      failureCount: 5,
+      windowStartedAt: new Date(Date.now() - 11 * 60 * 1000),
+    });
+
+    expect((await login(adminPassword, 'admin', '192.0.2.71')).response.status).toBe(200);
+
+    expect(await db.select().from(recoveryAdminLoginLimits)).toHaveLength(0);
   });
 
   it('uses Vercel\'s platform identity instead of a caller-controlled forwarded chain', async () => {
@@ -265,7 +289,7 @@ describe('recovery admin', () => {
     expect(event).toMatchObject({
       candidateId: recoveryId,
       eventType: 'promoted',
-      actor: '0xSteph',
+      actor: 'admin',
       reason: 'Verified local recovery test.',
     });
 
@@ -275,7 +299,7 @@ describe('recovery admin', () => {
     const listed = await list.json();
     expect(listed.candidates[0].events[0]).toMatchObject({
       eventType: 'promoted',
-      actor: '0xSteph',
+      actor: 'admin',
       reason: 'Verified local recovery test.',
     });
   });
