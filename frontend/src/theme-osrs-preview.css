@@ -488,10 +488,10 @@
 }
 .pbt-card:hover { background: var(--pbt-bg-3); }
 .pbt-card .idx { position: absolute; top: 16px; right: 18px; font-size: 12px; }
-.pbt-card .pbt-pet { margin-bottom: 28px; background: var(--pbt-bg); }
-.pbt-card .bname { font-size: 15px; min-height: 40px; line-height: 1.35; font-weight: 700; text-shadow: var(--pbt-shadow); }
-.pbt-card .btime { font-size: 20px; margin-top: 8px; text-shadow: var(--pbt-shadow); }
-.pbt-card .brank { font-size: 12px; margin-top: 4px; opacity: .75; }
+.pbt-card .pbt-pet { width: 92px; height: 92px; border-radius: 8px; font-size: 26px; margin-bottom: 28px; background: var(--pbt-bg); }
+.pbt-card .bname { font-size: 19px; min-height: 40px; line-height: 1.35; font-weight: 700; text-shadow: var(--pbt-shadow); }
+.pbt-card .btime { font-size: 26px; margin-top: 8px; text-shadow: var(--pbt-shadow); }
+.pbt-card .brank { font-size: 15px; margin-top: 4px; opacity: .75; }
 
 /* ---- Mode chips (Entry / Normal / Hard-Challenge-Expert) ---- */
 .pbt-modes { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
