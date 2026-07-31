@@ -6,6 +6,8 @@
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "tsx watch src/index.node.ts",
+    "dev:test": "tsx scripts/run-guarded-dev.ts destructive-test",
+    "dev:staging": "tsx scripts/run-guarded-dev.ts seeded-staging",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "vercel-build": "npm run db:migrate",
@@ -17,6 +19,9 @@
     "db:seed:staging": "tsx scripts/seed-staging-data.ts",
     "db:smoke:staging": "tsx scripts/check-staging-data.ts",
     "api:smoke:staging": "tsx scripts/check-staging-api.ts",
+    "recovery:test": "tsx scripts/recovery-admin.ts destructive-test",
+    "recovery:staging": "tsx scripts/recovery-admin.ts seeded-staging",
+    "recovery:e2e:staging": "tsx scripts/check-install-recovery-e2e.ts",
     "cleanup:untracked-bosses": "tsx scripts/cleanup-untracked-bosses.ts"
   },
   "dependencies": {

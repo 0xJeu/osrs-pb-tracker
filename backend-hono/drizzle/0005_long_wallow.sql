@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "idx_recovery_admin_login_window_started_at" ON "recovery_admin_login_limits" USING btree ("window_started_at");

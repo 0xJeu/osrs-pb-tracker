@@ -1,0 +1,2 @@
+ALTER TABLE "install_recovery_candidates" DROP CONSTRAINT "install_recovery_candidates_player_id_candidate_secret_hash_unique";--> statement-breakpoint
+ALTER TABLE "install_recovery_candidates" ADD CONSTRAINT "install_recovery_candidates_player_id_incumbent_secret_hash_candidate_secret_hash_unique" UNIQUE("player_id","incumbent_secret_hash","candidate_secret_hash");
