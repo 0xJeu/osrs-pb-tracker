@@ -1,12 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
-import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { insertTestPlayerWithPb } from './helpers.js';
 
 describe('GET /api/search', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns an empty array with no query', async () => {
     const res = await app.request('/api/search');
     expect(res.headers.get('cdn-cache-control')).toBe(

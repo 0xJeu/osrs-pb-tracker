@@ -1,12 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
-import { insertManyTestPlayersWithPbs, insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { insertManyTestPlayersWithPbs, insertTestPlayerWithPb } from './helpers.js';
 
 describe('GET /api/leaderboard/:boss', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns an empty array when nobody has synced that boss', async () => {
     const res = await app.request('/api/leaderboard/zulrah?limit=25');
     expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
@@ -69,14 +65,12 @@ describe('GET /api/leaderboard/:boss', () => {
   });
 
   it('extends past the default limit to include a highlighted player beyond it', async () => {
-    await insertManyTestPlayersWithPbs(
-      Array.from({ length: 30 }, (_, i) => ({
-        boss: 'zulrah',
-        timeSeconds: 80 + i,
-        displayName: `Player${i}`,
-        accountHash: `acct-${i}`,
-      }))
-    );
+    await insertManyTestPlayersWithPbs(Array.from({ length: 30 }, (_, i) => ({
+      boss: 'zulrah',
+      timeSeconds: 80 + i,
+      displayName: `Player${i}`,
+      accountHash: `acct-${i}`,
+    })));
     // Player29 has the slowest time, so sits at rank 30 - past the default
     // limit of 25.
     const res = await app.request('/api/leaderboard/zulrah?limit=25&highlight=player29');

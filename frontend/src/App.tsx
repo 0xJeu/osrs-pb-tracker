@@ -1,6 +1,5 @@
-import { PhaseTwoOsrsPreview } from './components/PhaseTwoOsrsPreview';
+import { PbTrackerApp } from './components/PbTrackerApp';
 
-// The phase-two experience is the production site and owns the root route.
 export default function App() {
-  return <PhaseTwoOsrsPreview />;
+  return <PbTrackerApp />;
 }

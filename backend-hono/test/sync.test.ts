@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
@@ -17,12 +17,6 @@ function syncRequest(body: unknown) {
 }
 
 describe('POST /api/sync', () => {
-  beforeEach(async () => {
-    await resetSyncReplayCache();
-    await truncateAll();
-    resetRateLimiter();
-  });
-
   it('rejects a missing accountHash', async () => {
     const res = await syncRequest({ displayName: 'Blitzen', installSecret: 'a'.repeat(20), pbs: {} });
     expect(res.status).toBe(400);
@@ -96,6 +90,22 @@ describe('POST /api/sync', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, received: 2, updated: 1 });
+
+    const lookup = await app.request('/api/players/blitzen');
+    expect((await lookup.json()).pbs).toEqual([
+      { boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 },
+    ]);
+  });
+
+  it('silently drops physically impossible activity times', async () => {
+    const res = await syncRequest({
+      accountHash: 'acct-1',
+      displayName: 'Blitzen',
+      installSecret: 'a'.repeat(20),
+      pbs: { Inferno: 12, Zulrah: 80 },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, received: 2, updated: 1 });
 
     const lookup = await app.request('/api/players/blitzen');
     expect((await lookup.json()).pbs).toEqual([

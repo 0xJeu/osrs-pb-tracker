@@ -24,3 +24,8 @@ export function formatDate(iso: string): string {
 export function titleCase(str: string): string {
   return str.replace(/\w\S*/g, (t) => t.charAt(0).toUpperCase() + t.slice(1));
 }
+
+export function bossTitleParts(boss: string) {
+  const [first, ...rest] = titleCase(boss).split(' - ');
+  return { primary: first || 'Loading Leaderboard', secondary: rest.join(' - ') };
+}
