@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
@@ -17,12 +17,6 @@ function syncRequest(body: unknown) {
 }
 
 describe('POST /api/sync', () => {
-  beforeEach(async () => {
-    await resetSyncReplayCache();
-    await truncateAll();
-    resetRateLimiter();
-  });
-
   it('rejects a missing accountHash', async () => {
     const res = await syncRequest({ displayName: 'Blitzen', installSecret: 'a'.repeat(20), pbs: {} });
     expect(res.status).toBe(400);
