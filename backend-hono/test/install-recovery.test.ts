@@ -16,6 +16,7 @@ import {
 } from '../src/lib/installRecovery.js';
 import { hashSecret, resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
+import { commitExistingAuthorizedSync } from '../src/routes/sync.js';
 import { truncateAll } from './helpers.js';
 
 const incumbentSecret = 'a'.repeat(20);
@@ -124,6 +125,21 @@ describe('install credential recovery', () => {
 
     const second = await syncRequest('c'.repeat(20), { Zulrah: 75 });
     expect((await second.json()).code).toBe('RECOVERY_CONTESTED');
+
+    const candidates = await db
+      .select({ status: installRecoveryCandidates.status })
+      .from(installRecoveryCandidates)
+      .orderBy(asc(installRecoveryCandidates.id));
+    expect(candidates).toEqual([{ status: 'contested' }, { status: 'contested' }]);
+  });
+
+  it('serializes concurrent competing candidate capture per player', async () => {
+    await establishIncumbent();
+
+    await Promise.all([
+      syncRequest(candidateSecret, { Zulrah: 75 }),
+      syncRequest('c'.repeat(20), { Zulrah: 74 }),
+    ]);
 
     const candidates = await db
       .select({ status: installRecoveryCandidates.status })
@@ -369,5 +385,40 @@ describe('install credential recovery', () => {
       .from(personalBests)
       .where(eq(personalBests.boss, 'zulrah'));
     expect(zulrah.timeSeconds).toBe(80);
+  });
+
+  it('rejects a stale authorized commit after recovery promotion replaces the credential', async () => {
+    const incumbent = await establishIncumbent();
+    const { playerId } = await incumbent.json();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    const recoveryId = (await mismatch.json()).recoveryId as number;
+
+    // Simulate an incumbent request that completed its initial authorization,
+    // paused, and then resumed only after promotion committed.
+    await promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin');
+    const nextMismatch = await syncRequest('c'.repeat(20), { Zulrah: 74 });
+    const nextRecoveryId = (await nextMismatch.json()).recoveryId as number;
+    const staleCommit = await commitExistingAuthorizedSync({
+      playerId,
+      secretHash: hashSecret(incumbentSecret),
+      displayName: 'Former Incumbent Rename',
+      displayNameLower: 'former incumbent rename',
+      pbsByBoss: new Map([['zulrah', 1]]),
+    });
+
+    expect(staleCommit).toMatchObject({ authorized: false, changedBosses: [] });
+    const [player] = await db.select().from(players).where(eq(players.id, playerId));
+    expect(player.displayName).toBe('0xSteph Recovery');
+    expect(player.installSecretHash).toBe(hashSecret(candidateSecret));
+    const [nextCandidate] = await db
+      .select({ status: installRecoveryCandidates.status })
+      .from(installRecoveryCandidates)
+      .where(eq(installRecoveryCandidates.id, nextRecoveryId));
+    expect(nextCandidate.status).toBe('pending');
+    const [zulrah] = await db
+      .select({ timeSeconds: personalBests.timeSeconds })
+      .from(personalBests)
+      .where(eq(personalBests.boss, 'zulrah'));
+    expect(zulrah.timeSeconds).toBe(75);
   });
 });

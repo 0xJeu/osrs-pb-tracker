@@ -6,10 +6,12 @@ import {
   personalBests,
   playerNameHistory,
   players,
+  recoveryAdminLoginLimits,
   syncAttempts,
 } from '../src/db/schema.js';
 
 export async function truncateAll() {
+  await db.delete(recoveryAdminLoginLimits);
   await db.delete(installRecoveryEvents);
   await db.delete(syncAttempts);
   await db.delete(installRecoveryCandidates);

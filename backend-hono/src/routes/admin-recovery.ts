@@ -14,6 +14,7 @@ import {
   RECOVERY_ADMIN_SESSION_SECONDS,
   RECOVERY_ADMIN_USERNAME,
   recordRecoveryAdminLoginFailure,
+  recoveryAdminClientKey,
   recoveryAdminIsConfigured,
   recoveryAdminLoginBlocked,
   requireRecoveryAdmin,
@@ -43,7 +44,11 @@ interface LoginBody {
 }
 
 function loginClientKey(c: Context) {
-  return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  // Vercel overwrites this platform header rather than trusting a caller's
+  // forwarded chain. The ordinary header remains a local/test fallback only.
+  const platformIdentity = c.req.header('x-vercel-forwarded-for')?.split(',')[0]?.trim();
+  const localIdentity = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+  return recoveryAdminClientKey(platformIdentity || localIdentity || 'unknown');
 }
 
 function secureCookies() {
@@ -121,7 +126,10 @@ adminRecovery.post('/login', async (c) => {
   }
 
   const clientKey = loginClientKey(c);
-  if (recoveryAdminLoginBlocked(clientKey)) {
+  if (!clientKey) {
+    return c.json({ error: 'Recovery admin is not configured.' }, 503);
+  }
+  if (await recoveryAdminLoginBlocked(clientKey)) {
     return c.json({ error: 'Too many failed login attempts. Try again later.' }, 429);
   }
 
@@ -133,11 +141,11 @@ adminRecovery.post('/login', async (c) => {
     password.length > 1_024 ||
     !authenticateRecoveryAdmin(username, password)
   ) {
-    recordRecoveryAdminLoginFailure(clientKey);
+    await recordRecoveryAdminLoginFailure(clientKey);
     return c.json({ error: 'Invalid username or password.' }, 401);
   }
 
-  clearRecoveryAdminLoginFailures(clientKey);
+  await clearRecoveryAdminLoginFailures(clientKey);
   setCookie(c, RECOVERY_ADMIN_COOKIE, createRecoveryAdminSession(), {
     httpOnly: true,
     secure: secureCookies(),

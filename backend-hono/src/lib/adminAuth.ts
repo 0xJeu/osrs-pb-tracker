@@ -1,6 +1,9 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { eq, sql } from 'drizzle-orm';
 import { getCookie } from 'hono/cookie';
 import type { MiddlewareHandler } from 'hono';
+import { db } from '../db/client.js';
+import { recoveryAdminLoginLimits } from '../db/schema.js';
 
 export const RECOVERY_ADMIN_USERNAME = 'admin';
 export const RECOVERY_ADMIN_COOKIE = 'pb_recovery_admin';
@@ -10,7 +13,6 @@ export const RECOVERY_ADMIN_SESSION_SECONDS = 8 * 60 * 60;
 const MIN_ADMIN_PASSWORD_LENGTH = 12;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_FAILURE_LIMIT = 5;
-const loginFailures = new Map<string, number[]>();
 
 function digest(value: string) {
   return createHash('sha256').update(value).digest();
@@ -49,6 +51,14 @@ export function authenticateRecoveryAdmin(username: string, password: string) {
   );
 }
 
+export function recoveryAdminClientKey(clientIdentity: string) {
+  const password = configuredPassword();
+  if (!password) return null;
+  return createHmac('sha256', password)
+    .update(`recovery-admin-login-v1\0${clientIdentity}`)
+    .digest('hex');
+}
+
 export function createRecoveryAdminSession(nowMs: number = Date.now()) {
   const password = configuredPassword();
   if (!password) throw new Error('Recovery admin is not configured.');
@@ -72,25 +82,51 @@ export function verifyRecoveryAdminSession(value: string | undefined, nowMs: num
   return safeEqual(parts[3], sessionSignature(payload, password));
 }
 
-export function recoveryAdminLoginBlocked(key: string, nowMs: number = Date.now()) {
-  const recent = (loginFailures.get(key) ?? []).filter((time) => nowMs - time < LOGIN_WINDOW_MS);
-  if (recent.length === 0) loginFailures.delete(key);
-  else loginFailures.set(key, recent);
-  return recent.length >= LOGIN_FAILURE_LIMIT;
+export async function recoveryAdminLoginBlocked(keyHash: string, nowMs: number = Date.now()) {
+  const [limit] = await db
+    .select({
+      failureCount: recoveryAdminLoginLimits.failureCount,
+      windowStartedAt: recoveryAdminLoginLimits.windowStartedAt,
+    })
+    .from(recoveryAdminLoginLimits)
+    .where(eq(recoveryAdminLoginLimits.keyHash, keyHash))
+    .limit(1);
+  return Boolean(
+    limit &&
+      nowMs - limit.windowStartedAt.getTime() < LOGIN_WINDOW_MS &&
+      limit.failureCount >= LOGIN_FAILURE_LIMIT
+  );
 }
 
-export function recordRecoveryAdminLoginFailure(key: string, nowMs: number = Date.now()) {
-  const recent = (loginFailures.get(key) ?? []).filter((time) => nowMs - time < LOGIN_WINDOW_MS);
-  recent.push(nowMs);
-  loginFailures.set(key, recent);
+export async function recordRecoveryAdminLoginFailure(keyHash: string, nowMs: number = Date.now()) {
+  const now = new Date(nowMs);
+  const cutoff = new Date(nowMs - LOGIN_WINDOW_MS);
+  await db
+    .insert(recoveryAdminLoginLimits)
+    .values({ keyHash, failureCount: 1, windowStartedAt: now })
+    .onConflictDoUpdate({
+      target: recoveryAdminLoginLimits.keyHash,
+      set: {
+        failureCount: sql`CASE
+          WHEN ${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}
+            THEN 1
+          ELSE ${recoveryAdminLoginLimits.failureCount} + 1
+        END`,
+        windowStartedAt: sql`CASE
+          WHEN ${recoveryAdminLoginLimits.windowStartedAt} <= ${cutoff}
+            THEN ${now}
+          ELSE ${recoveryAdminLoginLimits.windowStartedAt}
+        END`,
+      },
+    });
 }
 
-export function clearRecoveryAdminLoginFailures(key: string) {
-  loginFailures.delete(key);
+export async function clearRecoveryAdminLoginFailures(keyHash: string) {
+  await db.delete(recoveryAdminLoginLimits).where(eq(recoveryAdminLoginLimits.keyHash, keyHash));
 }
 
-export function resetRecoveryAdminLoginLimiter() {
-  loginFailures.clear();
+export async function resetRecoveryAdminLoginLimiter() {
+  await db.delete(recoveryAdminLoginLimits);
 }
 
 export const requireRecoveryAdmin: MiddlewareHandler = async (c, next) => {

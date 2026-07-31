@@ -1,7 +1,7 @@
-import { eq, lt, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, playerNameHistory, players, syncAttempts } from '../db/schema.js';
+import { personalBests, players, syncAttempts } from '../db/schema.js';
 import {
   bossCacheTag,
   cacheTags,
@@ -13,7 +13,6 @@ import {
 import { hashSecret, isRateLimited } from '../lib/secret.js';
 import {
   captureInstallRecoveryCandidate,
-  noteIncumbentCredentialSeen,
 } from '../lib/installRecovery.js';
 import {
   buildSyncReplayKey,
@@ -93,7 +92,7 @@ async function recordSyncAttempt(values: {
   }
 }
 
-async function upsertPlayer(accountHash: string, displayName: string, secretHash: string) {
+async function resolvePlayer(accountHash: string, displayName: string, secretHash: string) {
   const displayNameLower = displayName.toLowerCase();
   const existingRows = await db
     .select({
@@ -128,46 +127,129 @@ async function upsertPlayer(accountHash: string, displayName: string, secretHash
     };
   }
 
-  if (!existing.installSecretHash) {
-    await db.update(players).set({ installSecretHash: secretHash }).where(eq(players.id, existing.id));
-  } else if (existing.installSecretHash !== secretHash) {
+  let incumbentSecretHash = existing.installSecretHash;
+  if (!incumbentSecretHash) {
+    const [claimed] = await db
+      .update(players)
+      .set({ installSecretHash: secretHash })
+      .where(and(eq(players.id, existing.id), isNull(players.installSecretHash)))
+      .returning({ installSecretHash: players.installSecretHash });
+    incumbentSecretHash = claimed?.installSecretHash ?? null;
+    if (!incumbentSecretHash) {
+      const [current] = await db
+        .select({ installSecretHash: players.installSecretHash })
+        .from(players)
+        .where(eq(players.id, existing.id))
+        .limit(1);
+      incumbentSecretHash = current?.installSecretHash ?? null;
+    }
+  }
+
+  if (incumbentSecretHash !== secretHash) {
     return {
       playerId: existing.id,
       authorized: false,
       metadataChanged: false,
       created: false,
-      incumbentSecretHash: existing.installSecretHash,
+      incumbentSecretHash,
       namesToInvalidate: [] as string[],
     };
-  }
-
-  let metadataChanged = false;
-  const namesToInvalidate: string[] = [];
-  if (existing.displayName !== displayName) {
-    await db
-      .insert(playerNameHistory)
-      .values({
-        playerId: existing.id,
-        displayName: existing.displayName,
-        displayNameLower: existing.displayNameLower,
-        createdAt: new Date(),
-      })
-      .onConflictDoNothing();
-    await db
-      .update(players)
-      .set({ displayName, displayNameLower, updatedAt: new Date() })
-      .where(eq(players.id, existing.id));
-    metadataChanged = true;
-    namesToInvalidate.push(existing.displayNameLower, displayNameLower);
   }
 
   return {
     playerId: existing.id,
     authorized: true,
-    metadataChanged,
+    metadataChanged: existing.displayName !== displayName,
     created: false,
-    incumbentSecretHash: existing.installSecretHash,
-    namesToInvalidate,
+    incumbentSecretHash,
+    namesToInvalidate:
+      existing.displayName === displayName
+        ? [] as string[]
+        : [existing.displayNameLower, displayNameLower],
+  };
+}
+
+export async function commitExistingAuthorizedSync(values: {
+  playerId: number;
+  secretHash: string;
+  displayName: string;
+  displayNameLower: string;
+  pbsByBoss: Map<string, number>;
+}) {
+  const payload = JSON.stringify(Object.fromEntries(values.pbsByBoss));
+  const [lockedRows, , renamedRows, , changedRows] = await db.$client.transaction((txn) => [
+    txn(
+      'SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2 FOR UPDATE',
+      [values.playerId, values.secretHash]
+    ),
+    txn(
+      `INSERT INTO player_name_history
+         (player_id, display_name, display_name_lower, created_at)
+       SELECT id, display_name, display_name_lower, NOW()
+       FROM players
+       WHERE id = $1
+         AND install_secret_hash = $2
+         AND display_name <> $3
+       ON CONFLICT DO NOTHING`,
+      [values.playerId, values.secretHash, values.displayName]
+    ),
+    txn(
+      `WITH current AS MATERIALIZED (
+         SELECT id, display_name_lower
+         FROM players
+         WHERE id = $1 AND install_secret_hash = $2 AND display_name <> $3
+       )
+       UPDATE players
+       SET display_name = $3, display_name_lower = $4, updated_at = NOW()
+       FROM current
+       WHERE players.id = current.id
+       RETURNING current.display_name_lower AS old_display_name_lower`,
+      [values.playerId, values.secretHash, values.displayName, values.displayNameLower]
+    ),
+    txn(
+      `WITH authorized AS (
+         SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2
+       ), transitioned AS (
+         UPDATE install_recovery_candidates
+         SET status = 'contested'
+         FROM authorized
+         WHERE player_id = authorized.id
+           AND status IN ('pending', 'invalidation_failed')
+         RETURNING install_recovery_candidates.id
+       )
+       INSERT INTO install_recovery_events
+         (candidate_id, player_id, event_type, actor, reason, created_at)
+       SELECT id, $1, 'incumbent_seen', 'system',
+              'The incumbent credential synced while recovery was pending.', NOW()
+       FROM transitioned`,
+      [values.playerId, values.secretHash]
+    ),
+    txn(
+      `WITH incoming AS (
+         SELECT key AS boss, value::real AS time_seconds
+         FROM jsonb_each_text($3::jsonb)
+       ), authorized AS (
+         SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2
+       )
+       INSERT INTO personal_bests (player_id, boss, time_seconds, updated_at)
+       SELECT authorized.id, incoming.boss, incoming.time_seconds, NOW()
+       FROM authorized CROSS JOIN incoming
+       ON CONFLICT (player_id, boss) DO UPDATE
+         SET time_seconds = EXCLUDED.time_seconds, updated_at = EXCLUDED.updated_at
+         WHERE EXCLUDED.time_seconds < personal_bests.time_seconds
+       RETURNING boss`,
+      [values.playerId, values.secretHash, payload]
+    ),
+  ]);
+
+  return {
+    authorized: lockedRows.length > 0,
+    metadataChanged: renamedRows.length > 0,
+    namesToInvalidate:
+      renamedRows.length === 0
+        ? [] as string[]
+        : [String(renamedRows[0].old_display_name_lower), values.displayNameLower],
+    changedBosses: [...new Set(changedRows.map((row) => String(row.boss)))],
   };
 }
 
@@ -280,7 +362,7 @@ sync.post('/', async (c) => {
     created,
     incumbentSecretHash,
     namesToInvalidate,
-  } = await upsertPlayer(accountHash, displayName, secretHash);
+  } = await resolvePlayer(accountHash, displayName, secretHash);
 
   if (!authorized) {
     let recoveryCandidate:
@@ -335,12 +417,49 @@ sync.post('/', async (c) => {
     );
   }
 
-  if (!created) {
-    await noteIncumbentCredentialSeen(playerId);
+  const committed = created
+    ? {
+        authorized: true,
+        metadataChanged,
+        namesToInvalidate,
+        changedBosses: await upsertPbs(playerId, pbsByBoss),
+      }
+    : await commitExistingAuthorizedSync({
+        playerId,
+        secretHash,
+        displayName,
+        displayNameLower: displayName.toLowerCase(),
+        pbsByBoss,
+      });
+
+  // A promotion may have replaced the credential after the initial lookup.
+  // The transaction above locks and rechecks the player row before any name,
+  // recovery-state, or PB mutation, so an in-flight former credential fails
+  // closed instead of writing after the handoff boundary.
+  if (!committed.authorized) {
+    const syncAttemptId = await recordSyncAttempt({
+      playerId,
+      outcome: 'install_secret_mismatch',
+      httpStatus: 409,
+      receivedCount: entries.length,
+      eligibleCount: pbsByBoss.size,
+    });
+    return c.json(
+      {
+        error: 'This account is already bound to a different install.',
+        code: 'INSTALL_SECRET_CHANGED',
+        recoveryId: null,
+        retryAfterSeconds: null,
+        syncAttemptId,
+      },
+      409
+    );
   }
 
-  const changedBosses = await upsertPbs(playerId, pbsByBoss);
-  const meaningfulChange = created || metadataChanged || changedBosses.length > 0;
+  const finalMetadataChanged = created || committed.metadataChanged;
+  const finalNamesToInvalidate = created ? namesToInvalidate : committed.namesToInvalidate;
+  const changedBosses = committed.changedBosses;
+  const meaningfulChange = created || finalMetadataChanged || changedBosses.length > 0;
   const syncAttemptId = meaningfulChange
     ? await recordSyncAttempt({
         playerId,
@@ -353,12 +472,12 @@ sync.post('/', async (c) => {
     : null;
   const invalidationTags: string[] = [];
 
-  if (metadataChanged) {
+  if (finalMetadataChanged) {
     invalidationTags.push(
       cacheTags.search,
       cacheTags.recentSyncs,
       playerIdCacheTag(playerId),
-      ...namesToInvalidate.map(playerNameCacheTag)
+      ...finalNamesToInvalidate.map(playerNameCacheTag)
     );
   }
 

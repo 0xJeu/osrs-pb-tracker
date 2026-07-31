@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   installRecoveryCandidates,
   installRecoveryEvents,
-  personalBests,
 } from '../db/schema.js';
 import {
   bossCacheTag,
@@ -97,39 +96,6 @@ function payloadDigest(payload: Record<string, number>) {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
-async function continuityFor(playerId: number, pbsByBoss: Map<string, number>): Promise<RecoveryContinuity> {
-  const stored = await db
-    .select({ boss: personalBests.boss, timeSeconds: personalBests.timeSeconds })
-    .from(personalBests)
-    .where(eq(personalBests.playerId, playerId));
-  const storedByBoss = new Map(stored.map((pb) => [pb.boss, pb.timeSeconds]));
-
-  let equalCount = 0;
-  let improvedCount = 0;
-  let newCount = 0;
-  let slowerCount = 0;
-  for (const [boss, timeSeconds] of pbsByBoss) {
-    const previous = storedByBoss.get(boss);
-    if (previous === undefined) {
-      newCount += 1;
-    } else if (Math.abs(previous - timeSeconds) < 0.001) {
-      equalCount += 1;
-    } else if (timeSeconds < previous) {
-      improvedCount += 1;
-    } else {
-      slowerCount += 1;
-    }
-  }
-
-  return {
-    equalCount,
-    improvedCount,
-    newCount,
-    slowerCount,
-    missingCount: stored.filter((pb) => !pbsByBoss.has(pb.boss)).length,
-  };
-}
-
 export async function captureInstallRecoveryCandidate(values: {
   playerId: number;
   incumbentSecretHash: string;
@@ -140,69 +106,124 @@ export async function captureInstallRecoveryCandidate(values: {
 }): Promise<RecoveryCandidateSummary> {
   const now = new Date();
   const payload = stablePayload(values.pbsByBoss);
-  const continuity = await continuityFor(values.playerId, values.pbsByBoss);
+  const payloadJson = JSON.stringify(payload);
+  const digest = payloadDigest(payload);
 
-  const [candidate] = await db
-    .insert(installRecoveryCandidates)
-    .values({
-      playerId: values.playerId,
-      incumbentSecretHash: values.incumbentSecretHash,
-      candidateSecretHash: values.candidateSecretHash,
-      displayName: values.displayName,
-      payload,
-      payloadDigest: payloadDigest(payload),
-      receivedCount: values.receivedCount,
-      eligibleCount: values.pbsByBoss.size,
-      ...continuity,
-      firstSeenAt: now,
-      lastSeenAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        installRecoveryCandidates.playerId,
-        installRecoveryCandidates.incumbentSecretHash,
-        installRecoveryCandidates.candidateSecretHash,
-      ],
-      set: {
-        displayName: values.displayName,
-        payload,
-        payloadDigest: payloadDigest(payload),
-        attemptCount: sql`${installRecoveryCandidates.attemptCount} + 1`,
-        receivedCount: values.receivedCount,
-        eligibleCount: values.pbsByBoss.size,
-        ...continuity,
-        lastSeenAt: now,
-      },
-    })
-    .returning();
+  // The player-row lock is the serialization boundary shared with incumbent
+  // sync commits and promotion. Candidate upsert, continuity calculation, and
+  // competing-candidate contestation therefore commit as one ordered action.
+  const [, , , finalRows] = await db.$client.transaction((txn) => [
+    txn(
+      'SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2 FOR UPDATE',
+      [values.playerId, values.incumbentSecretHash]
+    ),
+    txn(
+      `WITH incoming AS (
+         SELECT key AS boss, value::real AS time_seconds
+         FROM jsonb_each_text($5::jsonb)
+       ), continuity AS (
+         SELECT
+           COUNT(*) FILTER (
+             WHERE stored.boss IS NOT NULL
+               AND ABS(stored.time_seconds - incoming.time_seconds) < 0.001
+           )::int AS equal_count,
+           COUNT(*) FILTER (
+             WHERE stored.boss IS NOT NULL
+               AND incoming.time_seconds < stored.time_seconds
+               AND ABS(stored.time_seconds - incoming.time_seconds) >= 0.001
+           )::int AS improved_count,
+           COUNT(*) FILTER (WHERE stored.boss IS NULL)::int AS new_count,
+           COUNT(*) FILTER (
+             WHERE stored.boss IS NOT NULL
+               AND incoming.time_seconds > stored.time_seconds
+               AND ABS(stored.time_seconds - incoming.time_seconds) >= 0.001
+           )::int AS slower_count
+         FROM incoming
+         LEFT JOIN personal_bests AS stored
+           ON stored.player_id = $1 AND stored.boss = incoming.boss
+       ), missing AS (
+         SELECT COUNT(*)::int AS missing_count
+         FROM personal_bests AS stored
+         LEFT JOIN incoming ON incoming.boss = stored.boss
+         WHERE stored.player_id = $1 AND incoming.boss IS NULL
+       ), incumbent AS (
+         SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2
+       )
+       INSERT INTO install_recovery_candidates (
+         player_id, incumbent_secret_hash, candidate_secret_hash, display_name,
+         payload, payload_digest, received_count, eligible_count,
+         equal_count, improved_count, new_count, slower_count, missing_count,
+         first_seen_at, last_seen_at
+       )
+       SELECT incumbent.id, $2, $3, $4, $5::jsonb, $6, $7, $8,
+              continuity.equal_count, continuity.improved_count,
+              continuity.new_count, continuity.slower_count,
+              missing.missing_count, $9, $9
+       FROM incumbent CROSS JOIN continuity CROSS JOIN missing
+       ON CONFLICT (player_id, incumbent_secret_hash, candidate_secret_hash)
+       DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         payload = EXCLUDED.payload,
+         payload_digest = EXCLUDED.payload_digest,
+         attempt_count = install_recovery_candidates.attempt_count + 1,
+         received_count = EXCLUDED.received_count,
+         eligible_count = EXCLUDED.eligible_count,
+         equal_count = EXCLUDED.equal_count,
+         improved_count = EXCLUDED.improved_count,
+         new_count = EXCLUDED.new_count,
+         slower_count = EXCLUDED.slower_count,
+         missing_count = EXCLUDED.missing_count,
+         last_seen_at = EXCLUDED.last_seen_at
+       RETURNING id`,
+      [
+        values.playerId,
+        values.incumbentSecretHash,
+        values.candidateSecretHash,
+        values.displayName,
+        payloadJson,
+        digest,
+        values.receivedCount,
+        values.pbsByBoss.size,
+        now,
+      ]
+    ),
+    txn(
+      `UPDATE install_recovery_candidates
+       SET status = 'contested'
+       WHERE player_id = $1
+         AND status IN ('pending', 'invalidation_failed', 'contested')
+         AND (
+           SELECT COUNT(*)
+           FROM install_recovery_candidates
+           WHERE player_id = $1
+             AND status IN ('pending', 'invalidation_failed', 'contested')
+         ) > 1`,
+      [values.playerId]
+    ),
+    txn(
+      `SELECT id, status, attempt_count, received_count, eligible_count,
+              equal_count, improved_count, new_count, slower_count,
+              missing_count, first_seen_at, last_seen_at
+       FROM install_recovery_candidates
+       WHERE player_id = $1
+         AND incumbent_secret_hash = $2
+         AND candidate_secret_hash = $3
+         AND EXISTS (
+           SELECT 1 FROM players
+           WHERE id = $1 AND install_secret_hash = $2
+         )
+       LIMIT 1`,
+      [values.playerId, values.incumbentSecretHash, values.candidateSecretHash]
+    ),
+  ]);
 
-  let status = candidate.status as RecoveryCandidateStatus;
-  if (RECOVERABLE_STATUSES.includes(status as (typeof RECOVERABLE_STATUSES)[number])) {
-    const competing = await db
-      .select({ id: installRecoveryCandidates.id })
-      .from(installRecoveryCandidates)
-      .where(
-        and(
-          eq(installRecoveryCandidates.playerId, values.playerId),
-          ne(installRecoveryCandidates.id, candidate.id),
-          inArray(installRecoveryCandidates.status, [...RECOVERABLE_STATUSES])
-        )
-      )
-      .limit(1);
-
-    if (competing.length > 0) {
-      await db
-        .update(installRecoveryCandidates)
-        .set({ status: 'contested' })
-        .where(
-          and(
-            eq(installRecoveryCandidates.playerId, values.playerId),
-            inArray(installRecoveryCandidates.status, [...RECOVERABLE_STATUSES])
-          )
-        );
-      status = 'contested';
-    }
+  const candidate = finalRows[0];
+  if (!candidate) {
+    throw new RecoveryDecisionConflictError(
+      'The incumbent credential changed while the recovery candidate was being captured.'
+    );
   }
+  let status = String(candidate.status) as RecoveryCandidateStatus;
 
   // A cached successful-replay entry could otherwise let the incumbent's own
   // resync of an already-seen payload skip upsertPlayer/noteIncumbentSeen
@@ -249,45 +270,40 @@ export async function captureInstallRecoveryCandidate(values: {
   }
 
   return {
-    id: candidate.id,
+    id: Number(candidate.id),
     status,
-    attemptCount: candidate.attemptCount,
-    receivedCount: candidate.receivedCount,
-    eligibleCount: candidate.eligibleCount,
-    equalCount: candidate.equalCount,
-    improvedCount: candidate.improvedCount,
-    newCount: candidate.newCount,
-    slowerCount: candidate.slowerCount,
-    missingCount: candidate.missingCount,
-    firstSeenAt: candidate.firstSeenAt,
-    lastSeenAt: candidate.lastSeenAt,
+    attemptCount: Number(candidate.attempt_count),
+    receivedCount: Number(candidate.received_count),
+    eligibleCount: Number(candidate.eligible_count),
+    equalCount: Number(candidate.equal_count),
+    improvedCount: Number(candidate.improved_count),
+    newCount: Number(candidate.new_count),
+    slowerCount: Number(candidate.slower_count),
+    missingCount: Number(candidate.missing_count),
+    firstSeenAt: new Date(String(candidate.first_seen_at)),
+    lastSeenAt: new Date(String(candidate.last_seen_at)),
   };
 }
 
 export async function noteIncumbentCredentialSeen(playerId: number) {
-  const transitioned = await db
-    .update(installRecoveryCandidates)
-    .set({ status: 'contested' })
-    .where(
-      and(
-        eq(installRecoveryCandidates.playerId, playerId),
-        inArray(installRecoveryCandidates.status, ['pending', 'invalidation_failed'])
-      )
-    )
-    .returning({ id: installRecoveryCandidates.id });
-
-  if (transitioned.length > 0) {
-    await db.insert(installRecoveryEvents).values(
-      transitioned.map((candidate) => ({
-        candidateId: candidate.id,
-        playerId,
-        eventType: 'incumbent_seen',
-        actor: 'system',
-        reason: 'The incumbent credential synced while recovery was pending.',
-        createdAt: new Date(),
-      }))
-    );
-  }
+  await db.$client.transaction((txn) => [
+    txn('SELECT id FROM players WHERE id = $1 FOR UPDATE', [playerId]),
+    txn(
+      `WITH transitioned AS (
+         UPDATE install_recovery_candidates
+         SET status = 'contested'
+         WHERE player_id = $1
+           AND status IN ('pending', 'invalidation_failed')
+         RETURNING id
+       )
+       INSERT INTO install_recovery_events
+         (candidate_id, player_id, event_type, actor, reason, created_at)
+       SELECT id, $1, 'incumbent_seen', 'system',
+              'The incumbent credential synced while recovery was pending.', NOW()
+       FROM transitioned`,
+      [playerId]
+    ),
+  ]);
 }
 
 export class RecoveryDecisionConflictError extends Error {}
@@ -298,10 +314,29 @@ export async function promoteInstallRecoveryCandidate(candidateId: number, actor
     player_id: number;
     changed_bosses: string[];
   }>(sql`
-    WITH selected AS (
+    WITH candidate AS (
       SELECT *
       FROM install_recovery_candidates
       WHERE id = ${candidateId} AND status = 'pending'
+    ),
+    locked_player AS MATERIALIZED (
+      SELECT player.id
+      FROM players AS player
+      JOIN candidate ON candidate.player_id = player.id
+      WHERE player.install_secret_hash = candidate.incumbent_secret_hash
+      FOR UPDATE OF player
+    ),
+    selected AS (
+      SELECT candidate.*
+      FROM candidate
+      JOIN locked_player ON locked_player.id = candidate.player_id
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM install_recovery_candidates AS competing
+        WHERE competing.player_id = candidate.player_id
+          AND competing.id <> candidate.id
+          AND competing.status IN ('pending', 'invalidation_failed', 'contested')
+      )
     ),
     promoted_player AS (
       UPDATE players AS player

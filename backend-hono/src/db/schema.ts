@@ -125,6 +125,16 @@ export const installRecoveryEvents = pgTable(
   })
 );
 
+// Shared brute-force state for the recovery-admin login. Only an HMAC-derived
+// client key is stored; raw IP/header values never reach the database. Keeping
+// this state in Postgres makes the limit survive Vercel cold starts and apply
+// consistently across concurrent serverless instances.
+export const recoveryAdminLoginLimits = pgTable('recovery_admin_login_limits', {
+  keyHash: text('key_hash').primaryKey(),
+  failureCount: integer('failure_count').notNull().default(0),
+  windowStartedAt: timestamp('window_started_at', { withTimezone: true }).notNull(),
+});
+
 // Operational support trail for meaningful accepted changes and rejected
 // install bindings. Accepted no-ops and rate-limited requests are deliberately
 // omitted so a sync storm cannot turn observability into database write load.

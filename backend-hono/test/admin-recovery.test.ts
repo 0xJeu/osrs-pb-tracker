@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
-import { installRecoveryCandidates, installRecoveryEvents, personalBests } from '../src/db/schema.js';
+import {
+  installRecoveryCandidates,
+  installRecoveryEvents,
+  personalBests,
+  recoveryAdminLoginLimits,
+} from '../src/db/schema.js';
 import { resetRecoveryAdminLoginLimiter } from '../src/lib/adminAuth.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
@@ -19,12 +24,18 @@ function sessionHeaders(cookie: string) {
   };
 }
 
-async function login(password = adminPassword, username = 'admin', forwardedFor = '127.0.0.1') {
+async function login(
+  password = adminPassword,
+  username = 'admin',
+  forwardedFor = '127.0.0.1',
+  vercelForwardedFor?: string
+) {
   const response = await app.request('/api/admin/recovery/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-forwarded-for': forwardedFor,
+      ...(vercelForwardedFor ? { 'x-vercel-forwarded-for': vercelForwardedFor } : {}),
     },
     body: JSON.stringify({ username, password }),
   });
@@ -62,7 +73,7 @@ describe('recovery admin', () => {
     await resetSyncReplayCache();
     await truncateAll();
     resetRateLimiter();
-    resetRecoveryAdminLoginLimiter();
+    await resetRecoveryAdminLoginLimiter();
   });
 
   it('serves a data-free admin shell with restrictive browser headers', async () => {
@@ -145,6 +156,23 @@ describe('recovery admin', () => {
     }
     expect((await login(adminPassword, 'admin', '192.0.2.1')).response.status).toBe(429);
     expect((await login(adminPassword, 'admin', '192.0.2.2')).response.status).toBe(200);
+
+    const [persistedLimit] = await db.select().from(recoveryAdminLoginLimits);
+    expect(persistedLimit.failureCount).toBe(5);
+    expect(persistedLimit.keyHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(persistedLimit.keyHash).not.toContain('192.0.2.1');
+  });
+
+  it('uses Vercel\'s platform identity instead of a caller-controlled forwarded chain', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const spoofedForwardedFor = `198.51.100.${attempt + 1}`;
+      expect(
+        (await login('wrong-password-value', 'admin', spoofedForwardedFor, '192.0.2.50')).response.status
+      ).toBe(401);
+    }
+
+    const blocked = await login(adminPassword, 'admin', '203.0.113.99', '192.0.2.50');
+    expect(blocked.response.status).toBe(429);
   });
 
   it('clears the browser session cookie on logout', async () => {
