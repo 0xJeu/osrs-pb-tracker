@@ -1,0 +1,54 @@
+name: Refresh Neon standby
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      confirm_standby_is_inactive:
+        description: Confirm the standby is not serving production traffic
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-standby-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: >-
+      (github.event_name == 'schedule' && vars.NEON_STANDBY_REFRESH_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.confirm_standby_is_inactive)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refresh and verify standby
+        env:
+          PRIMARY_DATABASE_URL_UNPOOLED: ${{ secrets.PRIMARY_DATABASE_URL_UNPOOLED }}
+          STANDBY_DATABASE_URL_UNPOOLED: ${{ secrets.STANDBY_DATABASE_URL_UNPOOLED }}
+          PRIMARY_DATABASE_EXPECTED_PROJECT_ID: ${{ vars.PRIMARY_DATABASE_EXPECTED_PROJECT_ID }}
+          PRIMARY_DATABASE_EXPECTED_BRANCH_ID: ${{ vars.PRIMARY_DATABASE_EXPECTED_BRANCH_ID }}
+          PRIMARY_DATABASE_EXPECTED_DATABASE_NAME: ${{ vars.PRIMARY_DATABASE_EXPECTED_DATABASE_NAME }}
+          STANDBY_DATABASE_EXPECTED_PROJECT_ID: ${{ vars.STANDBY_DATABASE_EXPECTED_PROJECT_ID }}
+          STANDBY_DATABASE_EXPECTED_BRANCH_ID: ${{ vars.STANDBY_DATABASE_EXPECTED_BRANCH_ID }}
+          STANDBY_DATABASE_EXPECTED_DATABASE_NAME: ${{ vars.STANDBY_DATABASE_EXPECTED_DATABASE_NAME }}
+        run: >-
+          docker run --rm
+          --volume "$GITHUB_WORKSPACE:/workspace:ro"
+          --workdir /workspace
+          --env PRIMARY_DATABASE_URL_UNPOOLED
+          --env STANDBY_DATABASE_URL_UNPOOLED
+          --env PRIMARY_DATABASE_EXPECTED_PROJECT_ID
+          --env PRIMARY_DATABASE_EXPECTED_BRANCH_ID
+          --env PRIMARY_DATABASE_EXPECTED_DATABASE_NAME
+          --env STANDBY_DATABASE_EXPECTED_PROJECT_ID
+          --env STANDBY_DATABASE_EXPECTED_BRANCH_ID
+          --env STANDBY_DATABASE_EXPECTED_DATABASE_NAME
+          postgres:17
+          bash scripts/refresh-neon-standby.sh

@@ -6,6 +6,7 @@ import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import {
   cachePolicies,
   fitsExactProfileTags,
+  noteProfileBucketFallback,
   playerIdCacheTag,
   playerNameCacheTag,
   profileBossBucketCacheTag,
@@ -63,7 +64,11 @@ async function playerWithPbs(player: PublicPlayer) {
 // changed boss precisely so this fallback stays correct across a rolling
 // deploy and for any profile currently using either scheme.
 function profileCacheTags(payload: Awaited<ReturnType<typeof playerWithPbs>>) {
-  const bossDependencyTags = fitsExactProfileTags(payload.pbs.length)
+  const useExactTags = fitsExactProfileTags(payload.pbs.length);
+  if (!useExactTags) {
+    noteProfileBucketFallback();
+  }
+  const bossDependencyTags = useExactTags
     ? payload.pbs.map((pb) => profileBossExactCacheTag(pb.boss))
     : payload.pbs.map((pb) => profileBossBucketCacheTag(pb.boss));
 

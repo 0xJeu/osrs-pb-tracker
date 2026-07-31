@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isRedundantDuplicateKey, isTrackedBoss } from '../src/lib/trackedBosses.js';
+import {
+  isReasonablePersonalBestTime,
+  isRedundantDuplicateKey,
+  isTrackedBoss,
+} from '../src/lib/trackedBosses.js';
 
 describe('isTrackedBoss', () => {
   it('accepts bosses with an official Jagex personal best', () => {
@@ -31,6 +35,21 @@ describe('isTrackedBoss', () => {
   it('distinguishes The Nightmare from Phosani\'s Nightmare, both tracked', () => {
     expect(isTrackedBoss('the nightmare')).toBe(true);
     expect(isTrackedBoss("phosani's nightmare")).toBe(true);
+  });
+});
+
+describe('isReasonablePersonalBestTime', () => {
+  it('rejects impossible full-Inferno completion times', () => {
+    expect(isReasonablePersonalBestTime('inferno', 12)).toBe(false);
+    expect(isReasonablePersonalBestTime('Inferno', 59.9)).toBe(false);
+    expect(isReasonablePersonalBestTime('inferno', 60)).toBe(true);
+    expect(isReasonablePersonalBestTime('inferno', 2384.4)).toBe(true);
+  });
+
+  it('keeps ordinary positive PBs unconstrained unless an activity has a floor', () => {
+    expect(isReasonablePersonalBestTime('zulrah', 12)).toBe(true);
+    expect(isReasonablePersonalBestTime('zulrah', 0)).toBe(false);
+    expect(isReasonablePersonalBestTime('zulrah', Number.NaN)).toBe(false);
   });
 });
 

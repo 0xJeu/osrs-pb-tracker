@@ -1,14 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
 import { personalBests } from '../src/db/schema.js';
-import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { insertTestPlayerWithPb } from './helpers.js';
 
 describe('GET /api/recent-syncs', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns an empty array when nothing is synced', async () => {
     const res = await app.request('/api/recent-syncs?limit=10');
 

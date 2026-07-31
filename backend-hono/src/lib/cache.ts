@@ -62,6 +62,8 @@ export function profileBossBucketCacheTag(boss: string) {
 // the limit at the same threshold. Production's current maximum is 125 PBs
 // (see the design doc's evidence section), so every real profile fits today.
 const MAX_EXACT_PROFILE_TAGS = MAX_CACHE_TAGS - 2;
+const PROFILE_BUCKET_FALLBACK_LOG_INTERVAL = 100;
+let profileBucketFallbackCount = 0;
 
 export function profileBossExactCacheTag(boss: string) {
   return `profile-boss:${tagPart(boss)}`;
@@ -69,6 +71,28 @@ export function profileBossExactCacheTag(boss: string) {
 
 export function fitsExactProfileTags(pbCount: number) {
   return pbCount <= MAX_EXACT_PROFILE_TAGS;
+}
+
+export function noteProfileBucketFallback() {
+  if (!process.env.VERCEL) {
+    return;
+  }
+
+  profileBucketFallbackCount += 1;
+  if (profileBucketFallbackCount !== 1
+      && profileBucketFallbackCount % PROFILE_BUCKET_FALLBACK_LOG_INTERVAL !== 0) {
+    return;
+  }
+
+  // Sampled aggregate only: never include a player ID, account hash, display
+  // name, boss list, credential, or request payload in retained platform logs.
+  console.info('Oversized profile cache bucket fallback', {
+    fallbackResponses: profileBucketFallbackCount,
+  });
+}
+
+export function resetProfileBucketFallbackMetric() {
+  profileBucketFallbackCount = 0;
 }
 
 export function playerIdCacheTag(playerId: number) {

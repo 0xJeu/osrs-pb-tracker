@@ -1,0 +1,1 @@
+ALTER TABLE "install_recovery_candidates" ALTER COLUMN "status" SET DEFAULT 'invalidation_pending';

@@ -65,6 +65,29 @@ export function isTrackedBoss(boss: string): boolean {
 }
 
 /**
+ * Extremely conservative activity-specific floors for values that cannot
+ * represent a full completion. These are not competitive-record thresholds:
+ * they only reject physically impossible outliers while leaving ample room
+ * for future strategies and game updates. Add a floor only when the activity
+ * structure makes it unambiguous.
+ *
+ * Inferno has 69 waves, so a full completion under one minute cannot be the
+ * official run time. A historical 12-second value polluted the leaderboard
+ * and could never be displaced because PB updates only accept faster times.
+ */
+const MIN_REASONABLE_SECONDS_BY_BOSS = new Map<string, number>([
+  ['inferno', 60],
+]);
+
+export function isReasonablePersonalBestTime(boss: string, timeSeconds: number): boolean {
+  if (!Number.isFinite(timeSeconds) || timeSeconds <= 0) {
+    return false;
+  }
+  const minimum = MIN_REASONABLE_SECONDS_BY_BOSS.get(normalize(boss));
+  return minimum === undefined || timeSeconds >= minimum;
+}
+
+/**
  * RuneLite exposes a bare "mode" personalbest key for these raid modes
  * (e.g. "theatre of blood hard mode") with no team-size suffix, representing
  * an ambiguous "best across any team size" value. The plugin's own
