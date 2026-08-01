@@ -44,7 +44,7 @@
      default orange as a background tint. */
   --pbt-accent:    #ff981f;
   --pbt-tint:      0%;
-  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) var(--pbt-tint), #000);
+  --pbt-bg:        color-mix(in srgb, var(--pbt-accent) var(--pbt-tint), #0c0c0e);
   --pbt-bg-2:      color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 1.25), #0b0b0b);
   --pbt-bg-3:      color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 1.5), #141414);
   --pbt-fill:      color-mix(in srgb, var(--pbt-accent) 16%, #000);
@@ -65,21 +65,36 @@
   font-size: 16px;
   line-height: 1.5;
   text-shadow: var(--pbt-shadow);
-  transition: --pbt-accent .5s ease, --pbt-tint .5s ease, background .5s ease;
+  /* Only the custom properties themselves are transitioned here - every
+     background/border below is a *derived* value (color-mix() off these),
+     so it already recomputes on its own every animation frame as
+     --pbt-accent/--pbt-tint change. Also transitioning the derived
+     `background` property itself (as this used to) meant the browser was
+     easing towards a target that kept moving every frame underneath it -
+     a transition chasing a transition - which is what actually caused the
+     stutter, not a missing transition. */
+  transition: --pbt-accent .5s ease, --pbt-tint .5s ease;
 }
 .pbt a { color: inherit; text-decoration: none; }
 .pbt button { font-family: var(--pbt-font); }
 
 /* Elements whose border/background come from the accent-derived tokens get
-   an explicit transition too - the --pbt-accent transition above only
-   smooths the custom property itself, each consumer still needs its own
-   transitioned property to animate rather than snap. */
+   an explicit transition too for the parts that are a plain solid color
+   (background-color, border-color, box-shadow) - those don't recompute on
+   their own the way a color-mix()-based `background` does, so they need
+   their own transition to animate rather than snap.
+   Deliberately NOT transitioning the `background` shorthand itself here:
+   for elements like .pbt-banner whose background is a multi-layer gradient
+   built from --pbt-accent, that value is already changing every frame as
+   --pbt-accent animates (see the .pbt rule above) - separately easing the
+   composite `background` towards that constantly-moving target on top of
+   it is what caused the visible stutter when switching pages/bosses. */
 .pbt-topbar-inner, .pbt-nav .active, .pbt-searchband, .pbt-searchband button,
 .pbt-chip, .pbt-row.me, .pbt-tag, .pbt-banner, .pbt-sec-head .rule, .pbt-kicker .rule,
 .pbt-topbar-rule, .pbt-stats, .pbt-cards, .pbt-arena, .pbt-pet,
 .pbt .raid-mode-tab, .pbt .raid-kind-tab, .pbt .raid-variant-button,
 .pbt .combobox-trigger, .pbt .combobox-panel {
-  transition: border-color .4s ease, background-color .4s ease, background .4s ease, box-shadow .4s ease;
+  transition: border-color .4s ease, background-color .4s ease, box-shadow .4s ease;
 }
 
 .pbt-display { font-weight: 700; letter-spacing: 0; line-height: 1.04; margin: 0; color: var(--pbt-yellow); }
@@ -97,8 +112,12 @@
 
 .pbt-page {
   max-width: 1280px; margin: 0 auto; padding: 0 40px 140px;
+  /* No separate `transition: background` here - this gradient already
+     recomputes every frame as --pbt-accent/--pbt-tint animate (see the
+     .pbt rule above), so easing the composite background on top of that
+     was a transition chasing an already-moving target, which is what
+     caused the stutter switching between pages. */
   background: radial-gradient(900px 520px at 50% 0%, color-mix(in srgb, var(--pbt-accent) calc(var(--pbt-tint) * 0.8), transparent), transparent 70%);
-  transition: background .5s ease;
 }
 .pbt-section { padding: 64px 0 0; }
 .pbt-sec-head { display: flex; align-items: baseline; gap: 28px; margin-bottom: 36px; }
@@ -195,10 +214,26 @@
     linear-gradient(180deg, rgba(0,0,0,.42), rgba(0,0,0,.88) 72%, #000 100%),
     var(--pbt-banner, none) center 28% / cover no-repeat;
 }
+.pbt-boss-banner { margin-bottom: 24px; }
+/* Most boss/monster banners (bossBanners.ts) are wiki infobox renders - tall
+   character portraits or square icons, nothing shaped like the wide
+   promotional art the 5 raid/challenge banners above were curated from.
+   `cover` on this banner's wide-short box crops those down to an
+   unrecognizable sliver, so these specifically use `contain` anchored to
+   the right (clear of the title text on the left), with a colored glow
+   (from the boss's own --pbt-accent, already set per-boss elsewhere) filling
+   the rest of the box instead of flat black. */
+.pbt-boss-banner--contain {
+  min-height: 220px;
+  background:
+    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--pbt-accent, #ff981f) 32%, transparent), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--pbt-accent, #1a1208) 16%, rgba(0,0,0,.55)), rgba(0,0,0,.88) 72%, #000 100%),
+    var(--pbt-banner, none) right center / contain no-repeat,
+    color-mix(in srgb, var(--pbt-accent, #1a1208) 22%, #0a0806);
+}
 .pbt-crumbs { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 22px; }
 .pbt-crumbs button { background: none; border: none; color: inherit; font: inherit; text-shadow: var(--pbt-shadow); cursor: pointer; padding: 0; text-transform: inherit; letter-spacing: inherit; }
 .pbt-titleline { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-.pbt-boss-banner { margin-bottom: 24px; min-height: 150px; }
 .pbt-boss-banner .meta { display: block; margin-top: 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
 
 .pbt-panel-state { padding: 40px 8px; font-size: 15px; opacity: .7; }
@@ -453,10 +488,10 @@
 }
 .pbt-card:hover { background: var(--pbt-bg-3); }
 .pbt-card .idx { position: absolute; top: 16px; right: 18px; font-size: 12px; }
-.pbt-card .pbt-pet { margin-bottom: 28px; background: var(--pbt-bg); }
-.pbt-card .bname { font-size: 15px; min-height: 40px; line-height: 1.35; font-weight: 700; text-shadow: var(--pbt-shadow); }
-.pbt-card .btime { font-size: 20px; margin-top: 8px; text-shadow: var(--pbt-shadow); }
-.pbt-card .brank { font-size: 12px; margin-top: 4px; opacity: .75; }
+.pbt-card .pbt-pet { width: 92px; height: 92px; border-radius: 8px; font-size: 26px; margin-bottom: 28px; background: var(--pbt-bg); }
+.pbt-card .bname { font-size: 19px; min-height: 40px; line-height: 1.35; font-weight: 700; text-shadow: var(--pbt-shadow); }
+.pbt-card .btime { font-size: 26px; margin-top: 8px; text-shadow: var(--pbt-shadow); }
+.pbt-card .brank { font-size: 15px; margin-top: 4px; opacity: .75; }
 
 /* ---- Mode chips (Entry / Normal / Hard-Challenge-Expert) ---- */
 .pbt-modes { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -523,12 +558,17 @@
   text-shadow: none; font-weight: 700; box-shadow: 0 0 0 1px color-mix(in srgb, var(--pbt-orange) 35%, transparent);
 }
 
+/* Leaderboards page (AllBossesView.tsx) is styled with Tailwind directly
+   (src/tailwind.css, tailwind.config.js has preflight disabled so it can't
+   affect the rest of this hand-written theme) - no plain-CSS rules needed
+   here anymore. */
 @media (max-width: 900px) {
   .pbt-page, .pbt-topbar-inner { padding-left: 20px; padding-right: 20px; }
   .pbt-thead, .pbt-row, .pbt-brow, .pbt-sub { grid-template-columns: 64px 1fr auto; }
   .pbt-leaderboard-rows .pbt-thead, .pbt-leaderboard-rows .pbt-row { grid-template-columns: 64px 1fr auto; }
   .pbt-thead .when, .pbt-row .when, .pbt-brow .when, .pbt-sub .when { display: none; }
   .pbt-cards { grid-template-columns: repeat(3, 1fr); }
+  .pbt-lb-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
 @media (max-width: 640px) {

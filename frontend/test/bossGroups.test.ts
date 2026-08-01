@@ -10,6 +10,38 @@ import {
   isGroupedVariant,
 } from '../src/lib/bossGroups';
 
+describe('awakened DT2 bosses', () => {
+  it('collapses the base and awakened forms into one entry with a Normal/Awakened toggle', () => {
+    const keys = ['duke sucellus', 'duke sucellus (awakened)', 'zulrah'];
+    const groups = groupBosses(keys);
+    const bosses = groups.find((g) => g.category === 'Bosses');
+
+    expect(bosses?.raidGroups?.map((r) => r.heading)).toEqual(['Duke Sucellus']);
+    expect(bosses?.raidGroups?.[0].variants).toEqual([
+      { key: 'duke sucellus', label: 'Normal' },
+      { key: 'duke sucellus (awakened)', label: 'Awakened' },
+    ]);
+    expect(bosses?.items?.map((i) => i.key)).toEqual(['zulrah']);
+  });
+
+  it('is true for isGroupedVariant on both the base and awakened key', () => {
+    expect(isGroupedVariant('leviathan')).toBe(true);
+    expect(isGroupedVariant('leviathan (awakened)')).toBe(true);
+    expect(isGroupedVariant('vardorvis (awakened)')).toBe(true);
+    expect(isGroupedVariant('whisperer (awakened)')).toBe(true);
+  });
+
+  it('resolves the awakened key back to its base for the raid-base picker', () => {
+    expect(groupedBaseForKey('vardorvis (awakened)')).toBe('vardorvis');
+    expect(groupedBaseForKey('vardorvis')).toBe('vardorvis');
+  });
+
+  it('orders Normal before Awakened even when the awakened key is synced first', () => {
+    const modes = getRaidModes(['whisperer (awakened)', 'whisperer'], 'whisperer');
+    expect(modes[0].variants.map((v) => v.label)).toEqual(['Normal', 'Awakened']);
+  });
+});
+
 const ALL_KEYS = [
   'nex',
   'zulrah',
