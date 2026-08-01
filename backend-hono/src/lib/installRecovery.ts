@@ -538,3 +538,90 @@ export async function rejectInstallRecoveryCandidate(candidateId: number, actor:
   }
   return { candidateId: rejected.candidate_id, playerId: rejected.player_id };
 }
+
+/**
+ * Resolves a contested credential epoch without changing the player's bound
+ * install credential. The operator chooses the candidate identified through
+ * support, every competing active candidate from the same incumbent epoch is
+ * rejected, and the chosen candidate returns to pending for a separate,
+ * deliberate promotion decision.
+ *
+ * Keeping resolution and promotion separate is intentional: resolving a
+ * contest is not itself proof that the replacement credential should own the
+ * account. A returning incumbent sync will contest the candidate again before
+ * promotion because both paths serialize on the player row.
+ */
+export async function resolveInstallRecoveryContest(
+  candidateId: number,
+  actor: string,
+  reason: string
+) {
+  const [, resolvedRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT player.id
+       FROM players AS player
+       JOIN install_recovery_candidates AS candidate ON candidate.player_id = player.id
+       WHERE candidate.id = $1
+       FOR UPDATE OF player`,
+      [candidateId]
+    ),
+    txn(
+      `WITH selected AS MATERIALIZED (
+         SELECT candidate.id, candidate.player_id, candidate.incumbent_secret_hash
+         FROM install_recovery_candidates AS candidate
+         JOIN players AS player ON player.id = candidate.player_id
+         WHERE candidate.id = $1
+           AND candidate.status = 'contested'
+           AND player.install_secret_hash = candidate.incumbent_secret_hash
+       ), rejected_competitors AS (
+         UPDATE install_recovery_candidates AS competitor
+         SET status = 'rejected', rejected_at = NOW()
+         FROM selected
+         WHERE competitor.player_id = selected.player_id
+           AND competitor.incumbent_secret_hash = selected.incumbent_secret_hash
+           AND competitor.id <> selected.id
+           AND competitor.status IN (
+             'invalidation_pending', 'pending', 'invalidation_failed', 'contested'
+           )
+         RETURNING competitor.id, competitor.player_id
+       ), resolved AS (
+         UPDATE install_recovery_candidates AS candidate
+         SET status = 'pending', rejected_at = NULL
+         FROM selected
+         WHERE candidate.id = selected.id
+           AND candidate.status = 'contested'
+         RETURNING candidate.id, candidate.player_id
+       ), competitor_events AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id, 'contest_competitor_rejected', $2, $3, NOW()
+         FROM rejected_competitors
+       ), resolution_event AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id, 'contest_resolved', $2, $3, NOW()
+         FROM resolved
+       )
+       SELECT resolved.id AS candidate_id,
+              resolved.player_id,
+              (SELECT COUNT(*)::int FROM rejected_competitors) AS rejected_competitor_count
+       FROM resolved`,
+      [candidateId, actor, reason]
+    ),
+  ]);
+
+  const resolved = resolvedRows[0] as
+    | { candidate_id: number; player_id: number; rejected_competitor_count: number }
+    | undefined;
+  if (!resolved) {
+    throw new RecoveryDecisionConflictError(
+      'Recovery candidate is no longer contested or the incumbent credential changed.'
+    );
+  }
+
+  return {
+    candidateId: resolved.candidate_id,
+    playerId: resolved.player_id,
+    rejectedCompetitorCount: Number(resolved.rejected_competitor_count),
+  };
+}

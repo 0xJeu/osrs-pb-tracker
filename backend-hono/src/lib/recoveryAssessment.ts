@@ -144,7 +144,7 @@ export function assessInstallRecovery(
       action: 'do_not_promote',
       tone: 'danger',
       title: 'Do not promote',
-      detail: 'Investigate the competing credential activity. Reject the candidate if it is not expected.',
+      detail: 'Review the support context. If this exact candidate is verified, resolve the contest first; that rejects competing active candidates but does not promote or change the incumbent credential. Review again before a separate promotion.',
     };
   } else if (candidate.status === 'promoted') {
     recommendation = {

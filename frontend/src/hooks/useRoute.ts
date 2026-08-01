@@ -7,13 +7,23 @@ export type Route =
   | { name: 'player'; player: string }
   | { name: 'about' }
   | { name: 'faq' }
-  | { name: 'setup' };
+  | { name: 'setup' }
+  | { name: 'recovery'; recoveryId?: number; state?: string };
 
 export function routeFromPath(): Route {
   const rest = window.location.pathname;
   if (rest === '/about') return { name: 'about' };
   if (rest === '/faq') return { name: 'faq' };
   if (rest === '/setup') return { name: 'setup' };
+  if (rest === '/recovery') {
+    const params = new URLSearchParams(window.location.search);
+    const rawId = params.get('id');
+    const parsedId = rawId && /^[1-9]\d*$/.test(rawId) ? Number(rawId) : undefined;
+    const recoveryId = parsedId && Number.isSafeInteger(parsedId) ? parsedId : undefined;
+    const rawState = params.get('state')?.trim();
+    const state = rawState && /^[A-Z_]{1,80}$/.test(rawState) ? rawState : undefined;
+    return { name: 'recovery', recoveryId, state };
+  }
   if (rest === '/leaderboards') return { name: 'leaderboards' };
   const playerMatch = rest.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
@@ -39,6 +49,8 @@ function pathFromRoute(next: Route): string {
       return '/setup';
     case 'leaderboards':
       return '/leaderboards';
+    case 'recovery':
+      return `/recovery${next.recoveryId ? `?id=${next.recoveryId}${next.state ? `&state=${encodeURIComponent(next.state)}` : ''}` : ''}`;
     default:
       return '/';
   }

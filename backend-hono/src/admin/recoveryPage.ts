@@ -60,6 +60,10 @@ export function recoveryAdminPage(nonce: string) {
     dd { margin: 3px 0 0; font-weight: 650; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .events { margin: 14px 0 0; padding-left: 20px; color: #bac2d2; }
+    .support { margin: 16px 0; padding: 14px; background: #141821; border: 1px solid #46536a; border-radius: 10px; }
+    .support h3 { margin: 0 0 8px; font-size: 14px; }
+    .support-entry { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid #303746; white-space: pre-wrap; color: #d6dbea; }
+    .support-time { display: block; margin-top: 4px; color: #909aad; font-size: 12px; }
     .empty { padding: 28px; text-align: center; color: #9ba4b7; }
     @media (max-width: 780px) {
       .controls { grid-template-columns: 1fr; }
@@ -92,6 +96,7 @@ export function recoveryAdminPage(nonce: string) {
       </div>
       <section class="controls" aria-label="Recovery controls">
         <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="invalidation_pending">Invalidation pending</option><option value="pending">Pending</option><option value="invalidation_failed">Invalidation failed</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
+        <label>Recovery ID<input id="candidate-id" inputmode="numeric" placeholder="Exact ID"></label>
         <button id="refresh" type="button">Refresh</button>
       </section>
       <p id="message" class="message" role="status"></p>
@@ -108,6 +113,7 @@ export function recoveryAdminPage(nonce: string) {
     const loginMessage = document.querySelector('#login-message');
     const logoutButton = document.querySelector('#logout');
     const statusInput = document.querySelector('#status');
+    const candidateIdInput = document.querySelector('#candidate-id');
     const refreshButton = document.querySelector('#refresh');
     const message = document.querySelector('#message');
     const candidatesRoot = document.querySelector('#candidates');
@@ -168,6 +174,23 @@ export function recoveryAdminPage(nonce: string) {
       return list;
     }
 
+    function supportList(entries) {
+      const section = document.createElement('section');
+      section.className = 'support';
+      section.append(textElement('h3', 'Unverified player support messages'));
+      section.append(textElement('p', 'Use these for context only. A message and recovery ID are not proof of account ownership.', 'subtle'));
+      for (const entry of entries) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'support-entry';
+        wrapper.append(
+          document.createTextNode(entry.message),
+          textElement('span', new Date(entry.createdAt).toLocaleString(), 'support-time')
+        );
+        section.append(wrapper);
+      }
+      return section;
+    }
+
     function insightBox(heading, title, detail, className) {
       const box = document.createElement('section');
       box.className = 'insight' + (className ? ' ' + className : '');
@@ -199,16 +222,22 @@ export function recoveryAdminPage(nonce: string) {
     }
 
     async function decide(candidate, decision) {
-      const reason = window.prompt('Reason for ' + decision + 'ing candidate ' + candidate.id + ':');
+      const verb = decision === 'resolve' ? 'resolving the contest for' : decision + 'ing';
+      const reason = window.prompt('Reason for ' + verb + ' candidate ' + candidate.id + ':');
       if (reason === null) return;
       if (reason.trim().length < 5) throw new Error('Decision reason must be at least 5 characters.');
-      if (!window.confirm(decision + ' recovery candidate ' + candidate.id + ' for ' + candidate.displayName + '?')) return;
+      const warning = decision === 'resolve'
+        ? 'Resolve candidate ' + candidate.id + ' for ' + candidate.displayName + ' and reject every competing active candidate? This does not promote or change the current credential.'
+        : decision + ' recovery candidate ' + candidate.id + ' for ' + candidate.displayName + '?';
+      if (!window.confirm(warning)) return;
 
       await request('/api/admin/recovery/candidates/' + candidate.id + '/' + decision, {
         method: 'POST',
         body: JSON.stringify({ reason: reason.trim() })
       });
-      message.textContent = 'Candidate ' + candidate.id + ' was ' + (decision === 'promote' ? 'promoted' : 'rejected') + '.';
+      message.textContent = decision === 'resolve'
+        ? 'Candidate ' + candidate.id + ' contest was resolved. Review it again before promotion.'
+        : 'Candidate ' + candidate.id + ' was ' + (decision === 'promote' ? 'promoted' : 'rejected') + '.';
       await load();
     }
 
@@ -262,7 +291,11 @@ export function recoveryAdminPage(nonce: string) {
       reject.type = 'button';
       reject.disabled = candidate.status !== 'invalidation_pending' && candidate.status !== 'pending' && candidate.status !== 'invalidation_failed' && candidate.status !== 'contested';
       reject.addEventListener('click', function () { decide(candidate, 'reject').catch(showError); });
-      actions.append(promote, reject);
+      const resolve = textElement('button', 'Resolve contest', 'secondary');
+      resolve.type = 'button';
+      resolve.disabled = candidate.status !== 'contested';
+      resolve.addEventListener('click', function () { decide(candidate, 'resolve').catch(showError); });
+      actions.append(promote, resolve, reject);
 
       card.append(
         head,
@@ -271,6 +304,7 @@ export function recoveryAdminPage(nonce: string) {
         textElement('p', 'Safety limitation: ' + assessment.limitation, 'limitation'),
         textElement('h3', 'Evidence details', 'metrics-title'),
         metrics,
+        ...(candidate.supportMessages.length ? [supportList(candidate.supportMessages)] : []),
         actions
       );
       if (candidate.events.length) card.append(eventList(candidate.events));
@@ -285,7 +319,9 @@ export function recoveryAdminPage(nonce: string) {
       refreshButton.disabled = true;
       message.textContent = 'Loading…';
       try {
-        const body = await request('/api/admin/recovery/candidates?status=' + encodeURIComponent(statusInput.value));
+        const candidateId = candidateIdInput.value.trim();
+        if (candidateId && !/^[1-9]\\d*$/.test(candidateId)) throw new Error('Recovery ID must be a positive integer.');
+        const body = await request('/api/admin/recovery/candidates?status=' + encodeURIComponent(statusInput.value) + (candidateId ? '&id=' + encodeURIComponent(candidateId) : ''));
         candidatesRoot.replaceChildren(...body.candidates.map(candidateCard));
         if (!body.candidates.length) candidatesRoot.append(textElement('div', 'No matching recovery candidates.', 'empty'));
         message.textContent = 'Loaded ' + body.candidates.length + ' candidate(s).';
@@ -319,6 +355,7 @@ export function recoveryAdminPage(nonce: string) {
     });
     refreshButton.addEventListener('click', function () { load().catch(showError); });
     statusInput.addEventListener('change', function () { load().catch(showError); });
+    candidateIdInput.addEventListener('change', function () { load().catch(showError); });
 
     request('/api/admin/recovery/session')
       .then(function () { showAdmin(); return load(); })
