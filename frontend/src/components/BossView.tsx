@@ -2,7 +2,7 @@ import { CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import type { LeaderboardPage, LeaderboardRow } from '../lib/api';
 import { isLoaded, type LoadState } from '../lib/loadState';
 import { formatDate, formatTime } from '../lib/format';
-import { bossBannerUrl } from '../lib/bossBanners';
+import { bossBannerFit, bossBannerUrl } from '../lib/bossBanners';
 import { getRaidModes, groupedBaseForKey, isGroupedVariant } from '../lib/bossGroups';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
 import type { Route } from '../hooks/useRoute';
@@ -81,11 +81,12 @@ export function BossView({
   return (
     <div className="pbt-section" style={{ paddingTop: 40 }}>
       <div
-        className="pbt-banner pbt-boss-banner"
+        className={`pbt-banner pbt-boss-banner${bossBannerFit(selectedBoss) === 'contain' ? ' pbt-boss-banner--contain' : ''}`}
         style={bossBannerUrl(selectedBoss) ? ({ '--pbt-banner': `url("${bossBannerUrl(selectedBoss)}")` } as CSSProperties) : undefined}
       >
         <div className="pbt-crumbs">
-          <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> / Leaderboards
+          <button type="button" onClick={() => navigate({ name: 'home' })}>Home</button> /{' '}
+          <button type="button" onClick={() => navigate({ name: 'leaderboards' })}>Leaderboards</button>
         </div>
         <h2 className="pbt-display pbt-h2">{titleParts.primary}</h2>
         {titleParts.secondary && <span className="meta">{titleParts.secondary}</span>}

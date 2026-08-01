@@ -147,6 +147,52 @@ function isRaid(key: string): boolean {
   return RAID_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} -`) || lower.startsWith(`${p} `));
 }
 
+// A plugin bug (since fixed) synced Chambers of Xeric's largest team-size
+// bucket as one run-on phrase instead of the usual " - "-delimited form -
+// "chambers of xeric 24+ players" / "chambers of xeric challenge mode 24+
+// players" instead of "chambers of xeric - fastest overall (24+ players)".
+// Unlike the genuinely ambiguous run-on phrases below (no team size at all,
+// so there's no reliable way to tell mode from label), a trailing team-size
+// phrase here is unambiguous, so these are still worth folding into the
+// right raid+mode heading - otherwise they permanently show up as their own
+// disconnected entries regardless of whether the backend's already-synced
+// bad keys ever get cleaned up.
+const COX_RUN_ON_PATTERN = /^chambers of xeric(?: (challenge mode))? (solo|\d+\+?\s*players?)$/;
+
+function parseCoxRunOnVariant(key: string): RaidVariant | null {
+  const match = key.trim().toLowerCase().match(COX_RUN_ON_PATTERN);
+  if (!match) return null;
+  const mode = match[1] ?? '';
+  const base = 'chambers of xeric';
+  const heading = mode ? `${titleCase(base)} - ${titleCase(mode)}` : titleCase(base);
+  // These are always the 24+-player Fastest Overall bucket (see comment
+  // above) - spelling the subLabel out in full, rather than just the size
+  // ("24+ Players"), is what lets variantKind() below recognize them as
+  // Overall instead of falling through to the Other catch-all.
+  return { key, base, mode, heading, subLabel: `Fastest Overall (${titleCase(match[2])})` };
+}
+
+// DT2 bosses that can be fought in a harder "Awakened" form - synced as a
+// separate boss key ("duke sucellus (awakened)") rather than a " - "-
+// delimited mode/size variant. Collapsed into one entry with a Normal/
+// Awakened toggle instead of two disconnected boss rows, same treatment as
+// the plugin's side panel.
+const AWAKENABLE_BOSSES = ['duke sucellus', 'leviathan', 'whisperer', 'vardorvis'];
+const AWAKENED_PATTERN = /^(duke sucellus|leviathan|whisperer|vardorvis) \(awakened\)$/;
+
+function parseAwakenedVariant(key: string): RaidVariant | null {
+  const lower = key.trim().toLowerCase();
+  const awakenedMatch = lower.match(AWAKENED_PATTERN);
+  if (awakenedMatch) {
+    const base = awakenedMatch[1];
+    return { key, base, mode: '', heading: titleCase(base), subLabel: 'Awakened' };
+  }
+  if (AWAKENABLE_BOSSES.includes(lower)) {
+    return { key, base: lower, mode: '', heading: titleCase(lower), subLabel: 'Normal' };
+  }
+  return null;
+}
+
 // Whether a key belongs to a multi-variant boss (raid or otherwise) that
 // should be collapsed into one row + drill-down, rather than shown as its
 // own flat entry per variant. Independent of categorize() - a grouped boss
@@ -154,6 +200,8 @@ function isRaid(key: string): boolean {
 export function isGroupedVariant(key: string): boolean {
   const lower = key.trim().toLowerCase();
   return tzhaarChallengeNumber(key) !== undefined
+    || parseCoxRunOnVariant(key) !== null
+    || parseAwakenedVariant(key) !== null
     || GROUPED_BOSS_PREFIXES.some((p) => lower === p || lower.startsWith(`${p} -`));
 }
 
@@ -192,6 +240,12 @@ function parseRaidVariant(bossKey: string): RaidVariant {
     };
   }
 
+  const coxRunOn = parseCoxRunOnVariant(bossKey);
+  if (coxRunOn) return coxRunOn;
+
+  const awakened = parseAwakenedVariant(bossKey);
+  if (awakened) return awakened;
+
   const segments = bossKey.trim().toLowerCase().split(' - ').map((s) => s.trim());
   const base = segments[0];
   const mode = segments.slice(1, -1).join(' - ');
@@ -203,7 +257,9 @@ function parseRaidVariant(bossKey: string): RaidVariant {
 
 function teamSizeRank(subLabel: string): number {
   const lower = subLabel.toLowerCase();
+  if (lower === 'normal') return 0;
   if (lower.includes('solo')) return 1;
+  if (lower === 'awakened') return 2;
   const match = lower.match(/(\d+)/);
   return match ? Number(match[1]) : 999;
 }
@@ -483,6 +539,5 @@ export function getRaidModes(bosses: string[], base: string): RaidMode[] {
 // not share a literal key prefix, so the boss page cannot derive this by
 // splitting on " - " the way it can for raid variants.
 export function groupedBaseForKey(key: string): string {
-  if (tzhaarChallengeNumber(key) !== undefined) return TZHAAR_CHALLENGE_BASE;
-  return key.split(' - ')[0].trim().toLowerCase();
+  return parseRaidVariant(key).base;
 }
