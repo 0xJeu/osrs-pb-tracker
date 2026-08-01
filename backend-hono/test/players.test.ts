@@ -1,12 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { app } from '../src/app.js';
-import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { db } from '../src/db/client.js';
+import { personalBests } from '../src/db/schema.js';
+import { resetProfileBucketFallbackMetric } from '../src/lib/cache.js';
+import { insertTestPlayerWithPb } from './helpers.js';
 
 describe('GET /api/players/:name', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns 404 for an unknown player', async () => {
     const res = await app.request('/api/players/Nobody?ignored=true');
     expect(res.status).toBe(404);
@@ -26,10 +25,88 @@ describe('GET /api/players/:name', () => {
     );
     expect(res.headers.get('vercel-cache-tag')).toContain('player-name:blitzen');
     expect(res.headers.get('vercel-cache-tag')).toContain('player-id:');
-    expect(res.headers.get('vercel-cache-tag')).toContain('profile-boss-bucket:');
+    expect(res.headers.get('vercel-cache-tag')).toContain('profile-boss:zulrah');
     const json = await res.json();
     expect(json.displayName).toBe('Blitzen');
     expect(json.pbs).toEqual([{ boss: 'zulrah', timeSeconds: 80, updatedAt: expect.any(String), rank: 1 }]);
+  });
+
+  it('tags a normal-sized profile with exact per-boss tags, not bucket tags, and stays well under the 128-tag cap', async () => {
+    const player = await insertTestPlayerWithPb({ boss: 'zulrah', timeSeconds: 80, displayName: 'Blitzen' });
+    const bosses = ['vorkath', 'phantom muspah', 'the whisperer', 'duke sucellus'];
+    await db.insert(personalBests).values(
+      bosses.map((boss) => ({
+        playerId: player.id,
+        boss,
+        timeSeconds: 100,
+        updatedAt: new Date(),
+      }))
+    );
+
+    const res = await app.request('/api/players/blitzen');
+    expect(res.status).toBe(200);
+    const tags = (res.headers.get('vercel-cache-tag') ?? '').split(',');
+
+    const allBosses = ['zulrah', ...bosses];
+    for (const boss of allBosses) {
+      expect(tags).toContain(`profile-boss:${encodeURIComponent(boss)}`);
+    }
+    expect(tags.some((tag) => tag.startsWith('profile-boss-bucket:'))).toBe(false);
+    expect(tags.length).toBeLessThan(128);
+  });
+
+  it('logs only a sampled credential-free counter when an oversized profile falls back to bucket tags', async () => {
+    const originalVercel = process.env.VERCEL;
+    process.env.VERCEL = '1';
+    resetProfileBucketFallbackMetric();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      const player = await insertTestPlayerWithPb({
+        boss: 'boss-0',
+        timeSeconds: 80,
+        displayName: 'Fallback Probe',
+        accountHash: 'fallback-probe-account',
+      });
+      await db.insert(personalBests).values(
+        Array.from({ length: 125 }, (_, index) => ({
+          playerId: player.id,
+          boss: `boss-${index + 1}`,
+          timeSeconds: 100,
+          updatedAt: new Date(),
+        }))
+      );
+
+      const exactResponse = await app.request('/api/players/fallback%20probe');
+      expect(exactResponse.status).toBe(200);
+      expect((exactResponse.headers.get('vercel-cache-tag') ?? '').split(',')).toHaveLength(128);
+      expect(infoSpy).not.toHaveBeenCalled();
+
+      await db.insert(personalBests).values({
+        playerId: player.id,
+        boss: 'boss-126',
+        timeSeconds: 100,
+        updatedAt: new Date(),
+      });
+      const fallbackResponse = await app.request('/api/players/fallback%20probe');
+      expect(fallbackResponse.status).toBe(200);
+      const fallbackTags = (fallbackResponse.headers.get('vercel-cache-tag') ?? '').split(',');
+      expect(fallbackTags.some((tag) => tag.startsWith('profile-boss:'))).toBe(false);
+      expect(fallbackTags.some((tag) => tag.startsWith('profile-boss-bucket:'))).toBe(true);
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+      expect(infoSpy).toHaveBeenCalledWith(
+        'Oversized profile cache bucket fallback',
+        { fallbackResponses: 1 }
+      );
+    } finally {
+      infoSpy.mockRestore();
+      resetProfileBucketFallbackMetric();
+      if (originalVercel === undefined) {
+        delete process.env.VERCEL;
+      } else {
+        process.env.VERCEL = originalVercel;
+      }
+    }
   });
 
   it("includes each PB's rank on the boss leaderboard", async () => {
@@ -75,10 +152,6 @@ describe('GET /api/players/:name', () => {
 });
 
 describe('GET /api/players/by-id/:id', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns 404 for an unknown id', async () => {
     const res = await app.request('/api/players/by-id/999999');
     expect(res.status).toBe(404);

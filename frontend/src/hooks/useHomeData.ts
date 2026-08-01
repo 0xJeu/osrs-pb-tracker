@@ -51,8 +51,10 @@ export function useHomeData(route: Route): HomeData {
   }, [route.name]);
 
   // One request replaces the previous 5-request per-boss fan-out (Workstream D).
+  // Also loaded for the Leaderboards page, which shows a real top-player
+  // subtitle per card instead of a fabricated stat.
   useEffect(() => {
-    if (route.name !== 'home' || topBosses.s !== 'idle') return;
+    if ((route.name !== 'home' && route.name !== 'leaderboards') || topBosses.s !== 'idle') return;
     let alive = true;
     setTopBosses({ s: 'loading' });
     api.getLeaderboardOverview()

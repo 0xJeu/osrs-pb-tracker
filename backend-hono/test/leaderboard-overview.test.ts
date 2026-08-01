@@ -1,13 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
 import { CURATED_OVERVIEW_BOSSES } from '../src/lib/curatedOverviewBosses.js';
-import { insertTestPlayerWithPb, truncateAll } from './helpers.js';
+import { insertTestPlayerWithPb } from './helpers.js';
 
 describe('GET /api/leaderboard-overview', () => {
-  beforeEach(async () => {
-    await truncateAll();
-  });
-
   it('returns every curated boss with a null leader when nobody has synced', async () => {
     const res = await app.request('/api/leaderboard-overview');
     expect(res.status).toBe(200);

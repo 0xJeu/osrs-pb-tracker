@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
 import { truncateAll } from './helpers.js';
@@ -12,11 +12,6 @@ function feedbackRequest(body: unknown, headers: Record<string, string> = {}) {
 }
 
 describe('POST /api/feedback', () => {
-  beforeEach(async () => {
-    await truncateAll();
-    resetRateLimiter();
-  });
-
   it('rejects a missing message', async () => {
     const res = await feedbackRequest({});
     expect(res.status).toBe(400);

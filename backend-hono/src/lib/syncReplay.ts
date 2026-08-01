@@ -2,7 +2,14 @@ import { createHash } from 'node:crypto';
 import { getCache } from '@vercel/functions';
 
 const SYNC_REPLAY_TTL_SECONDS = 10 * 60;
-const SYNC_REPLAY_TAG = 'pb-sync-replay-v1';
+// v2: bumped from v1 when player-scoped tags were introduced. Vercel Runtime
+// Cache persists across deployments and does not retroactively add tags to
+// entries written by older code, so a version bump (which also changes the
+// underlying namespace) is required to guarantee every live entry has a
+// player tag - otherwise pre-deploy entries could dodge player-scoped
+// invalidation for the remainder of their TTL. Bump again if the tagging
+// scheme changes further.
+const SYNC_REPLAY_TAG = 'pb-sync-replay-v2';
 const REPLAY_METRIC_INTERVAL_MS = 60 * 1000;
 let replayHitsSinceMetric = 0;
 let lastReplayMetricAt = 0;
@@ -20,6 +27,10 @@ const syncReplayCache = getCache({
   namespace: SYNC_REPLAY_TAG,
   keyHashFunction: (key) => key,
 });
+
+function playerReplayTag(playerId: number) {
+  return `${SYNC_REPLAY_TAG}-player-${playerId}`;
+}
 
 function fingerprintValue(value: unknown) {
   const numeric = Number(value);
@@ -92,7 +103,12 @@ export async function rememberSuccessfulSync(key: string, result: CachedSyncResu
   try {
     await syncReplayCache.set(key, result, {
       ttl: SYNC_REPLAY_TTL_SECONDS,
-      tags: [SYNC_REPLAY_TAG],
+      // The player-specific tag lets a recovery capture/promotion evict only
+      // this player's cached replay entries instead of the whole namespace -
+      // a global clear would otherwise be a public, unauthenticated way to
+      // evict every player's replay protection via repeated install-secret
+      // mismatches.
+      tags: [SYNC_REPLAY_TAG, playerReplayTag(result.playerId)],
       // The key is already opaque, but suppress its display in cache o11y too.
       name: '',
     });
@@ -126,4 +142,26 @@ export function noteSuccessfulSyncReplay(nowMs: number = Date.now()) {
 
 export async function resetSyncReplayCache() {
   await syncReplayCache.expireTag(SYNC_REPLAY_TAG);
+}
+
+// Invalidates only one player's cached replay entries - used when a recovery
+// candidate is captured or promoted, so that action can't be abused as a
+// public way to evict every player's replay protection. Never throws: a
+// database mutation (candidate capture, promotion) must not be reported as
+// failed just because the follow-up cache invalidation had trouble. Returns
+// whether it actually succeeded so callers for whom invalidation is a
+// correctness dependency (not just an optimization) can react - see
+// captureInstallRecoveryCandidate, which must not leave a candidate
+// "pending"/promotable on unconfirmed invalidation.
+export async function invalidatePlayerSyncReplay(playerId: number): Promise<boolean> {
+  try {
+    await syncReplayCache.expireTag(playerReplayTag(playerId));
+    return true;
+  } catch (error) {
+    console.warn('Unable to invalidate PB sync replay cache for player', {
+      playerId,
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+    return false;
+  }
 }

@@ -2,17 +2,29 @@ import { useEffect, useState } from 'react';
 
 export type Route =
   | { name: 'home' }
+  | { name: 'leaderboards' }
   | { name: 'boss'; boss: string; highlight?: string }
   | { name: 'player'; player: string }
   | { name: 'about' }
   | { name: 'faq' }
-  | { name: 'setup' };
+  | { name: 'setup' }
+  | { name: 'recovery'; recoveryId?: number; state?: string };
 
 export function routeFromPath(): Route {
   const rest = window.location.pathname;
   if (rest === '/about') return { name: 'about' };
   if (rest === '/faq') return { name: 'faq' };
   if (rest === '/setup') return { name: 'setup' };
+  if (rest === '/recovery') {
+    const params = new URLSearchParams(window.location.search);
+    const rawId = params.get('id');
+    const parsedId = rawId && /^[1-9]\d*$/.test(rawId) ? Number(rawId) : undefined;
+    const recoveryId = parsedId && Number.isSafeInteger(parsedId) ? parsedId : undefined;
+    const rawState = params.get('state')?.trim();
+    const state = rawState && /^[A-Z_]{1,80}$/.test(rawState) ? rawState : undefined;
+    return { name: 'recovery', recoveryId, state };
+  }
+  if (rest === '/leaderboards') return { name: 'leaderboards' };
   const playerMatch = rest.match(/^\/player\/(.+)$/);
   if (playerMatch) return { name: 'player', player: decodeURIComponent(playerMatch[1]) };
   const bossMatch = rest.match(/^\/boss\/(.+)$/);
@@ -21,6 +33,27 @@ export function routeFromPath(): Route {
     return { name: 'boss', boss: decodeURIComponent(bossMatch[1]), highlight };
   }
   return { name: 'home' };
+}
+
+function pathFromRoute(next: Route): string {
+  switch (next.name) {
+    case 'player':
+      return `/player/${encodeURIComponent(next.player)}`;
+    case 'boss':
+      return `/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`;
+    case 'about':
+      return '/about';
+    case 'faq':
+      return '/faq';
+    case 'setup':
+      return '/setup';
+    case 'leaderboards':
+      return '/leaderboards';
+    case 'recovery':
+      return `/recovery${next.recoveryId ? `?id=${next.recoveryId}${next.state ? `&state=${encodeURIComponent(next.state)}` : ''}` : ''}`;
+    default:
+      return '/';
+  }
 }
 
 export function useRoute() {
@@ -33,19 +66,7 @@ export function useRoute() {
   }, []);
 
   const navigate = (next: Route) => {
-    const path =
-      next.name === 'player'
-        ? `/player/${encodeURIComponent(next.player)}`
-        : next.name === 'boss'
-          ? `/boss/${encodeURIComponent(next.boss)}${next.highlight ? `?highlight=${encodeURIComponent(next.highlight)}` : ''}`
-          : next.name === 'about'
-            ? '/about'
-          : next.name === 'faq'
-            ? '/faq'
-          : next.name === 'setup'
-            ? '/setup'
-          : '/';
-    window.history.pushState({}, '', path);
+    window.history.pushState({}, '', pathFromRoute(next));
     setRoute(next);
     // Each of these is its own "page" - switching between them (or between
     // two different bosses) should always land at the top, not wherever the

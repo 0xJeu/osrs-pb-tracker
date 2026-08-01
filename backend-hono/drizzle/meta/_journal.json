@@ -15,6 +15,41 @@
       "when": 1784598639869,
       "tag": "0001_tense_aqueduct",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784662893044,
+      "tag": "0002_brainy_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784663580801,
+      "tag": "0003_chemical_quentin_quire",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785512587002,
+      "tag": "0004_tiny_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785515047911,
+      "tag": "0005_long_wallow",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785517087996,
+      "tag": "0006_dizzy_brood",
+      "breakpoints": true
     }
   ]
 }

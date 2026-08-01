@@ -2,16 +2,18 @@ import { CSSProperties } from 'react';
 import '../theme-osrs-preview.css';
 import { bossAccentColor } from '../lib/bossColors';
 import { BossView } from './BossView';
+import { AllBossesView } from './AllBossesView';
 import { PlayerView } from './PlayerView';
 import { HomeView } from './HomeView';
 import { AboutPage } from './AboutPage';
 import { FaqPage } from './FaqPage';
 import { FeedbackButton } from './FeedbackButton';
 import { SetupGuidePage } from './SetupGuidePage';
+import { RecoveryHelpPage } from './RecoveryHelpPage';
 import { isLoaded } from '../lib/loadState';
 import { useRoute, type Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
-import { pickInitialBoss, useBossLeaderboard } from '../hooks/useBossLeaderboard';
+import { useBossLeaderboard } from '../hooks/useBossLeaderboard';
 import { useHomeData } from '../hooks/useHomeData';
 import { usePlayerProfile } from '../hooks/usePlayerProfile';
 
@@ -23,6 +25,8 @@ function feedbackContext(route: Route): string {
       return `boss:${route.boss}`;
     case 'player':
       return `player:${route.player}`;
+    case 'recovery':
+      return route.recoveryId ? `recovery:${route.recoveryId}` : 'page:recovery';
     default:
       return `page:${route.name}`;
   }
@@ -43,9 +47,11 @@ export function PbTrackerApp() {
     navigate({ name: 'player', player: trimmed });
   };
 
-  // Only tint the page while actually looking at a boss's leaderboard - Home
-  // and player pages stay neutral so the accent reads as "this page is about
-  // this boss," not just "whatever was last clicked."
+  // Only tint the page while actually looking at a boss's own leaderboard -
+  // Home/Player/Leaderboards pages stay neutral so the accent reads as
+  // "this page is about this boss," not just "whatever was last clicked."
+  // The Leaderboards page has its own explicit dark theme (see
+  // AllBossesView's .pbt-lb-page rules) instead of relying on this tint.
   const accentColor = route.name === 'boss' && selectedBoss ? bossAccentColor(selectedBoss) : undefined;
   const goToBoss = (boss: string) => navigate({ name: 'boss', boss });
 
@@ -75,8 +81,8 @@ export function PbTrackerApp() {
             </button>
             <button
               type="button"
-              className={route.name === 'boss' ? 'active' : undefined}
-              onClick={() => goToBoss(selectedBoss || pickInitialBoss(isLoaded(bosses) ? bosses.data : []))}
+              className={route.name === 'boss' || route.name === 'leaderboards' ? 'active' : undefined}
+              onClick={() => navigate({ name: 'leaderboards' })}
             >
               Leaderboards
             </button>
@@ -94,6 +100,9 @@ export function PbTrackerApp() {
             lookupPlayer={lookupPlayer}
             goToBoss={goToBoss}
           />
+        )}
+        {route.name === 'leaderboards' && (
+          <AllBossesView bosses={bosses} topBosses={topBosses} goToBoss={goToBoss} />
         )}
         {route.name === 'boss' && (
           <BossView
@@ -113,6 +122,7 @@ export function PbTrackerApp() {
         {route.name === 'about' && <AboutPage />}
         {route.name === 'faq' && <FaqPage />}
         {route.name === 'setup' && <SetupGuidePage />}
+        {route.name === 'recovery' && <RecoveryHelpPage initialRecoveryId={route.recoveryId} state={route.state} />}
       </div>
 
       <div className="pbt-footer">
