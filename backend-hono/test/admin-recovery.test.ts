@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { app } from '../src/app.js';
 import { db } from '../src/db/client.js';
 import {
+  feedback,
   installRecoveryCandidates,
   installRecoveryEvents,
   personalBests,
@@ -16,6 +17,7 @@ import { truncateAll } from './helpers.js';
 const adminPassword = 'recovery-admin-test-password-0001';
 const incumbentSecret = 'a'.repeat(20);
 const candidateSecret = 'b'.repeat(20);
+const competingSecret = 'c'.repeat(20);
 
 function sessionHeaders(cookie: string) {
   return {
@@ -217,6 +219,16 @@ describe('recovery admin', () => {
 
   it('lists safe recovery metadata without hashes or quarantined PB payloads', async () => {
     const recoveryId = await createCandidate();
+    await db.insert(feedback).values({
+      message: 'I reinstalled RuneLite and need help restoring sync.',
+      context: `recovery:${recoveryId}`,
+      createdAt: new Date(),
+    });
+    await db.insert(feedback).values({
+      message: 'Unrelated site feedback.',
+      context: 'page:home',
+      createdAt: new Date(),
+    });
     const { cookie } = await login();
     const response = await app.request('/api/admin/recovery/candidates?status=active', {
       headers: sessionHeaders(cookie),
@@ -241,6 +253,12 @@ describe('recovery admin', () => {
         promotionEffect: { wouldChangeCount: 2 },
       },
       events: [],
+      supportMessages: [
+        {
+          message: 'I reinstalled RuneLite and need help restoring sync.',
+          createdAt: expect.any(String),
+        },
+      ],
     });
     expect(body.candidates[0].assessment.lastAcceptedSyncAt).toEqual(expect.any(String));
     expect(body.candidates[0].assessment.limitation).toContain('not ownership');
@@ -248,6 +266,24 @@ describe('recovery admin', () => {
     expect(serialized).not.toContain('SecretHash');
     expect(serialized).not.toContain('payload');
     expect(serialized).not.toContain('Digest');
+  });
+
+  it('looks up an exact recovery ID regardless of the current status filter', async () => {
+    const recoveryId = await createCandidate();
+    const { cookie } = await login();
+    const response = await app.request(`/api/admin/recovery/candidates?status=rejected&id=${recoveryId}`, {
+      headers: sessionHeaders(cookie),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).candidates).toEqual([
+      expect.objectContaining({ id: recoveryId, status: 'pending' }),
+    ]);
+
+    const invalid = await app.request('/api/admin/recovery/candidates?id=12oops', {
+      headers: sessionHeaders(cookie),
+    });
+    expect(invalid.status).toBe(400);
   });
 
   it('validates decision input before changing a candidate', async () => {
@@ -330,6 +366,66 @@ describe('recovery admin', () => {
       code: 'RECOVERY_REJECTED',
       recoveryId,
     });
+  });
+
+  it('resolves a contested epoch without changing credentials, then requires separate promotion', async () => {
+    const recoveryId = await createCandidate();
+    const competing = await syncRequest(competingSecret, { Zulrah: 74, Vorkath: 70 });
+    expect(competing.status).toBe(409);
+    const competingId = (await competing.json()).recoveryId as number;
+
+    const { cookie } = await login();
+    const resolution = await app.request(`/api/admin/recovery/candidates/${recoveryId}/resolve`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Player supplied candidate ID through the recovery support page.' }),
+    });
+
+    expect(resolution.status).toBe(200);
+    expect(await resolution.json()).toMatchObject({
+      ok: true,
+      decision: 'resolve',
+      candidateId: recoveryId,
+      rejectedCompetitorCount: 1,
+    });
+
+    const candidates = await db.select().from(installRecoveryCandidates);
+    expect(candidates.find((candidate) => candidate.id === recoveryId)?.status).toBe('pending');
+    expect(candidates.find((candidate) => candidate.id === competingId)?.status).toBe('rejected');
+
+    const events = await db.select().from(installRecoveryEvents);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ candidateId: recoveryId, eventType: 'contest_resolved' }),
+      expect.objectContaining({ candidateId: competingId, eventType: 'contest_competitor_rejected' }),
+    ]));
+
+    const beforePromotion = await syncRequest(candidateSecret, { Zulrah: 74 });
+    expect(await beforePromotion.json()).toMatchObject({
+      code: 'RECOVERY_PENDING',
+      recoveryId,
+    });
+
+    const promotion = await app.request(`/api/admin/recovery/candidates/${recoveryId}/promote`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Second explicit decision after contest resolution.' }),
+    });
+    expect(promotion.status).toBe(200);
+    expect((await syncRequest(candidateSecret, { Zulrah: 73 })).status).toBe(200);
+    expect((await syncRequest(competingSecret, { Zulrah: 72 })).status).toBe(409);
+  });
+
+  it('refuses to resolve a candidate that is not contested', async () => {
+    const recoveryId = await createCandidate();
+    const { cookie } = await login();
+    const response = await app.request(`/api/admin/recovery/candidates/${recoveryId}/resolve`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Should remain pending and unchanged.' }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'RECOVERY_DECISION_CONFLICT' });
   });
 
   it('returns a decision conflict instead of repeating a promotion', async () => {

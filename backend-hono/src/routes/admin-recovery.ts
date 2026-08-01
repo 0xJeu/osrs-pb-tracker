@@ -4,7 +4,7 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import { recoveryAdminPage } from '../admin/recoveryPage.js';
 import { db } from '../db/client.js';
-import { installRecoveryEvents, syncAttempts } from '../db/schema.js';
+import { feedback, installRecoveryEvents, syncAttempts } from '../db/schema.js';
 import {
   authenticateRecoveryAdmin,
   clearRecoveryAdminLoginFailures,
@@ -19,10 +19,12 @@ import {
   requireRecoveryAdmin,
 } from '../lib/adminAuth.js';
 import {
+  getSafeInstallRecoveryCandidate,
+  listSafeInstallRecoveryCandidates,
   promoteInstallRecoveryCandidate,
   RecoveryDecisionConflictError,
   rejectInstallRecoveryCandidate,
-  listSafeInstallRecoveryCandidates,
+  resolveInstallRecoveryContest,
 } from '../lib/installRecovery.js';
 import { assessInstallRecovery } from '../lib/recoveryAssessment.js';
 
@@ -78,6 +80,7 @@ function parseDecisionBody(body: DecisionBody | null) {
 function serializeCandidate(
   candidate: Awaited<ReturnType<typeof listSafeInstallRecoveryCandidates>>[number],
   events: Array<typeof installRecoveryEvents.$inferSelect>,
+  supportMessages: Array<typeof feedback.$inferSelect>,
   lastAcceptedSyncAt: Date | null
 ) {
   return {
@@ -103,6 +106,10 @@ function serializeCandidate(
       actor: event.actor,
       reason: event.reason,
       createdAt: event.createdAt.toISOString(),
+    })),
+    supportMessages: supportMessages.map((entry) => ({
+      message: entry.message,
+      createdAt: entry.createdAt.toISOString(),
     })),
   };
 }
@@ -174,6 +181,11 @@ candidateApi.use('*', requireRecoveryAdmin);
 
 candidateApi.get('/', async (c) => {
   const requestedStatus = c.req.query('status') ?? 'active';
+  const requestedIdRaw = c.req.query('id');
+  const requestedId = requestedIdRaw === undefined ? null : parseCandidateId(requestedIdRaw);
+  if (requestedIdRaw !== undefined && !requestedId) {
+    return c.json({ error: 'candidate ID must be a positive integer' }, 400);
+  }
   if (requestedStatus !== 'active' && requestedStatus !== 'all' && !statuses.includes(requestedStatus as CandidateStatus)) {
     return c.json(
       {
@@ -190,10 +202,13 @@ candidateApi.get('/', async (c) => {
       : requestedStatus === 'all'
         ? undefined
         : [requestedStatus as CandidateStatus];
-  const candidates = await listSafeInstallRecoveryCandidates({
-    statuses: statusFilter,
-    limit: 100,
-  });
+  const directCandidate = requestedId ? await getSafeInstallRecoveryCandidate(requestedId) : null;
+  const candidates = requestedId
+    ? directCandidate ? [directCandidate] : []
+    : await listSafeInstallRecoveryCandidates({
+        statuses: statusFilter,
+        limit: 100,
+      });
 
   const events =
     candidates.length === 0
@@ -238,18 +253,37 @@ candidateApi.get('/', async (c) => {
     }
   }
 
+  const supportEntries =
+    candidates.length === 0
+      ? []
+      : await db
+          .select()
+          .from(feedback)
+          .where(inArray(feedback.context, candidates.map((candidate) => `recovery:${candidate.id}`)))
+          .orderBy(desc(feedback.createdAt))
+          .limit(500);
+  const supportByCandidate = new Map<number, typeof supportEntries>();
+  for (const entry of supportEntries) {
+    const candidateId = Number(entry.context?.slice('recovery:'.length));
+    if (!Number.isSafeInteger(candidateId)) continue;
+    const candidateEntries = supportByCandidate.get(candidateId) ?? [];
+    candidateEntries.push(entry);
+    supportByCandidate.set(candidateId, candidateEntries);
+  }
+
   return c.json({
     candidates: candidates.map((candidate) =>
       serializeCandidate(
         candidate,
         eventsByCandidate.get(candidate.id) ?? [],
+        supportByCandidate.get(candidate.id) ?? [],
         lastAcceptedSyncByPlayer.get(candidate.playerId) ?? null
       )
     ),
   });
 });
 
-async function decide(c: Context, decision: 'promote' | 'reject') {
+async function decide(c: Context, decision: 'promote' | 'reject' | 'resolve') {
   const candidateId = parseCandidateId(c.req.param('id'));
   if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
 
@@ -269,6 +303,20 @@ async function decide(c: Context, decision: 'promote' | 'reject') {
         candidateId: result.candidateId,
         playerId: result.playerId,
         changedPbCount: result.changedBosses.length,
+      });
+    }
+    if (decision === 'resolve') {
+      const result = await resolveInstallRecoveryContest(
+        candidateId,
+        RECOVERY_ADMIN_USERNAME,
+        parsed.reason
+      );
+      return c.json({
+        ok: true,
+        decision,
+        candidateId: result.candidateId,
+        playerId: result.playerId,
+        rejectedCompetitorCount: result.rejectedCompetitorCount,
       });
     }
 
@@ -299,6 +347,7 @@ async function decide(c: Context, decision: 'promote' | 'reject') {
 
 candidateApi.post('/:id/promote', (c) => decide(c, 'promote'));
 candidateApi.post('/:id/reject', (c) => decide(c, 'reject'));
+candidateApi.post('/:id/resolve', (c) => decide(c, 'resolve'));
 
 adminRecovery.route('/candidates', candidateApi);
 

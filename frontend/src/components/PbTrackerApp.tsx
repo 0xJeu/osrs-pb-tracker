@@ -8,6 +8,7 @@ import { AboutPage } from './AboutPage';
 import { FaqPage } from './FaqPage';
 import { FeedbackButton } from './FeedbackButton';
 import { SetupGuidePage } from './SetupGuidePage';
+import { RecoveryHelpPage } from './RecoveryHelpPage';
 import { isLoaded } from '../lib/loadState';
 import { useRoute, type Route } from '../hooks/useRoute';
 import { useBossList } from '../hooks/useBossList';
@@ -23,6 +24,8 @@ function feedbackContext(route: Route): string {
       return `boss:${route.boss}`;
     case 'player':
       return `player:${route.player}`;
+    case 'recovery':
+      return route.recoveryId ? `recovery:${route.recoveryId}` : 'page:recovery';
     default:
       return `page:${route.name}`;
   }
@@ -113,6 +116,7 @@ export function PbTrackerApp() {
         {route.name === 'about' && <AboutPage />}
         {route.name === 'faq' && <FaqPage />}
         {route.name === 'setup' && <SetupGuidePage />}
+        {route.name === 'recovery' && <RecoveryHelpPage initialRecoveryId={route.recoveryId} state={route.state} />}
       </div>
 
       <div className="pbt-footer">
