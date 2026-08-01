@@ -99,7 +99,7 @@ export function PbTrackerApp() {
           />
         )}
         {route.name === 'leaderboards' && (
-          <AllBossesView bosses={bosses} topBosses={topBosses} goToBoss={goToBoss} navigate={navigate} />
+          <AllBossesView bosses={bosses} topBosses={topBosses} goToBoss={goToBoss} />
         )}
         {route.name === 'boss' && (
           <BossView

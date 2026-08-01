@@ -2,10 +2,9 @@ import { useMemo, useState } from 'react';
 import '../tailwind.css';
 import { isLoaded, type LoadState } from '../lib/loadState';
 import { bossMonogram } from '../lib/bossPetIcons';
-import { useBossIconUrl } from '../lib/bossIcons';
+import { resolveBossSlug, useBossIconUrl } from '../lib/bossIcons';
 import { basesFromGroups, getRaidModes, groupBosses, type Category } from '../lib/bossGroups';
 import { matchesBossSearch } from '../lib/bossAliases';
-import type { Route } from '../hooks/useRoute';
 import type { LeaderboardRow } from '../lib/api';
 
 // Colors below are Tailwind arbitrary values referencing the rest of the
@@ -139,13 +138,19 @@ function rowKeyAndIcon(row: CardRow): { key: string; iconKey: string } {
 /** boss -> its top-ranked player, from the real /api/leaderboard-overview data (not fabricated). */
 type TopBossesOverview = Array<{ boss: string; leader: LeaderboardRow | null }>;
 
+/**
+ * Matches via the same canonical slug bossIcons.ts/bossBanners.ts already use,
+ * rather than a startsWith()-in-either-direction prefix check - a prefix
+ * match would have no principled way to tell e.g. "leviathan" from
+ * "leviathan (awakened)" if the curated overview list (currently 5 fixed
+ * entries, see CURATED_OVERVIEW_BOSSES on the backend) ever grows to include
+ * both, and would silently attribute the wrong one's leader to this card.
+ */
 function findLeader(overview: TopBossesOverview | undefined, target: string): LeaderboardRow | null | undefined {
   if (!overview) return undefined;
-  const t = target.trim().toLowerCase();
-  const hit = overview.find((o) => {
-    const b = o.boss.trim().toLowerCase();
-    return b.startsWith(t) || t.startsWith(b);
-  });
+  const targetSlug = resolveBossSlug(target);
+  if (!targetSlug) return undefined;
+  const hit = overview.find((o) => resolveBossSlug(o.boss) === targetSlug);
   return hit?.leader;
 }
 
@@ -273,7 +278,6 @@ export function AllBossesView({
   bosses: LoadState<string[]>;
   topBosses: LoadState<TopBossesOverview>;
   goToBoss: (boss: string) => void;
-  navigate: (route: Route) => void;
 }) {
   const [query, setQuery] = useState('');
   // Which sections the user has explicitly opened/closed by hand. Separate
