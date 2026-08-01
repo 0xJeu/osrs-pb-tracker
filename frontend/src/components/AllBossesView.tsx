@@ -8,7 +8,16 @@ import { matchesBossSearch } from '../lib/bossAliases';
 import type { Route } from '../hooks/useRoute';
 import type { LeaderboardRow } from '../lib/api';
 
-const GOLD = '#D9B968';
+// Colors below are Tailwind arbitrary values referencing the rest of the
+// site's own tokens (theme-osrs-preview.css) instead of a one-off palette,
+// so this page reads as the same site: --pbt-yellow for readable/emphasized
+// text (matches every other heading), --pbt-orange for icons/borders/accents
+// (matches .pbt-donate, .pbt-tag, card hover states), and the --pbt-bg-*
+// tiers already used by .pbt-card for panel/card surfaces. Referenced as
+// literal `var(--pbt-*)` strings rather than JS constants interpolated into
+// the class name, since Tailwind's content scanner needs the literal
+// `text-[var(--pbt-yellow)]`-shaped string present in the source to generate
+// the utility - a template-interpolated class name wouldn't be found.
 
 // Each boss's own bundled icon (see bossIcons.ts) - falls back to a text
 // monogram for the rare boss with no icon recovered.
@@ -23,7 +32,7 @@ function BossIcon({ boss, className }: { boss: string; className?: string }) {
 
 function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 shrink-0 text-[#8A8074]">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 shrink-0 text-[var(--pbt-yellow)] opacity-60">
       <circle cx="11" cy="11" r="7" />
       <path d="M21 21l-4.3-4.3" />
     </svg>
@@ -146,7 +155,7 @@ function PageContainer({ children }: { children: React.ReactNode }) {
   // spacing in effect, matching the OSRSPB-style mockup regardless of what
   // page shell it's mounted inside on this site.
   return (
-    <div className="-mx-10 bg-[#15110d] px-6 pb-16 pt-8 text-[#F2EFEA]">
+    <div className="-mx-10 bg-[var(--pbt-bg)] px-6 pb-16 pt-8 text-[var(--pbt-yellow)]">
       <div className="mx-auto max-w-[1400px]">{children}</div>
     </div>
   );
@@ -156,21 +165,21 @@ function Header({ query, onQueryChange }: { query: string; onQueryChange: (value
   return (
     <div className="mb-10 flex flex-wrap items-start justify-between gap-6">
       <div className="flex items-start gap-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[rgba(217,185,104,0.35)] bg-[#1c1712]" style={{ color: GOLD }}>
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[var(--pbt-line)] bg-[var(--pbt-bg-2)] text-[var(--pbt-orange)]">
           <TrophyIcon className="h-8 w-8" />
         </span>
         <div>
-          <h2 className="m-0 text-4xl font-bold text-[#F2EFEA]">Leaderboards</h2>
-          <p className="mt-1.5 text-2xl font-semibold text-[#8A8074]">Find out where you rank.</p>
+          <h2 className="m-0 text-4xl font-bold text-[var(--pbt-yellow)]">Leaderboards</h2>
+          <p className="mt-1.5 text-2xl font-semibold text-[var(--pbt-yellow)] opacity-70">Find out where you rank.</p>
         </div>
       </div>
-      <label className="flex h-12 w-[360px] items-center gap-2 rounded-lg border border-[rgba(217,185,104,0.25)] bg-[#1c1712] px-4">
+      <label className="flex h-12 w-[360px] items-center gap-2 rounded-lg border border-[var(--pbt-line)] bg-[var(--pbt-bg-2)] px-4">
         <input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Search bosses, raids, minigames..."
           aria-label="Search bosses, raids, minigames"
-          className="w-full bg-transparent text-base text-[#F2EFEA] placeholder:text-[#8A8074] focus:outline-none"
+          className="w-full bg-transparent text-base text-[var(--pbt-yellow)] placeholder:text-[var(--pbt-yellow)] placeholder:opacity-60 focus:outline-none"
         />
         <SearchIcon />
       </label>
@@ -178,25 +187,34 @@ function Header({ query, onQueryChange }: { query: string; onQueryChange: (value
   );
 }
 
-function SectionPanel({ category, children }: { category: Category; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+function SectionPanel({
+  category,
+  open,
+  onToggle,
+  children,
+}: {
+  category: Category;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   const Icon = CATEGORY_ICON[category];
   return (
-    <div className="mb-6 rounded-2xl border-l-4 border-y border-r border-y-[rgba(217,185,104,0.18)] border-r-[rgba(217,185,104,0.18)] bg-[#1c1712]" style={{ borderLeftColor: GOLD }}>
+    <div className="mb-6 rounded-2xl border-l-4 border-y border-r border-y-[var(--pbt-line-soft)] border-r-[var(--pbt-line-soft)] border-l-[var(--pbt-orange)] bg-[var(--pbt-bg-2)]">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-4 bg-transparent p-6 text-left transition-colors duration-150 hover:bg-[rgba(217,185,104,0.05)]"
+        className="flex w-full items-center gap-4 bg-transparent p-6 text-left transition-colors duration-150 hover:bg-[var(--pbt-bg-3)]"
       >
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[rgba(217,185,104,0.35)] bg-[#211b14]" style={{ color: GOLD }}>
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-[var(--pbt-line)] bg-[var(--pbt-bg-3)] text-[var(--pbt-orange)]">
           <Icon className="h-7 w-7" />
         </span>
         <span className="min-w-0 flex-1">
-          <div className="text-2xl font-semibold" style={{ color: GOLD }}>{category}</div>
-          <div className="mt-1 text-sm text-[#8A8074]">{CATEGORY_DESCRIPTION[category]}</div>
+          <div className="text-2xl font-semibold text-[var(--pbt-yellow)]">{category}</div>
+          <div className="mt-1 text-sm text-[var(--pbt-yellow)] opacity-70">{CATEGORY_DESCRIPTION[category]}</div>
         </span>
-        <ChevronIcon className={`h-6 w-6 shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} style={{ color: GOLD }} />
+        <ChevronIcon className={`h-6 w-6 shrink-0 text-[var(--pbt-orange)] transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && <div className="px-6 pb-6">{children}</div>}
     </div>
@@ -210,16 +228,16 @@ function RaidCard({ row, leader, onActivate }: { row: CardRow; leader: Leaderboa
       type="button"
       key={key}
       onClick={() => onActivate(row)}
-      className="flex h-[136px] flex-1 items-center gap-5 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-5 text-left transition-transform duration-150 hover:scale-[1.02] hover:border-[rgba(217,185,104,0.6)] hover:bg-[#211b14] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
+      className="flex h-[136px] flex-1 items-center gap-5 rounded-xl border border-[var(--pbt-line)] bg-[var(--pbt-bg-2)] p-5 text-left transition-transform duration-150 hover:scale-[1.02] hover:border-[var(--pbt-orange)] hover:bg-[var(--pbt-bg-3)] hover:shadow-[0_0_20px_rgba(255,152,31,0.15)]"
     >
       <span className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg">
         <BossIcon boss={iconKey} />
       </span>
       <span className="min-w-0 flex-1">
-        <div className="truncate text-2xl font-semibold" style={{ color: GOLD }}>{row.label}</div>
-        {leader && <div className="mt-1 truncate text-base text-[#8A8074]">Top: {leader.displayName}</div>}
+        <div className="truncate text-2xl font-semibold text-[var(--pbt-yellow)]">{row.label}</div>
+        {leader && <div className="mt-1 truncate text-base text-[var(--pbt-yellow)] opacity-70">Top: {leader.displayName}</div>}
       </span>
-      <ArrowIcon className="h-6 w-6 shrink-0 text-[#8A8074]" />
+      <ArrowIcon className="h-6 w-6 shrink-0 text-[var(--pbt-orange)]" />
     </button>
   );
 }
@@ -231,12 +249,12 @@ function GridCard({ row, onActivate }: { row: CardRow; onActivate: (row: CardRow
       type="button"
       key={key}
       onClick={() => onActivate(row)}
-      className="flex aspect-square flex-col items-center justify-center gap-0 rounded-xl border border-[rgba(217,185,104,0.25)] bg-[#211b14] p-4 text-center transition-transform duration-150 hover:scale-105 hover:border-[rgba(217,185,104,0.6)] hover:bg-[#211b14] hover:shadow-[0_0_20px_rgba(212,175,55,0.15)]"
+      className="flex aspect-square flex-col items-center justify-center gap-0 rounded-xl border border-[var(--pbt-line)] bg-[var(--pbt-bg-2)] p-4 text-center transition-transform duration-150 hover:scale-105 hover:border-[var(--pbt-orange)] hover:bg-[var(--pbt-bg-3)] hover:shadow-[0_0_20px_rgba(255,152,31,0.15)]"
     >
       <span className="flex h-20 w-20 items-center justify-center">
         <BossIcon boss={iconKey} />
       </span>
-      <div className="mt-3 truncate text-lg font-medium" style={{ color: GOLD }}>{row.label}</div>
+      <div className="mt-3 truncate text-lg font-medium text-[var(--pbt-yellow)]">{row.label}</div>
     </button>
   );
 }
@@ -258,9 +276,15 @@ export function AllBossesView({
   navigate: (route: Route) => void;
 }) {
   const [query, setQuery] = useState('');
+  // Which sections the user has explicitly opened/closed by hand. Separate
+  // from the effective open state below, so a search's forced-open sections
+  // don't clobber what the user had toggled before they started typing -
+  // clearing the search restores exactly what they'd set.
+  const [manuallyOpen, setManuallyOpen] = useState<Set<Category>>(new Set());
 
   const groups = useMemo(() => (isLoaded(bosses) ? groupBosses(bosses.data) : []), [bosses]);
   const overview = isLoaded(topBosses) ? topBosses.data : undefined;
+  const isSearching = query.trim().length > 0;
 
   const filteredGroups = useMemo(() => {
     const q = query.trim();
@@ -269,6 +293,20 @@ export function AllBossesView({
       .map((group) => ({ group, rows: buildCardRows(group).filter((row) => rowMatchesQuery(row, q)) }))
       .filter(({ rows }) => rows.length > 0);
   }, [groups, query]);
+
+  const toggleSection = (category: Category) => {
+    setManuallyOpen((prev) => {
+      const next = new Set(prev);
+      // While searching, every rendered section is force-open (see isOpen
+      // below) regardless of what's in this set - so a click here is toggling
+      // relative to that forced-open state, not the possibly-stale manual
+      // state from before the search started.
+      const currentlyOpen = isSearching || next.has(category);
+      if (currentlyOpen) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
 
   const activateRow = (row: CardRow) => {
     if (row.type === 'raid-base') {
@@ -283,16 +321,25 @@ export function AllBossesView({
     <PageContainer>
       <Header query={query} onQueryChange={setQuery} />
 
-      {bosses.s === 'loading' && <div className="py-4 text-sm text-[#8A8074]">Loading bosses...</div>}
-      {bosses.s === 'error' && <div className="py-4 text-sm text-[#8A8074]">Boss list unavailable.</div>}
+      {bosses.s === 'loading' && <div className="py-4 text-sm text-[var(--pbt-yellow)] opacity-70">Loading bosses...</div>}
+      {bosses.s === 'error' && <div className="py-4 text-sm text-[var(--pbt-yellow)] opacity-70">Boss list unavailable.</div>}
 
       {isLoaded(bosses) && filteredGroups.length === 0 && (
-        <div className="py-4 text-sm text-[#8A8074]">No bosses match "{query}".</div>
+        <div className="py-4 text-sm text-[var(--pbt-yellow)] opacity-70">No bosses match "{query}".</div>
       )}
 
       {isLoaded(bosses) &&
         filteredGroups.map(({ group, rows }: { group: { category: Category }; rows: CardRow[] }) => (
-          <SectionPanel category={group.category} key={group.category}>
+          <SectionPanel
+            category={group.category}
+            key={group.category}
+            // Every rendered section already only has matching rows (see the
+            // filter above), so a search should surface all of them rather
+            // than leaving results hidden inside whatever was collapsed
+            // before the user started typing.
+            open={isSearching || manuallyOpen.has(group.category)}
+            onToggle={() => toggleSection(group.category)}
+          >
             {group.category === 'Raids' ? (
               <div className="flex flex-wrap gap-4">
                 {rows.map((row) => (
