@@ -15,22 +15,22 @@ describe('seeded staging install recovery E2E harness', () => {
     await truncateAll();
   });
 
-  it('verifies the full credential handoff without reporting secrets, hashes, or payloads', async () => {
+  it('verifies additive install authorization without reporting secrets, hashes, or payloads', async () => {
     const report = await runInstallRecoveryE2e();
 
     expect(report.steps.map((step) => step.name)).toEqual([
       'incumbent_accepted',
       'mismatch_quarantined',
       'safe_metadata_visible',
-      'candidate_promoted',
+      'candidate_authorized_additional',
       'candidate_accepted',
-      'former_incumbent_rejected',
+      'original_install_still_accepted',
     ]);
     expect(report.checks).toEqual({
-      canonicalUnchangedBeforePromotion: true,
-      quarantinedPayloadAppliedOnPromotion: true,
-      promotedCandidateAccepted: true,
-      formerIncumbentCouldNotWrite: true,
+      canonicalUnchangedBeforeAuthorization: true,
+      quarantinedSubmissionNotAppliedOnAuthorization: true,
+      authorizedCandidateAccepted: true,
+      originalInstallStillAccepted: true,
       auditSequenceVerified: true,
       sensitiveRecoveryDataExposed: false,
     });
@@ -47,7 +47,7 @@ describe('seeded staging install recovery E2E harness', () => {
       .select({ status: installRecoveryCandidates.status })
       .from(installRecoveryCandidates)
       .orderBy(installRecoveryCandidates.id);
-    expect(candidates).toEqual([{ status: 'promoted' }, { status: 'pending' }]);
+    expect(candidates).toEqual([{ status: 'promoted' }]);
 
     await cleanupInstallRecoveryE2eFixture();
     const remaining = await db

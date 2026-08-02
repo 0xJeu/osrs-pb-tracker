@@ -4,7 +4,13 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import { recoveryAdminPage } from '../admin/recoveryPage.js';
 import { db } from '../db/client.js';
-import { feedback, installRecoveryEvents, syncAttempts } from '../db/schema.js';
+import {
+  feedback,
+  installRecoveryEvents,
+  playerInstallCredentials,
+  players,
+  syncAttempts,
+} from '../db/schema.js';
 import {
   authenticateRecoveryAdmin,
   clearRecoveryAdminLoginFailures,
@@ -22,14 +28,18 @@ import {
   getSafeInstallRecoveryCandidate,
   listSafeInstallRecoveryCandidates,
   promoteInstallRecoveryCandidate,
+  reactivatePlayerInstallCredential,
+  reopenRejectedInstallRecoveryCandidate,
   RecoveryDecisionConflictError,
   rejectInstallRecoveryCandidate,
+  revokePlayerInstallCredential,
   resolveInstallRecoveryContest,
 } from '../lib/installRecovery.js';
 import { assessInstallRecovery } from '../lib/recoveryAssessment.js';
 
 const adminRecovery = new Hono();
 const candidateApi = new Hono();
+const installationApi = new Hono();
 
 const statuses = [
   'invalidation_pending',
@@ -100,6 +110,17 @@ function serializeCandidate(
     lastSeenAt: candidate.lastSeenAt.toISOString(),
     promotedAt: candidate.promotedAt?.toISOString() ?? null,
     rejectedAt: candidate.rejectedAt?.toISOString() ?? null,
+    activeInstallCount: candidate.activeInstallCount,
+    installations: candidate.installations.map((install) => ({
+      id: install.id,
+      status: install.status,
+      source: install.source,
+      authorizedFromCandidateId: install.authorizedFromCandidateId,
+      firstSeenAt: install.firstSeenAt.toISOString(),
+      lastSeenAt: install.lastSeenAt.toISOString(),
+      authorizedAt: install.authorizedAt.toISOString(),
+      revokedAt: install.revokedAt?.toISOString() ?? null,
+    })),
     assessment: assessInstallRecovery(candidate, lastAcceptedSyncAt),
     events: events.map((event) => ({
       eventType: event.eventType,
@@ -111,6 +132,18 @@ function serializeCandidate(
       message: entry.message,
       createdAt: entry.createdAt.toISOString(),
     })),
+  };
+}
+
+function serializeSafeInstallation(install: typeof playerInstallCredentials.$inferSelect) {
+  return {
+    id: install.id,
+    status: install.status,
+    source: install.source,
+    firstSeenAt: install.firstSeenAt.toISOString(),
+    lastSeenAt: install.lastSeenAt.toISOString(),
+    authorizedAt: install.authorizedAt.toISOString(),
+    revokedAt: install.revokedAt?.toISOString() ?? null,
   };
 }
 
@@ -178,6 +211,55 @@ adminRecovery.get('/session', requireRecoveryAdmin, (c) =>
 );
 
 candidateApi.use('*', requireRecoveryAdmin);
+installationApi.use('*', requireRecoveryAdmin);
+
+installationApi.get('/', async (c) => {
+  const playerIdRaw = c.req.query('playerId')?.trim();
+  const displayName = c.req.query('displayName')?.trim();
+  if ((!playerIdRaw && !displayName) || (playerIdRaw && displayName)) {
+    return c.json({ error: 'provide exactly one of playerId or displayName' }, 400);
+  }
+
+  let matchingPlayers: Array<{ id: number; displayName: string }>;
+  if (playerIdRaw) {
+    const playerId = parseCandidateId(playerIdRaw);
+    if (!playerId) return c.json({ error: 'player ID must be a positive integer' }, 400);
+    matchingPlayers = await db
+      .select({ id: players.id, displayName: players.displayName })
+      .from(players)
+      .where(eq(players.id, playerId))
+      .limit(1);
+  } else {
+    if (!displayName || displayName.length > 50) {
+      return c.json({ error: 'displayName must be between 1 and 50 characters' }, 400);
+    }
+    matchingPlayers = await db
+      .select({ id: players.id, displayName: players.displayName })
+      .from(players)
+      .where(eq(players.displayNameLower, displayName.toLowerCase()))
+      .limit(20);
+  }
+
+  const playerIds = matchingPlayers.map((player) => player.id);
+  const installs = playerIds.length === 0
+    ? []
+    : await db
+        .select()
+        .from(playerInstallCredentials)
+        .where(inArray(playerInstallCredentials.playerId, playerIds))
+        .orderBy(desc(playerInstallCredentials.lastSeenAt));
+  return c.json({
+    players: matchingPlayers.map((player) => {
+      const playerInstalls = installs.filter((install) => install.playerId === player.id);
+      return {
+        playerId: player.id,
+        displayName: player.displayName,
+        activeInstallCount: playerInstalls.filter((install) => install.status === 'active').length,
+        installations: playerInstalls.map(serializeSafeInstallation),
+      };
+    }),
+  });
+});
 
 candidateApi.get('/', async (c) => {
   const requestedStatus = c.req.query('status') ?? 'active';
@@ -283,7 +365,7 @@ candidateApi.get('/', async (c) => {
   });
 });
 
-async function decide(c: Context, decision: 'promote' | 'reject' | 'resolve') {
+async function decide(c: Context, decision: 'promote' | 'replace' | 'reject' | 'resolve') {
   const candidateId = parseCandidateId(c.req.param('id'));
   if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
 
@@ -291,11 +373,12 @@ async function decide(c: Context, decision: 'promote' | 'reject' | 'resolve') {
   if ('error' in parsed) return c.json({ error: parsed.error }, 400);
 
   try {
-    if (decision === 'promote') {
+    if (decision === 'promote' || decision === 'replace') {
       const result = await promoteInstallRecoveryCandidate(
         candidateId,
         RECOVERY_ADMIN_USERNAME,
-        parsed.reason
+        parsed.reason,
+        decision === 'replace' ? 'replace' : 'additional'
       );
       return c.json({
         ok: true,
@@ -303,6 +386,8 @@ async function decide(c: Context, decision: 'promote' | 'reject' | 'resolve') {
         candidateId: result.candidateId,
         playerId: result.playerId,
         changedPbCount: result.changedBosses.length,
+        authorizationMode: result.mode,
+        revokedInstallCount: result.revokedInstallCount,
       });
     }
     if (decision === 'resolve') {
@@ -346,9 +431,66 @@ async function decide(c: Context, decision: 'promote' | 'reject' | 'resolve') {
 }
 
 candidateApi.post('/:id/promote', (c) => decide(c, 'promote'));
+candidateApi.post('/:id/replace', (c) => decide(c, 'replace'));
 candidateApi.post('/:id/reject', (c) => decide(c, 'reject'));
 candidateApi.post('/:id/resolve', (c) => decide(c, 'resolve'));
+candidateApi.post('/:id/reopen', async (c) => {
+  const candidateId = parseCandidateId(c.req.param('id'));
+  if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
+  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+  try {
+    const result = await reopenRejectedInstallRecoveryCandidate(
+      candidateId,
+      RECOVERY_ADMIN_USERNAME,
+      parsed.reason
+    );
+    return c.json({ ok: true, decision: 'reopen', ...result });
+  } catch (error) {
+    if (error instanceof RecoveryDecisionConflictError) {
+      return c.json({ error: error.message, code: 'RECOVERY_DECISION_CONFLICT' }, 409);
+    }
+    throw error;
+  }
+});
+
+async function decideInstallation(c: Context, decision: 'revoke' | 'reactivate') {
+  const credentialId = parseCandidateId(c.req.param('id'));
+  if (!credentialId) return c.json({ error: 'installation ID must be a positive integer' }, 400);
+  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+  try {
+    if (decision === 'revoke') {
+      const result = await revokePlayerInstallCredential(
+        credentialId,
+        RECOVERY_ADMIN_USERNAME,
+        parsed.reason
+      );
+      return c.json({ ok: true, decision, ...result });
+    }
+    const result = await reactivatePlayerInstallCredential(
+      credentialId,
+      RECOVERY_ADMIN_USERNAME,
+      parsed.reason
+    );
+    return c.json({ ok: true, decision, ...result });
+  } catch (error) {
+    if (error instanceof RecoveryDecisionConflictError) {
+      return c.json({ error: error.message, code: 'RECOVERY_DECISION_CONFLICT' }, 409);
+    }
+    throw error;
+  }
+}
+
+// Keep the original candidate-nested action paths compatible with the first
+// admin UI release while exposing installation management independently of
+// candidate retention.
+candidateApi.post('/installations/:id/revoke', (c) => decideInstallation(c, 'revoke'));
+candidateApi.post('/installations/:id/reactivate', (c) => decideInstallation(c, 'reactivate'));
+installationApi.post('/:id/revoke', (c) => decideInstallation(c, 'revoke'));
+installationApi.post('/:id/reactivate', (c) => decideInstallation(c, 'reactivate'));
 
 adminRecovery.route('/candidates', candidateApi);
+adminRecovery.route('/installations', installationApi);
 
 export default adminRecovery;

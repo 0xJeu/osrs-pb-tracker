@@ -50,6 +50,20 @@
       "when": 1785517087996,
       "tag": "0006_dizzy_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785635959246,
+      "tag": "0007_multi_install_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785636194255,
+      "tag": "0008_recovery_pending_default",
+      "breakpoints": true
     }
   ]
 }

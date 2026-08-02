@@ -27,6 +27,8 @@ export function recoveryAdminPage(nonce: string) {
     button:disabled { cursor: not-allowed; opacity: .45; }
     .message { min-height: 24px; margin: 14px 2px; color: #f0c674; }
     #candidates { display: grid; gap: 14px; }
+    .installation-search { margin-top: 18px; grid-template-columns: 1fr auto; }
+    #installation-results { display: grid; gap: 14px; margin-top: 14px; }
     article { padding: 16px; }
     .candidate-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
     .candidate-head h2 { margin: 0 0 4px; font-size: 19px; }
@@ -59,6 +61,9 @@ export function recoveryAdminPage(nonce: string) {
     dt { color: #909aad; font-size: 12px; }
     dd { margin: 3px 0 0; font-weight: 650; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .installations { margin: 16px 0; padding: 14px; background: #141821; border: 1px solid #303746; border-radius: 10px; }
+    .installation { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid #303746; }
+    .installation:first-of-type { border-top: 0; }
     .events { margin: 14px 0 0; padding-left: 20px; color: #bac2d2; }
     .support { margin: 16px 0; padding: 14px; background: #141821; border: 1px solid #46536a; border-radius: 10px; }
     .support h3 { margin: 0 0 8px; font-size: 14px; }
@@ -101,6 +106,11 @@ export function recoveryAdminPage(nonce: string) {
       </section>
       <p id="message" class="message" role="status"></p>
       <section id="candidates" aria-live="polite"></section>
+      <section class="controls installation-search" aria-label="Installation lookup">
+        <label>Exact display name or player ID<input id="installation-query" placeholder="Player name or numeric ID"></label>
+        <button id="search-installations" type="button">Find installations</button>
+      </section>
+      <section id="installation-results" aria-live="polite"></section>
     </section>
   </main>
   <script nonce="${nonce}">
@@ -117,11 +127,15 @@ export function recoveryAdminPage(nonce: string) {
     const refreshButton = document.querySelector('#refresh');
     const message = document.querySelector('#message');
     const candidatesRoot = document.querySelector('#candidates');
+    const installationQueryInput = document.querySelector('#installation-query');
+    const searchInstallationsButton = document.querySelector('#search-installations');
+    const installationResultsRoot = document.querySelector('#installation-results');
 
     function showLogin(error) {
       adminPanel.classList.add('hidden');
       loginPanel.classList.remove('hidden');
       candidatesRoot.replaceChildren();
+      installationResultsRoot.replaceChildren();
       loginMessage.textContent = error || '';
       passwordInput.value = '';
       passwordInput.focus();
@@ -228,6 +242,12 @@ export function recoveryAdminPage(nonce: string) {
       if (reason.trim().length < 5) throw new Error('Decision reason must be at least 5 characters.');
       const warning = decision === 'resolve'
         ? 'Resolve candidate ' + candidate.id + ' for ' + candidate.displayName + ' and reject every competing active candidate? This does not promote or change the current credential.'
+        : decision === 'replace'
+        ? 'REPLACE ALL authorized installations for ' + candidate.displayName + '? Existing machines will stop syncing. Use this only for a confirmed security recovery.'
+        : decision === 'promote'
+        ? 'Authorize candidate ' + candidate.id + ' as an additional installation for ' + candidate.displayName + '? Existing installations remain active and no quarantined PB payload is applied.'
+        : decision === 'reopen'
+        ? 'Reopen rejected candidate ' + candidate.id + '? This does not authorize it; the candidate returns to pending or contested review.'
         : decision + ' recovery candidate ' + candidate.id + ' for ' + candidate.displayName + '?';
       if (!window.confirm(warning)) return;
 
@@ -236,9 +256,43 @@ export function recoveryAdminPage(nonce: string) {
         body: JSON.stringify({ reason: reason.trim() })
       });
       message.textContent = decision === 'resolve'
-        ? 'Candidate ' + candidate.id + ' contest was resolved. Review it again before promotion.'
+        ? 'Candidate ' + candidate.id + ' contest was resolved. Review it again before authorization.'
+        : decision === 'reopen'
+        ? 'Candidate ' + candidate.id + ' was reopened for review.'
         : 'Candidate ' + candidate.id + ' was ' + (decision === 'promote' ? 'promoted' : 'rejected') + '.';
       await load();
+    }
+
+    async function decideInstallation(installation, decision) {
+      const reason = window.prompt('Reason for ' + decision + ' installation ' + installation.id + ':');
+      if (reason === null) return;
+      if (reason.trim().length < 5) throw new Error('Decision reason must be at least 5 characters.');
+      if (!window.confirm((decision === 'revoke' ? 'Revoke' : 'Reactivate') + ' installation ' + installation.id + '?')) return;
+      await request('/api/admin/recovery/installations/' + installation.id + '/' + decision, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() })
+      });
+      message.textContent = 'Installation ' + installation.id + ' was ' + (decision === 'revoke' ? 'revoked' : 'reactivated') + '.';
+      await load();
+      if (installationQueryInput.value.trim()) await loadInstallations();
+    }
+
+    function installationList(candidate) {
+      const section = document.createElement('section');
+      section.className = 'installations';
+      section.append(textElement('h3', 'Installation records (' + candidate.activeInstallCount + ' active)'));
+      for (const installation of candidate.installations) {
+        const row = document.createElement('div');
+        row.className = 'installation';
+        row.append(textElement('div', 'Installation ' + installation.id + ' · ' + installation.status + ' · last database-observed ' + new Date(installation.lastSeenAt).toLocaleString(), 'subtle'));
+        const action = textElement('button', installation.status === 'active' ? 'Revoke installation' : 'Reactivate installation', installation.status === 'active' ? 'danger' : 'secondary');
+        action.type = 'button';
+        action.disabled = installation.status === 'active' && candidate.activeInstallCount <= 1;
+        action.addEventListener('click', function () { decideInstallation(installation, installation.status === 'active' ? 'revoke' : 'reactivate').catch(showError); });
+        row.append(action);
+        section.append(row);
+      }
+      return section;
     }
 
     function candidateCard(candidate) {
@@ -246,7 +300,7 @@ export function recoveryAdminPage(nonce: string) {
       const head = document.createElement('div');
       head.className = 'candidate-head';
       const title = document.createElement('div');
-      title.append(textElement('h2', candidate.displayName), textElement('div', 'Candidate ' + candidate.id + ' · Player ' + candidate.playerId, 'subtle'));
+      title.append(textElement('h2', candidate.displayName), textElement('div', 'Candidate ' + candidate.id + ' · Player ' + candidate.playerId + ' · ' + candidate.assessment.lane + ' lane', 'subtle'));
       head.append(title, textElement('span', candidate.status, 'badge ' + candidate.status));
 
       const assessment = candidate.assessment;
@@ -263,9 +317,9 @@ export function recoveryAdminPage(nonce: string) {
         insightBox(
           'PB continuity evidence',
           assessment.continuity.title + ' · ' + assessment.continuity.coveragePercent + '% coverage',
-          assessment.continuity.detail + (assessment.lastAcceptedSyncAt ? ' Previous install last accepted: ' + new Date(assessment.lastAcceptedSyncAt).toLocaleString() + '.' : '')
+          assessment.continuity.detail + (assessment.lastAcceptedSyncAt ? ' Last database-recorded accepted change: ' + new Date(assessment.lastAcceptedSyncAt).toLocaleString() + '.' : '')
         ),
-        insightBox('If you promote', assessment.promotionEffect.title, assessment.promotionEffect.detail)
+        insightBox('If you approve', assessment.promotionEffect.title, assessment.promotionEffect.detail)
       );
 
       const metrics = document.createElement('dl');
@@ -277,16 +331,21 @@ export function recoveryAdminPage(nonce: string) {
         metric('Slower', candidate.slowerCount),
         metric('Missing', candidate.missingCount),
         metric('Eligible', candidate.eligibleCount),
+        metric('Active installs', candidate.activeInstallCount),
         metric('First seen', new Date(candidate.firstSeenAt).toLocaleString()),
         metric('Last seen', new Date(candidate.lastSeenAt).toLocaleString())
       );
 
       const actions = document.createElement('div');
       actions.className = 'actions';
-      const promote = textElement('button', 'Promote');
+      const promote = textElement('button', 'Authorize additional install');
       promote.type = 'button';
       promote.disabled = candidate.status !== 'pending';
       promote.addEventListener('click', function () { decide(candidate, 'promote').catch(showError); });
+      const replace = textElement('button', 'Replace all installs', 'danger');
+      replace.type = 'button';
+      replace.disabled = candidate.status !== 'pending';
+      replace.addEventListener('click', function () { decide(candidate, 'replace').catch(showError); });
       const reject = textElement('button', 'Reject', 'danger');
       reject.type = 'button';
       reject.disabled = candidate.status !== 'invalidation_pending' && candidate.status !== 'pending' && candidate.status !== 'invalidation_failed' && candidate.status !== 'contested';
@@ -295,7 +354,11 @@ export function recoveryAdminPage(nonce: string) {
       resolve.type = 'button';
       resolve.disabled = candidate.status !== 'contested';
       resolve.addEventListener('click', function () { decide(candidate, 'resolve').catch(showError); });
-      actions.append(promote, resolve, reject);
+      const reopen = textElement('button', 'Reopen candidate', 'secondary');
+      reopen.type = 'button';
+      reopen.disabled = candidate.status !== 'rejected' && candidate.status !== 'invalidation_pending' && candidate.status !== 'invalidation_failed';
+      reopen.addEventListener('click', function () { decide(candidate, 'reopen').catch(showError); });
+      actions.append(promote, resolve, reject, reopen, replace);
 
       card.append(
         head,
@@ -305,7 +368,8 @@ export function recoveryAdminPage(nonce: string) {
         textElement('h3', 'Evidence details', 'metrics-title'),
         metrics,
         ...(candidate.supportMessages.length ? [supportList(candidate.supportMessages)] : []),
-        actions
+        actions,
+        installationList(candidate)
       );
       if (candidate.events.length) card.append(eventList(candidate.events));
       return card;
@@ -327,6 +391,31 @@ export function recoveryAdminPage(nonce: string) {
         message.textContent = 'Loaded ' + body.candidates.length + ' candidate(s).';
       } finally {
         refreshButton.disabled = false;
+      }
+    }
+
+    async function loadInstallations() {
+      const query = installationQueryInput.value.trim();
+      if (!query) throw new Error('Enter an exact display name or player ID.');
+      searchInstallationsButton.disabled = true;
+      message.textContent = 'Finding installation records…';
+      try {
+        const parameter = /^[1-9]\\d*$/.test(query) ? 'playerId' : 'displayName';
+        const body = await request('/api/admin/recovery/installations?' + parameter + '=' + encodeURIComponent(query));
+        const groups = body.players.map(function (player) {
+          const card = document.createElement('article');
+          card.append(
+            textElement('h2', player.displayName),
+            textElement('div', 'Player ' + player.playerId, 'subtle'),
+            installationList(player)
+          );
+          return card;
+        });
+        installationResultsRoot.replaceChildren(...groups);
+        if (!groups.length) installationResultsRoot.append(textElement('div', 'No exact player match.', 'empty'));
+        message.textContent = 'Found ' + groups.length + ' matching player(s).';
+      } finally {
+        searchInstallationsButton.disabled = false;
       }
     }
 
@@ -356,6 +445,8 @@ export function recoveryAdminPage(nonce: string) {
     refreshButton.addEventListener('click', function () { load().catch(showError); });
     statusInput.addEventListener('change', function () { load().catch(showError); });
     candidateIdInput.addEventListener('change', function () { load().catch(showError); });
+    searchInstallationsButton.addEventListener('click', function () { loadInstallations().catch(showError); });
+    installationQueryInput.addEventListener('change', function () { loadInstallations().catch(showError); });
 
     request('/api/admin/recovery/session')
       .then(function () { showAdmin(); return load(); })
