@@ -7,10 +7,13 @@ import {
   installRecoveryCandidates,
   installRecoveryEvents,
   personalBests,
+  playerInstallCredentialEvents,
+  playerInstallCredentials,
   recoveryAdminLoginLimits,
 } from '../src/db/schema.js';
 import { resetRecoveryAdminLoginLimiter } from '../src/lib/adminAuth.js';
 import { resetRateLimiter } from '../src/lib/secret.js';
+import { hashSecret } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
 import { truncateAll } from './helpers.js';
 
@@ -243,6 +246,10 @@ describe('recovery admin', () => {
       id: recoveryId,
       displayName: '0xSteph Admin',
       status: 'pending',
+      activeInstallCount: 1,
+      installations: [
+        expect.objectContaining({ status: 'active', source: 'initial_sync' }),
+      ],
       equalCount: 1,
       improvedCount: 1,
       newCount: 1,
@@ -251,6 +258,7 @@ describe('recovery admin', () => {
         continuity: { level: 'strong', coveragePercent: 100 },
         recommendation: { action: 'verify_or_wait', tone: 'caution' },
         promotionEffect: { wouldChangeCount: 2 },
+        lane: 'investigate',
       },
       events: [],
       supportMessages: [
@@ -266,6 +274,8 @@ describe('recovery admin', () => {
     expect(serialized).not.toContain('SecretHash');
     expect(serialized).not.toContain('payload');
     expect(serialized).not.toContain('Digest');
+    expect(serialized).not.toContain(hashSecret(incumbentSecret));
+    expect(serialized).not.toContain(hashSecret(candidateSecret));
   });
 
   it('looks up an exact recovery ID regardless of the current status filter', async () => {
@@ -315,7 +325,9 @@ describe('recovery admin', () => {
       ok: true,
       decision: 'promote',
       candidateId: recoveryId,
-      changedPbCount: 2,
+      changedPbCount: 0,
+      authorizationMode: 'additional',
+      revokedInstallCount: 0,
     });
     expect(JSON.stringify(responseBody)).not.toContain('changedBosses');
 
@@ -324,7 +336,7 @@ describe('recovery admin', () => {
     const [event] = await db.select().from(installRecoveryEvents);
     expect(event).toMatchObject({
       candidateId: recoveryId,
-      eventType: 'promoted',
+      eventType: 'authorized_additional',
       actor: 'admin',
       reason: 'Verified local recovery test.',
     });
@@ -334,7 +346,7 @@ describe('recovery admin', () => {
     });
     const listed = await list.json();
     expect(listed.candidates[0].events[0]).toMatchObject({
-      eventType: 'promoted',
+      eventType: 'authorized_additional',
       actor: 'admin',
       reason: 'Verified local recovery test.',
     });
@@ -366,6 +378,231 @@ describe('recovery admin', () => {
       code: 'RECOVERY_REJECTED',
       recoveryId,
     });
+  });
+
+  it('keeps rejection stable until an explicit audited reopen and approval', async () => {
+    const recoveryId = await createCandidate();
+    const { cookie } = await login();
+    const reject = await app.request(`/api/admin/recovery/candidates/${recoveryId}/reject`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Mistaken rejection reversal test.' }),
+    });
+    expect(reject.status).toBe(200);
+    expect(await (await syncRequest(candidateSecret, { Zulrah: 74 })).json()).toMatchObject({
+      code: 'RECOVERY_REJECTED',
+      recoveryId,
+    });
+
+    const reopen = await app.request(`/api/admin/recovery/candidates/${recoveryId}/reopen`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Operator confirmed the rejection was mistaken.' }),
+    });
+    expect(reopen.status).toBe(200);
+    expect(await reopen.json()).toMatchObject({ decision: 'reopen', status: 'pending' });
+    expect(await (await syncRequest(candidateSecret, { Zulrah: 74 })).json()).toMatchObject({
+      code: 'RECOVERY_PENDING',
+      recoveryId,
+    });
+
+    const approve = await app.request(`/api/admin/recovery/candidates/${recoveryId}/promote`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Approve after explicit second review.' }),
+    });
+    expect(approve.status).toBe(200);
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
+
+    const events = await db
+      .select({ eventType: installRecoveryEvents.eventType })
+      .from(installRecoveryEvents)
+      .where(eq(installRecoveryEvents.candidateId, recoveryId))
+      .orderBy(installRecoveryEvents.id);
+    expect(events.map((event) => event.eventType)).toEqual([
+      'rejected',
+      'reopened',
+      'authorized_additional',
+    ]);
+  });
+
+  it('reopens into contested review when another unknown credential is active', async () => {
+    const rejectedId = await createCandidate();
+    const { cookie } = await login();
+    await app.request(`/api/admin/recovery/candidates/${rejectedId}/reject`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Prepare rejected candidate for contest test.' }),
+    });
+    const competing = await syncRequest(competingSecret, { Zulrah: 74 });
+    expect((await competing.json()).code).toBe('RECOVERY_PENDING');
+
+    const reopen = await app.request(`/api/admin/recovery/candidates/${rejectedId}/reopen`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Reopen while a competing credential exists.' }),
+    });
+    expect(reopen.status).toBe(200);
+    expect(await reopen.json()).toMatchObject({ status: 'contested' });
+    const statuses = await db
+      .select({ status: installRecoveryCandidates.status })
+      .from(installRecoveryCandidates)
+      .orderBy(installRecoveryCandidates.id);
+    expect(statuses).toEqual([{ status: 'contested' }, { status: 'contested' }]);
+  });
+
+  it('revokes and explicitly reactivates one installation through safe admin IDs', async () => {
+    const recoveryId = await createCandidate();
+    const { cookie } = await login();
+    const promote = await app.request(`/api/admin/recovery/candidates/${recoveryId}/promote`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Authorize second machine for route test.' }),
+    });
+    expect(promote.status).toBe(200);
+    const [candidateInstall] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.source, 'recovery_additional'));
+
+    const revoke = await app.request(
+      `/api/admin/recovery/candidates/installations/${candidateInstall.id}/revoke`,
+      {
+        method: 'POST',
+        headers: sessionHeaders(cookie),
+        body: JSON.stringify({ reason: 'Machine reported lost by operator.' }),
+      }
+    );
+    expect(revoke.status).toBe(200);
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(409);
+
+    const reactivate = await app.request(
+      `/api/admin/recovery/candidates/installations/${candidateInstall.id}/reactivate`,
+      {
+        method: 'POST',
+        headers: sessionHeaders(cookie),
+        body: JSON.stringify({ reason: 'Machine was recovered and verified.' }),
+      }
+    );
+    expect(reactivate.status).toBe(200);
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
+    const audit = await db
+      .select({ eventType: playerInstallCredentialEvents.eventType })
+      .from(playerInstallCredentialEvents)
+      .where(eq(playerInstallCredentialEvents.credentialId, candidateInstall.id))
+      .orderBy(playerInstallCredentialEvents.id);
+    expect(audit.map((event) => event.eventType)).toEqual([
+      'authorized_additional',
+      'revoked',
+      'reactivated',
+    ]);
+  });
+
+  it('finds and manages installations after the recovery candidate is pruned', async () => {
+    const recoveryId = await createCandidate();
+    const { cookie } = await login();
+    expect((await app.request(`/api/admin/recovery/candidates/${recoveryId}/promote`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Authorize second machine before retention cleanup.' }),
+    })).status).toBe(200);
+
+    const [additionalInstall] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.source, 'recovery_additional'));
+    await db.delete(installRecoveryCandidates);
+    expect(await db.select().from(installRecoveryCandidates)).toHaveLength(0);
+
+    const byName = await app.request(
+      '/api/admin/recovery/installations?displayName=0xSteph%20Admin',
+      { headers: sessionHeaders(cookie) }
+    );
+    expect(byName.status).toBe(200);
+    const body = await byName.json();
+    expect(body.players).toEqual([
+      expect.objectContaining({
+        playerId: additionalInstall.playerId,
+        displayName: '0xSteph Admin',
+        activeInstallCount: 2,
+        installations: expect.arrayContaining([
+          expect.objectContaining({ id: additionalInstall.id, status: 'active', source: 'recovery_additional' }),
+        ]),
+      }),
+    ]);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('accountHash');
+    expect(serialized).not.toContain('SecretHash');
+    expect(serialized).not.toContain('payload');
+    expect(serialized).not.toContain('Digest');
+    expect(serialized).not.toContain(hashSecret(incumbentSecret));
+    expect(serialized).not.toContain(hashSecret(candidateSecret));
+
+    const byId = await app.request(
+      `/api/admin/recovery/installations?playerId=${additionalInstall.playerId}`,
+      { headers: sessionHeaders(cookie) }
+    );
+    expect(byId.status).toBe(200);
+    expect((await byId.json()).players).toHaveLength(1);
+
+    const revoke = await app.request(
+      `/api/admin/recovery/installations/${additionalInstall.id}/revoke`,
+      {
+        method: 'POST',
+        headers: sessionHeaders(cookie),
+        body: JSON.stringify({ reason: 'Revoke retained installation after candidate pruning.' }),
+      }
+    );
+    expect(revoke.status).toBe(200);
+    const rejectedRetry = await syncRequest(candidateSecret, { Zulrah: 74 });
+    expect(rejectedRetry.status).toBe(409);
+    expect(await rejectedRetry.json()).toMatchObject({
+      code: 'RECOVERY_REJECTED',
+      recoveryId: null,
+    });
+    expect(await db.select().from(installRecoveryCandidates)).toHaveLength(0);
+
+    const reactivate = await app.request(
+      `/api/admin/recovery/installations/${additionalInstall.id}/reactivate`,
+      {
+        method: 'POST',
+        headers: sessionHeaders(cookie),
+        body: JSON.stringify({ reason: 'Reactivate retained installation after operator review.' }),
+      }
+    );
+    expect(reactivate.status).toBe(200);
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
+  });
+
+  it('authenticates and validates standalone installation lookup', async () => {
+    const unauthorized = await app.request('/api/admin/recovery/installations?playerId=1');
+    expect(unauthorized.status).toBe(401);
+
+    const { cookie } = await login();
+    const headers = sessionHeaders(cookie);
+    expect((await app.request('/api/admin/recovery/installations', { headers })).status).toBe(400);
+    expect((await app.request('/api/admin/recovery/installations?playerId=oops', { headers })).status).toBe(400);
+    expect((await app.request('/api/admin/recovery/installations?playerId=1&displayName=Somebody', { headers })).status).toBe(400);
+  });
+
+  it('requires a separate explicit replace-all action for security recovery', async () => {
+    const recoveryId = await createCandidate();
+    const { cookie } = await login();
+    const response = await app.request(`/api/admin/recovery/candidates/${recoveryId}/replace`, {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({ reason: 'Confirmed compromise requires replacement.' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      decision: 'replace',
+      authorizationMode: 'replace',
+      revokedInstallCount: 1,
+      changedPbCount: 0,
+    });
+    expect((await syncRequest(incumbentSecret, { Zulrah: 70 })).status).toBe(409);
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
   });
 
   it('resolves a contested epoch without changing credentials, then requires separate promotion', async () => {

@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -33,9 +32,9 @@ describe('invalidatePlayerSyncReplay', () => {
 
     // A caller like promoteInstallRecoveryCandidate runs this after its
     // database mutation has already committed - it must never surface a
-    // cache-layer failure as if the mutation itself had failed. It still
-    // needs to know invalidation didn't happen, so callers for whom that's a
-    // correctness dependency (candidate capture) can react.
+    // cache-layer failure as if the mutation itself had failed. Replacement
+    // and revocation use the result for observability, while additive recovery
+    // deliberately does not depend on replay invalidation.
     await expect(invalidatePlayerSyncReplay(42)).resolves.toBe(false);
     expect(warnSpy).toHaveBeenCalledWith(
       'Unable to invalidate PB sync replay cache for player',
@@ -52,7 +51,7 @@ describe('invalidatePlayerSyncReplay', () => {
   });
 });
 
-describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
+describe('additive recovery is independent of replay invalidation', () => {
   beforeEach(() => {
     mocks.expireTag.mockReset();
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -62,90 +61,80 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps invalidation in flight non-promotable and returns a concurrent contest', async () => {
-    let releaseInvalidation!: () => void;
-    mocks.expireTag.mockImplementationOnce(
-      () => new Promise<void>((resolve) => {
-        releaseInvalidation = resolve;
-      })
-    );
-
+  it('captures and approves an additional install even when replay invalidation is unavailable', async () => {
+    mocks.expireTag.mockRejectedValue(new Error('cache outage'));
     const { db } = await import('../src/db/client.js');
-    const { installRecoveryCandidates, players } = await import('../src/db/schema.js');
+    const { playerInstallCredentials, players } = await import('../src/db/schema.js');
     const {
       captureInstallRecoveryCandidate,
       promoteInstallRecoveryCandidate,
-      RecoveryDecisionConflictError,
     } = await import('../src/lib/installRecovery.js');
     const { truncateAll } = await import('./helpers.js');
 
     await truncateAll();
+    const now = new Date();
     const [player] = await db
       .insert(players)
       .values({
-        accountHash: 'replay-in-flight-account',
-        displayName: 'ReplayInFlightPlayer',
-        displayNameLower: 'replayinflightplayer',
-        installSecretHash: 'incumbent-secret-hash-for-in-flight-test',
-        updatedAt: new Date(),
+        accountHash: 'cache-independent-account',
+        displayName: 'CacheIndependentPlayer',
+        displayNameLower: 'cacheindependentplayer',
+        installSecretHash: 'incumbent-secret-hash',
+        updatedAt: now,
       })
       .returning();
-    const firstValues = {
+    await db.insert(playerInstallCredentials).values({
       playerId: player.id,
-      incumbentSecretHash: 'incumbent-secret-hash-for-in-flight-test',
-      candidateSecretHash: 'first-candidate-secret-hash',
-      displayName: 'ReplayInFlightPlayer',
+      secretHash: 'incumbent-secret-hash',
+      status: 'active',
+      source: 'legacy',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      authorizedAt: now,
+    });
+
+    const result = await captureInstallRecoveryCandidate({
+      playerId: player.id,
+      incumbentSecretHash: 'incumbent-secret-hash',
+      candidateSecretHash: 'candidate-secret-hash',
+      displayName: 'CacheIndependentPlayer',
       receivedCount: 1,
       pbsByBoss: new Map([['zulrah', 80]]),
-    };
-
-    const firstCapture = captureInstallRecoveryCandidate(firstValues);
-    await vi.waitFor(() => expect(mocks.expireTag).toHaveBeenCalledTimes(1));
-    const [inFlight] = await db.select().from(installRecoveryCandidates);
-    expect(inFlight.status).toBe('invalidation_pending');
-    await expect(
-      promoteInstallRecoveryCandidate(inFlight.id, 'local-test-admin')
-    ).rejects.toBeInstanceOf(RecoveryDecisionConflictError);
-
-    const competing = await captureInstallRecoveryCandidate({
-      ...firstValues,
-      candidateSecretHash: 'second-candidate-secret-hash',
     });
-    expect(competing.status).toBe('contested');
-    releaseInvalidation();
-    const first = await firstCapture;
 
-    expect(first.status).toBe('contested');
-    const candidates = await db.select().from(installRecoveryCandidates);
-    expect(candidates.map((candidate) => candidate.status)).toEqual(['contested', 'contested']);
+    expect(result.status).toBe('pending');
+    expect(mocks.expireTag).not.toHaveBeenCalled();
+    await expect(
+      promoteInstallRecoveryCandidate(result.id, 'local-test-admin', 'Cache-independent approval.')
+    ).resolves.toMatchObject({ mode: 'additional' });
   });
 
-  it('does not let a retry adopt an abandoned invalidation attempt', async () => {
-    mocks.expireTag.mockResolvedValue(undefined);
+  it('reopens a legacy invalidation-failed row for safe additive review', async () => {
     const { db } = await import('../src/db/client.js');
-    const { installRecoveryCandidates, players } = await import('../src/db/schema.js');
-    const { captureInstallRecoveryCandidate } = await import('../src/lib/installRecovery.js');
+    const { installRecoveryCandidates, players } = await import(
+      '../src/db/schema.js'
+    );
+    const { reopenRejectedInstallRecoveryCandidate } = await import('../src/lib/installRecovery.js');
     const { truncateAll } = await import('./helpers.js');
-
     await truncateAll();
     const [player] = await db
       .insert(players)
       .values({
-        accountHash: 'abandoned-invalidation-account',
-        displayName: 'AbandonedInvalidationPlayer',
-        displayNameLower: 'abandonedinvalidationplayer',
-        installSecretHash: 'incumbent-secret-hash-for-abandoned-test',
+        accountHash: 'legacy-invalidation-account',
+        displayName: 'LegacyInvalidationPlayer',
+        displayNameLower: 'legacyinvalidationplayer',
+        installSecretHash: 'legacy-incumbent-hash',
         updatedAt: new Date(),
       })
       .returning();
-    await db.insert(installRecoveryCandidates).values({
+    const [candidate] = await db.insert(installRecoveryCandidates).values({
       playerId: player.id,
-      incumbentSecretHash: 'incumbent-secret-hash-for-abandoned-test',
-      candidateSecretHash: 'candidate-secret-hash-for-abandoned-test',
-      status: 'invalidation_pending',
-      displayName: 'AbandonedInvalidationPlayer',
+      incumbentSecretHash: 'legacy-incumbent-hash',
+      candidateSecretHash: 'legacy-candidate-hash',
+      status: 'invalidation_failed',
+      displayName: 'LegacyInvalidationPlayer',
       payload: { zulrah: 80 },
-      payloadDigest: 'abandoned-invalidation-payload-digest',
+      payloadDigest: 'legacy-payload-digest',
       receivedCount: 1,
       eligibleCount: 1,
       equalCount: 0,
@@ -155,95 +144,149 @@ describe('captureInstallRecoveryCandidate with a failing replay cache', () => {
       missingCount: 0,
       firstSeenAt: new Date(),
       lastSeenAt: new Date(),
-    });
+    }).returning();
 
-    const result = await captureInstallRecoveryCandidate({
-      playerId: player.id,
-      incumbentSecretHash: 'incumbent-secret-hash-for-abandoned-test',
-      candidateSecretHash: 'candidate-secret-hash-for-abandoned-test',
-      displayName: 'AbandonedInvalidationPlayer',
-      receivedCount: 1,
-      pbsByBoss: new Map([['zulrah', 80]]),
-    });
+    await expect(
+      reopenRejectedInstallRecoveryCandidate(candidate.id, 'local-test-admin', 'Legacy recovery cleanup.')
+    ).resolves.toMatchObject({ status: 'pending' });
+  });
+});
 
-    expect(result.status).toBe('invalidation_pending');
-    expect(result.attemptCount).toBe(2);
-    expect(mocks.expireTag).not.toHaveBeenCalled();
+describe('database-authoritative successful replay', () => {
+  const incumbentSecret = 'r'.repeat(20);
+  const additionalSecret = 's'.repeat(20);
+  const accountHash = 'replay-binding-account';
+  const displayName = 'ReplayBindingPlayer';
+  let cache: Map<string, unknown>;
+
+  function syncRequest(installSecret: string, pbs: Record<string, number>) {
+    return import('../src/app.js').then(({ app }) => app.request('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountHash, displayName, installSecret, pbs }),
+    }));
+  }
+
+  beforeEach(async () => {
+    cache = new Map();
+    mocks.get.mockReset();
+    mocks.set.mockReset();
+    mocks.expireTag.mockReset();
+    mocks.get.mockImplementation(async (key: string) => cache.get(key) ?? null);
+    mocks.set.mockImplementation(async (key: string, value: unknown) => {
+      cache.set(key, value);
+    });
+    mocks.expireTag.mockResolvedValue(undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { truncateAll } = await import('./helpers.js');
+    const { resetRateLimiter } = await import('../src/lib/secret.js');
+    await truncateAll();
+    resetRateLimiter();
   });
 
-  it('stays non-promotable after a later successful invalidation', async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function authorizeAndPrimeAdditionalReplay() {
+    const { db } = await import('../src/db/client.js');
+    const { playerInstallCredentials } = await import('../src/db/schema.js');
+    const { promoteInstallRecoveryCandidate } = await import('../src/lib/installRecovery.js');
+    const { eq } = await import('drizzle-orm');
+    const { hashSecret } = await import('../src/lib/secret.js');
+
+    expect((await syncRequest(incumbentSecret, { Zulrah: 80 })).status).toBe(200);
+    const mismatch = await syncRequest(additionalSecret, { Zulrah: 75 });
+    expect(mismatch.status).toBe(409);
+    await promoteInstallRecoveryCandidate(
+      (await mismatch.json()).recoveryId as number,
+      'replay-test-admin',
+      'Authorize replay race test machine.'
+    );
+    expect((await syncRequest(additionalSecret, { Zulrah: 74 })).status).toBe(200);
+
+    const [credential] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.secretHash, hashSecret(additionalSecret)));
+    return credential;
+  }
+
+  it('rejects a cached success after revoke even when replay invalidation fails', async () => {
+    const credential = await authorizeAndPrimeAdditionalReplay();
+    const { revokePlayerInstallCredential } = await import('../src/lib/installRecovery.js');
     mocks.expireTag.mockRejectedValueOnce(new Error('cache outage'));
 
-    const { db } = await import('../src/db/client.js');
-    const { installRecoveryCandidates, installRecoveryEvents, players } = await import(
-      '../src/db/schema.js'
+    await revokePlayerInstallCredential(
+      credential.id,
+      'replay-test-admin',
+      'Revoke while cache invalidation is unavailable.'
     );
-    const { captureInstallRecoveryCandidate } = await import('../src/lib/installRecovery.js');
-    const { truncateAll } = await import('./helpers.js');
+    const retry = await syncRequest(additionalSecret, { Zulrah: 74 });
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ code: 'RECOVERY_REJECTED', recoveryId: null });
+  });
 
-    await truncateAll();
-
-    const [player] = await db
-      .insert(players)
-      .values({
-        accountHash: 'replay-failure-account',
-        displayName: 'ReplayFailurePlayer',
-        displayNameLower: 'replayfailureplayer',
-        installSecretHash: 'incumbent-secret-hash-for-this-test',
-        updatedAt: new Date(),
-      })
-      .returning();
-
-    const candidateValues = {
-      playerId: player.id,
-      incumbentSecretHash: 'incumbent-secret-hash-for-this-test',
-      candidateSecretHash: 'candidate-secret-hash-for-this-test',
-      displayName: 'ReplayFailurePlayer',
-      receivedCount: 1,
-      pbsByBoss: new Map([['zulrah', 80]]),
-    };
-    const result = await captureInstallRecoveryCandidate(candidateValues);
-
-    // Without confirmed invalidation, a still-cached incumbent success could
-    // silently bypass noteIncumbentCredentialSeen() - so this must not come
-    // back "pending" (promotable) just because the DB write itself succeeded.
-    expect(result.status).toBe('invalidation_failed');
-
-    const [candidateRow] = await db
-      .select()
-      .from(installRecoveryCandidates)
-      .where(eq(installRecoveryCandidates.id, result.id));
-    expect(candidateRow.status).toBe('invalidation_failed');
-
-    const [failureEvent] = await db
-      .select()
-      .from(installRecoveryEvents)
-      .where(eq(installRecoveryEvents.candidateId, result.id));
-    expect(failureEvent).toMatchObject({
-      eventType: 'replay_invalidation_unconfirmed',
-      actor: 'system',
+  it('rejects a replay written after revocation has already committed', async () => {
+    const credential = await authorizeAndPrimeAdditionalReplay();
+    const { revokePlayerInstallCredential } = await import('../src/lib/installRecovery.js');
+    const {
+      buildSyncReplayKey,
+      rememberSuccessfulSync,
+    } = await import('../src/lib/syncReplay.js');
+    const { hashSecret } = await import('../src/lib/secret.js');
+    const replayKey = buildSyncReplayKey({
+      accountHash,
+      displayName,
+      secretHash: hashSecret(additionalSecret),
+      entries: [['Zulrah', 74]],
     });
+    const cached = cache.get(replayKey);
+    expect(cached).toBeDefined();
 
-    mocks.expireTag.mockResolvedValueOnce(undefined);
-    const retried = await captureInstallRecoveryCandidate(candidateValues);
-    expect(retried).toMatchObject({
-      id: result.id,
-      status: 'invalidation_failed',
-      attemptCount: 2,
-    });
+    await revokePlayerInstallCredential(
+      credential.id,
+      'replay-test-admin',
+      'Commit revoke before a late replay write.'
+    );
+    cache.delete(replayKey);
+    await rememberSuccessfulSync(replayKey, cached as { playerId: number; received: number });
 
-    const [retriedRow] = await db
-      .select()
-      .from(installRecoveryCandidates)
-      .where(eq(installRecoveryCandidates.id, result.id));
-    expect(retriedRow.status).toBe('invalidation_failed');
+    const retry = await syncRequest(additionalSecret, { Zulrah: 74 });
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ code: 'RECOVERY_REJECTED', recoveryId: null });
+  });
 
-    const events = await db
-      .select()
-      .from(installRecoveryEvents)
-      .where(eq(installRecoveryEvents.candidateId, result.id));
-    expect(events.map((event) => event.eventType)).toEqual([
-      'replay_invalidation_unconfirmed',
-    ]);
+  it('still deduplicates replay for an active credential', async () => {
+    await authorizeAndPrimeAdditionalReplay();
+
+    const replay = await syncRequest(additionalSecret, { Zulrah: 74 });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ ok: true, deduplicated: true, updated: 0 });
+  });
+
+  it('allows a cached replay again only after explicit reactivation', async () => {
+    const credential = await authorizeAndPrimeAdditionalReplay();
+    const {
+      reactivatePlayerInstallCredential,
+      revokePlayerInstallCredential,
+    } = await import('../src/lib/installRecovery.js');
+    mocks.expireTag.mockRejectedValue(new Error('cache outage'));
+
+    await revokePlayerInstallCredential(
+      credential.id,
+      'replay-test-admin',
+      'Temporarily revoke cached machine.'
+    );
+    expect((await syncRequest(additionalSecret, { Zulrah: 74 })).status).toBe(409);
+    await reactivatePlayerInstallCredential(
+      credential.id,
+      'replay-test-admin',
+      'Explicitly restore cached machine.'
+    );
+
+    const replay = await syncRequest(additionalSecret, { Zulrah: 74 });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ ok: true, deduplicated: true });
   });
 });

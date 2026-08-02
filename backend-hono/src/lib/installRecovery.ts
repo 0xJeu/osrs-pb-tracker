@@ -1,26 +1,12 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { desc, eq, inArray, lt } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   installRecoveryCandidates,
   installRecoveryEvents,
+  playerInstallCredentials,
 } from '../db/schema.js';
-import {
-  bossCacheTag,
-  cacheTags,
-  invalidateSharedCache,
-  playerIdCacheTag,
-  profileBossBucketCacheTag,
-  profileBossExactCacheTag,
-} from './cache.js';
 import { invalidatePlayerSyncReplay } from './syncReplay.js';
-
-const RECOVERABLE_STATUSES = [
-  'invalidation_pending',
-  'pending',
-  'invalidation_failed',
-  'contested',
-] as const;
 
 const MAX_CANDIDATES_PER_CREDENTIAL_EPOCH = 5;
 const RECOVERY_CANDIDATE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -75,6 +61,45 @@ const safeRecoveryCandidateColumns = {
   rejectedAt: installRecoveryCandidates.rejectedAt,
 } as const;
 
+const safeInstallCredentialColumns = {
+  id: playerInstallCredentials.id,
+  playerId: playerInstallCredentials.playerId,
+  status: playerInstallCredentials.status,
+  source: playerInstallCredentials.source,
+  authorizedFromCandidateId: playerInstallCredentials.authorizedFromCandidateId,
+  firstSeenAt: playerInstallCredentials.firstSeenAt,
+  lastSeenAt: playerInstallCredentials.lastSeenAt,
+  authorizedAt: playerInstallCredentials.authorizedAt,
+  revokedAt: playerInstallCredentials.revokedAt,
+} as const;
+
+async function attachSafeInstallEvidence<
+  T extends { playerId: number }
+>(candidates: T[]) {
+  const playerIds = [...new Set(candidates.map((candidate) => candidate.playerId))];
+  const installs = playerIds.length === 0
+    ? []
+    : await db
+        .select(safeInstallCredentialColumns)
+        .from(playerInstallCredentials)
+        .where(inArray(playerInstallCredentials.playerId, playerIds))
+        .orderBy(desc(playerInstallCredentials.lastSeenAt));
+  const byPlayer = new Map<number, typeof installs>();
+  for (const install of installs) {
+    const entries = byPlayer.get(install.playerId) ?? [];
+    entries.push(install);
+    byPlayer.set(install.playerId, entries);
+  }
+  return candidates.map((candidate) => {
+    const playerInstalls = byPlayer.get(candidate.playerId) ?? [];
+    return {
+      ...candidate,
+      activeInstallCount: playerInstalls.filter((install) => install.status === 'active').length,
+      installations: playerInstalls,
+    };
+  });
+}
+
 export async function listSafeInstallRecoveryCandidates(options?: {
   statuses?: readonly RecoveryCandidateStatus[];
   limit?: number;
@@ -82,12 +107,13 @@ export async function listSafeInstallRecoveryCandidates(options?: {
   const statusFilter = options?.statuses?.length
     ? inArray(installRecoveryCandidates.status, [...options.statuses])
     : undefined;
-  return db
+  const candidates = await db
     .select(safeRecoveryCandidateColumns)
     .from(installRecoveryCandidates)
     .where(statusFilter)
     .orderBy(desc(installRecoveryCandidates.lastSeenAt))
     .limit(options?.limit ?? 1_000);
+  return attachSafeInstallEvidence(candidates);
 }
 
 export async function getSafeInstallRecoveryCandidate(candidateId: number) {
@@ -96,7 +122,8 @@ export async function getSafeInstallRecoveryCandidate(candidateId: number) {
     .from(installRecoveryCandidates)
     .where(eq(installRecoveryCandidates.id, candidateId))
     .limit(1);
-  return candidate ?? null;
+  if (!candidate) return null;
+  return (await attachSafeInstallEvidence([candidate]))[0];
 }
 
 function stablePayload(pbsByBoss: Map<string, number>) {
@@ -144,21 +171,12 @@ export async function captureInstallRecoveryCandidate(values: {
   const digest = payloadDigest(payload);
 
   // The player-row lock is the serialization boundary shared with incumbent
-  // sync commits and promotion. Candidate upsert, continuity calculation, and
+  // sync commits and operator decisions. Candidate upsert, continuity calculation, and
   // competing-candidate contestation therefore commit as one ordered action.
-  const [lockedRows, previousRows, , , finalRows] = await db.$client.transaction((txn) => [
+  const [lockedRows, , , finalRows] = await db.$client.transaction((txn) => [
     txn(
       'SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2 FOR UPDATE',
       [values.playerId, values.incumbentSecretHash]
-    ),
-    txn(
-      `SELECT id, status
-       FROM install_recovery_candidates
-       WHERE player_id = $1
-         AND incumbent_secret_hash = $2
-         AND candidate_secret_hash = $3
-       LIMIT 1`,
-      [values.playerId, values.incumbentSecretHash, values.candidateSecretHash]
     ),
     txn(
       `WITH incoming AS (
@@ -216,7 +234,7 @@ export async function captureInstallRecoveryCandidate(values: {
          equal_count, improved_count, new_count, slower_count, missing_count,
          first_seen_at, last_seen_at
        )
-       SELECT admitted.id, $2, $3, 'invalidation_pending', $4, $5::jsonb, $6, $7, $8,
+       SELECT admitted.id, $2, $3, 'pending', $4, $5::jsonb, $6, $7, $8,
               continuity.equal_count, continuity.improved_count,
               continuity.new_count, continuity.slower_count,
               missing.missing_count, $9, $9
@@ -224,8 +242,8 @@ export async function captureInstallRecoveryCandidate(values: {
        ON CONFLICT (player_id, incumbent_secret_hash, candidate_secret_hash)
        DO UPDATE SET
          status = CASE
-           WHEN install_recovery_candidates.status = 'pending'
-             THEN 'invalidation_pending'
+           WHEN install_recovery_candidates.status IN ('invalidation_pending', 'invalidation_failed')
+             THEN 'pending'
            ELSE install_recovery_candidates.status
          END,
          display_name = EXCLUDED.display_name,
@@ -295,54 +313,7 @@ export async function captureInstallRecoveryCandidate(values: {
       'The incumbent credential changed while the recovery candidate was being captured.'
     );
   }
-  let status = String(candidate.status) as RecoveryCandidateStatus;
-  const previousStatus = previousRows[0]?.status
-    ? (String(previousRows[0].status) as RecoveryCandidateStatus)
-    : null;
-  const ownsInvalidation = previousStatus === null || previousStatus === 'pending';
-
-  // A cached successful-replay entry could otherwise let the incumbent's own
-  // resync of an already-seen payload skip upsertPlayer/noteIncumbentSeen
-  // entirely, leaving this candidate wrongly promotable while the incumbent
-  // is still active. Invalidating just this player's entries forces the next
-  // sync on this account to be evaluated for real, without giving a public
-  // caller a way to evict every player's replay protection.
-  if (status === 'invalidation_pending' && ownsInvalidation) {
-    const replayInvalidated = await invalidatePlayerSyncReplay(values.playerId);
-    const finalStatus = replayInvalidated ? 'pending' : 'invalidation_failed';
-    const [, finalizedRows] = await db.$client.transaction((txn) => [
-      txn('SELECT id FROM players WHERE id = $1 FOR UPDATE', [values.playerId]),
-      txn(
-        `WITH transitioned AS (
-           UPDATE install_recovery_candidates
-           SET status = $4
-           WHERE id = $2
-             AND status = 'invalidation_pending'
-             AND EXISTS (
-               SELECT 1 FROM players
-               WHERE id = $1 AND install_secret_hash = $3
-             )
-           RETURNING id, player_id, status
-         ), failure_event AS (
-           INSERT INTO install_recovery_events
-             (candidate_id, player_id, event_type, actor, reason, created_at)
-           SELECT id, player_id, 'replay_invalidation_unconfirmed', 'system',
-                  'Could not confirm the incumbent cached sync replay was invalidated. Promotion remains disabled because activity during the cache outage cannot be ruled out.',
-                  NOW()
-           FROM transitioned
-           WHERE $4 = 'invalidation_failed'
-         )
-         SELECT status FROM transitioned
-         UNION ALL
-         SELECT status
-         FROM install_recovery_candidates
-         WHERE id = $2
-           AND NOT EXISTS (SELECT 1 FROM transitioned)`,
-        [values.playerId, candidate.id, values.incumbentSecretHash, finalStatus]
-      ),
-    ]);
-    status = String(finalizedRows[0]?.status ?? status) as RecoveryCandidateStatus;
-  }
+  const status = String(candidate.status) as RecoveryCandidateStatus;
 
   await pruneExpiredInstallRecoveryCandidates(Number(candidate.id));
 
@@ -362,32 +333,16 @@ export async function captureInstallRecoveryCandidate(values: {
   };
 }
 
-export async function noteIncumbentCredentialSeen(playerId: number) {
-  await db.$client.transaction((txn) => [
-    txn('SELECT id FROM players WHERE id = $1 FOR UPDATE', [playerId]),
-    txn(
-      `WITH transitioned AS (
-         UPDATE install_recovery_candidates
-         SET status = 'contested'
-         WHERE player_id = $1
-           AND status IN ('invalidation_pending', 'pending', 'invalidation_failed')
-         RETURNING id
-       )
-       INSERT INTO install_recovery_events
-         (candidate_id, player_id, event_type, actor, reason, created_at)
-       SELECT id, $1, 'incumbent_seen', 'system',
-              'The incumbent credential synced while recovery was pending.', NOW()
-       FROM transitioned`,
-      [playerId]
-    ),
-  ]);
-}
-
 export class RecoveryDecisionConflictError extends Error {}
 
 export class RecoveryCandidateLimitError extends Error {}
 
-export async function promoteInstallRecoveryCandidate(candidateId: number, actor: string, reason?: string) {
+export async function promoteInstallRecoveryCandidate(
+  candidateId: number,
+  actor: string,
+  reason?: string,
+  mode: 'additional' | 'replace' = 'additional'
+) {
   // The lock and decision deliberately use separate READ COMMITTED statements.
   // If this waits behind an incumbent sync or competing capture, the second
   // statement receives a fresh snapshot and sees the state transition that
@@ -418,84 +373,255 @@ export async function promoteInstallRecoveryCandidate(candidateId: number, actor
                  'invalidation_pending', 'pending', 'invalidation_failed', 'contested'
                )
            )
-       ), promoted_player AS (
-         UPDATE players AS player
-         SET install_secret_hash = candidate.candidate_secret_hash
+       ), authorized_install AS (
+         INSERT INTO player_install_credentials (
+           player_id, secret_hash, status, source, authorized_from_candidate_id,
+           authorized_by, first_seen_at, last_seen_at, authorized_at
+         )
+         SELECT candidate.player_id, candidate.candidate_secret_hash, 'active',
+                CASE WHEN $4 = 'replace' THEN 'recovery_replace' ELSE 'recovery_additional' END,
+                candidate.id, $2, candidate.first_seen_at, candidate.last_seen_at, NOW()
          FROM candidate
-         WHERE player.id = candidate.player_id
-           AND player.install_secret_hash = candidate.incumbent_secret_hash
+         ON CONFLICT (player_id, secret_hash) DO NOTHING
+         RETURNING id, player_id, secret_hash
+       ), revoked_installs AS (
+         UPDATE player_install_credentials AS credential
+         SET status = 'revoked', revoked_at = NOW(), revoked_by = $2
+         FROM authorized_install
+         WHERE $4 = 'replace'
+           AND credential.player_id = authorized_install.player_id
+           AND credential.id <> authorized_install.id
+           AND credential.status = 'active'
+         RETURNING credential.id, credential.player_id
+       ), legacy_anchor AS (
+         UPDATE players AS player
+         SET install_secret_hash = authorized_install.secret_hash
+         FROM authorized_install
+         WHERE $4 = 'replace' AND player.id = authorized_install.player_id
          RETURNING player.id
        ), promoted_candidate AS (
          UPDATE install_recovery_candidates AS stored_candidate
          SET status = 'promoted', promoted_at = NOW()
-         FROM candidate, promoted_player
+         FROM candidate, authorized_install
          WHERE stored_candidate.id = candidate.id
            AND stored_candidate.status = 'pending'
          RETURNING stored_candidate.*
-       ), upserted AS (
-         INSERT INTO personal_bests (player_id, boss, time_seconds, updated_at)
-         SELECT promoted_candidate.player_id,
-                payload.key,
-                (payload.value #>> '{}')::real,
-                NOW()
-         FROM promoted_candidate
-         CROSS JOIN LATERAL jsonb_each(promoted_candidate.payload) AS payload
-         ON CONFLICT (player_id, boss) DO UPDATE
-           SET time_seconds = EXCLUDED.time_seconds,
-               updated_at = EXCLUDED.updated_at
-           WHERE EXCLUDED.time_seconds < personal_bests.time_seconds
-         RETURNING boss
        ), recovery_event AS (
          INSERT INTO install_recovery_events
            (candidate_id, player_id, event_type, actor, reason, created_at)
          SELECT promoted_candidate.id,
                 promoted_candidate.player_id,
-                'promoted', $2, $3, NOW()
+                CASE WHEN $4 = 'replace' THEN 'authorized_replace' ELSE 'authorized_additional' END,
+                $2, $3, NOW()
          FROM promoted_candidate
+       ), install_event AS (
+         INSERT INTO player_install_credential_events
+           (credential_id, player_id, event_type, actor, reason, created_at)
+         SELECT authorized_install.id, authorized_install.player_id,
+                CASE WHEN $4 = 'replace' THEN 'authorized_replace' ELSE 'authorized_additional' END,
+                $2, $3, NOW()
+         FROM authorized_install
+       ), revoked_events AS (
+         INSERT INTO player_install_credential_events
+           (credential_id, player_id, event_type, actor, reason, created_at)
+         SELECT revoked_installs.id, revoked_installs.player_id,
+                'revoked_by_replacement', $2, $3, NOW()
+         FROM revoked_installs
+       ), closed_candidates AS (
+         UPDATE install_recovery_candidates AS prior_candidate
+         SET status = 'rejected', rejected_at = NOW()
+         FROM revoked_installs, player_install_credentials AS revoked_credential
+         WHERE revoked_credential.id = revoked_installs.id
+           AND prior_candidate.id = revoked_credential.authorized_from_candidate_id
+           AND prior_candidate.status = 'promoted'
+         RETURNING prior_candidate.id, prior_candidate.player_id
+       ), closed_candidate_events AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id, 'credential_revoked_by_replacement', $2, $3, NOW()
+         FROM closed_candidates
        )
        SELECT promoted_candidate.id AS candidate_id,
               promoted_candidate.player_id,
-              COALESCE(
-                (SELECT array_agg(upserted.boss) FROM upserted),
-                ARRAY[]::text[]
-              ) AS changed_bosses
+              (SELECT COUNT(*)::int FROM revoked_installs) AS revoked_install_count
        FROM promoted_candidate`,
-      [candidateId, actor, reason ?? null]
+      [candidateId, actor, reason ?? null, mode]
     ),
   ]);
 
   const promoted = promotedRows[0] as
-    | { candidate_id: number; player_id: number; changed_bosses: string[] }
+    | {
+        candidate_id: number;
+        player_id: number;
+        revoked_install_count: number;
+      }
     | undefined;
   if (!promoted) {
     throw new RecoveryDecisionConflictError(
-      'Recovery candidate is no longer pending or the incumbent credential changed.'
+      'Recovery candidate is no longer pending, conflicts with another candidate, or is already authorized.'
     );
   }
 
-  await invalidateSharedCache([
-    cacheTags.bossList,
-    cacheTags.search,
-    cacheTags.stats,
-    playerIdCacheTag(promoted.player_id),
-    ...promoted.changed_bosses.flatMap((boss) => [
-      bossCacheTag(boss),
-      profileBossExactCacheTag(boss),
-      profileBossBucketCacheTag(boss),
-    ]),
-  ]);
-
-  // The former incumbent's last successful sync may still be a cached replay
-  // hit. Without this, that credential could keep getting served fake 200s
-  // for up to the replay TTL after its binding was just replaced. This runs
-  // after the promotion has already committed and never throws, so a cache
-  // hiccup here can't turn a successful promotion into a reported failure.
-  await invalidatePlayerSyncReplay(promoted.player_id);
+  // Replacement revokes old credentials, so their successful replay entries
+  // must be evicted. Additional authorization intentionally preserves every
+  // existing installation and therefore leaves their replay entries intact.
+  if (mode === 'replace') {
+    await invalidatePlayerSyncReplay(promoted.player_id);
+  }
 
   return {
     candidateId: promoted.candidate_id,
     playerId: promoted.player_id,
-    changedBosses: promoted.changed_bosses,
+    // Approval never applies the mutable quarantined payload. The newly
+    // authorized plugin must retry through the normal faster-only sync path,
+    // closing the review/approval TOCTOU window.
+    changedBosses: [] as string[],
+    mode,
+    revokedInstallCount: Number(promoted.revoked_install_count),
+  };
+}
+
+export async function revokePlayerInstallCredential(
+  credentialId: number,
+  actor: string,
+  reason: string
+) {
+  const [, revokedRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT player.id
+       FROM players AS player
+       JOIN player_install_credentials AS credential ON credential.player_id = player.id
+       WHERE credential.id = $1
+       FOR UPDATE OF player`,
+      [credentialId]
+    ),
+    txn(
+      `WITH target AS MATERIALIZED (
+         SELECT credential.id, credential.player_id, credential.secret_hash
+         FROM player_install_credentials AS credential
+         WHERE credential.id = $1
+           AND credential.status = 'active'
+           AND (
+             SELECT COUNT(*)
+             FROM player_install_credentials AS active
+             WHERE active.player_id = credential.player_id AND active.status = 'active'
+           ) > 1
+       ), revoked AS (
+         UPDATE player_install_credentials AS credential
+         SET status = 'revoked', revoked_at = NOW(), revoked_by = $2
+         FROM target
+         WHERE credential.id = target.id AND credential.status = 'active'
+         RETURNING credential.id, credential.player_id, credential.secret_hash,
+                   credential.authorized_from_candidate_id
+       ), install_event AS (
+         INSERT INTO player_install_credential_events
+           (credential_id, player_id, event_type, actor, reason, created_at)
+         SELECT revoked.id, revoked.player_id, 'revoked', $2, $3, NOW()
+         FROM revoked
+       ), closed_candidate AS (
+         UPDATE install_recovery_candidates AS candidate
+         SET status = 'rejected', rejected_at = NOW()
+         FROM revoked
+         WHERE candidate.id = revoked.authorized_from_candidate_id
+           AND candidate.status = 'promoted'
+         RETURNING candidate.id, candidate.player_id
+       ), recovery_event AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id, 'credential_revoked', $2, $3, NOW()
+         FROM closed_candidate
+       )
+       SELECT revoked.id AS credential_id, revoked.player_id
+       FROM revoked`,
+      [credentialId, actor, reason]
+    ),
+  ]);
+
+  const revoked = revokedRows[0] as { credential_id: number; player_id: number } | undefined;
+  if (!revoked) {
+    throw new RecoveryDecisionConflictError(
+      'Installation is no longer active or it is the player\'s only active installation.'
+    );
+  }
+  await invalidatePlayerSyncReplay(revoked.player_id);
+  return { credentialId: revoked.credential_id, playerId: revoked.player_id };
+}
+
+export async function reactivatePlayerInstallCredential(
+  credentialId: number,
+  actor: string,
+  reason: string
+) {
+  const [, reactivatedRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT player.id
+       FROM players AS player
+       JOIN player_install_credentials AS credential ON credential.player_id = player.id
+       WHERE credential.id = $1
+       FOR UPDATE OF player`,
+      [credentialId]
+    ),
+    txn(
+      `WITH target AS MATERIALIZED (
+         SELECT credential.id, credential.player_id, credential.secret_hash
+         FROM player_install_credentials AS credential
+         WHERE credential.id = $1 AND credential.status = 'revoked'
+       ), matching_candidate AS MATERIALIZED (
+         SELECT candidate.id, candidate.player_id
+         FROM install_recovery_candidates AS candidate
+         JOIN target ON target.player_id = candidate.player_id
+                    AND target.secret_hash = candidate.candidate_secret_hash
+         WHERE candidate.status IN (
+           'invalidation_pending', 'pending', 'invalidation_failed', 'contested', 'rejected'
+         )
+         ORDER BY candidate.last_seen_at DESC, candidate.id DESC
+         LIMIT 1
+       ), reactivated AS (
+         UPDATE player_install_credentials AS credential
+         SET status = 'active', revoked_at = NULL, revoked_by = NULL,
+             authorized_at = NOW(), authorized_by = $2,
+             authorized_from_candidate_id = COALESCE(
+               (SELECT id FROM matching_candidate),
+               credential.authorized_from_candidate_id
+             )
+         FROM target
+         WHERE credential.id = target.id AND credential.status = 'revoked'
+         RETURNING credential.id, credential.player_id
+       ), promoted_candidate AS (
+         UPDATE install_recovery_candidates AS candidate
+         SET status = 'promoted', promoted_at = NOW(), rejected_at = NULL
+         FROM matching_candidate, reactivated
+         WHERE candidate.id = matching_candidate.id
+         RETURNING candidate.id, candidate.player_id
+       ), install_event AS (
+         INSERT INTO player_install_credential_events
+           (credential_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id, 'reactivated', $2, $3, NOW()
+         FROM reactivated
+       ), recovery_event AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id, 'credential_reactivated', $2, $3, NOW()
+         FROM promoted_candidate
+       )
+       SELECT reactivated.id AS credential_id, reactivated.player_id,
+              (SELECT id FROM promoted_candidate LIMIT 1) AS candidate_id
+       FROM reactivated`,
+      [credentialId, actor, reason]
+    ),
+  ]);
+
+  const reactivated = reactivatedRows[0] as
+    | { credential_id: number; player_id: number; candidate_id: number | null }
+    | undefined;
+  if (!reactivated) {
+    throw new RecoveryDecisionConflictError('Installation is no longer revoked.');
+  }
+  await invalidatePlayerSyncReplay(reactivated.player_id);
+  return {
+    credentialId: reactivated.credential_id,
+    playerId: reactivated.player_id,
+    candidateId: reactivated.candidate_id,
   };
 }
 
@@ -540,16 +666,100 @@ export async function rejectInstallRecoveryCandidate(candidateId: number, actor:
 }
 
 /**
+ * Explicitly reverses an operator rejection or retires a legacy replay-
+ * invalidation gate without authorizing the install or applying its
+ * quarantined submission. If another unknown credential is
+ * currently active in the queue, the reopened candidate becomes contested so
+ * the ordinary contest-resolution gate still applies.
+ */
+export async function reopenRejectedInstallRecoveryCandidate(
+  candidateId: number,
+  actor: string,
+  reason: string
+) {
+  const [, reopenedRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT player.id
+       FROM players AS player
+       JOIN install_recovery_candidates AS candidate ON candidate.player_id = player.id
+       WHERE candidate.id = $1
+       FOR UPDATE OF player`,
+      [candidateId]
+    ),
+    txn(
+      `WITH selected AS MATERIALIZED (
+         SELECT candidate.id, candidate.player_id
+         FROM install_recovery_candidates AS candidate
+         JOIN players AS player ON player.id = candidate.player_id
+         WHERE candidate.id = $1
+           AND candidate.status IN ('rejected', 'invalidation_pending', 'invalidation_failed')
+           AND player.install_secret_hash = candidate.incumbent_secret_hash
+       ), reopened AS (
+         UPDATE install_recovery_candidates AS candidate
+         SET status = CASE WHEN EXISTS (
+               SELECT 1
+               FROM install_recovery_candidates AS competing
+               WHERE competing.player_id = selected.player_id
+                 AND competing.id <> selected.id
+                 AND competing.status IN (
+                   'invalidation_pending', 'pending', 'invalidation_failed', 'contested'
+                 )
+             ) THEN 'contested' ELSE 'pending' END,
+             rejected_at = NULL
+         FROM selected
+         WHERE candidate.id = selected.id
+           AND candidate.status IN ('rejected', 'invalidation_pending', 'invalidation_failed')
+         RETURNING candidate.id, candidate.player_id, candidate.status
+       ), contest_competitors AS (
+         UPDATE install_recovery_candidates AS competitor
+         SET status = 'contested'
+         FROM reopened
+         WHERE reopened.status = 'contested'
+           AND competitor.player_id = reopened.player_id
+           AND competitor.id <> reopened.id
+           AND competitor.status IN ('invalidation_pending', 'pending', 'invalidation_failed')
+         RETURNING competitor.id
+       ), recovery_event AS (
+         INSERT INTO install_recovery_events
+           (candidate_id, player_id, event_type, actor, reason, created_at)
+         SELECT id, player_id,
+                CASE WHEN status = 'contested' THEN 'reopened_contested' ELSE 'reopened' END,
+                $2, $3, NOW()
+         FROM reopened
+       )
+       SELECT reopened.id AS candidate_id, reopened.player_id, reopened.status
+       FROM reopened`,
+      [candidateId, actor, reason]
+    ),
+  ]);
+
+  const reopened = reopenedRows[0] as
+    | { candidate_id: number; player_id: number; status: RecoveryCandidateStatus }
+    | undefined;
+  if (!reopened) {
+    throw new RecoveryDecisionConflictError(
+      'Recovery candidate cannot be reopened or belongs to an obsolete credential epoch.'
+    );
+  }
+  return {
+    candidateId: reopened.candidate_id,
+    playerId: reopened.player_id,
+    status: reopened.status,
+  };
+}
+
+/**
  * Resolves a contested credential epoch without changing the player's bound
  * install credential. The operator chooses the candidate identified through
  * support, every competing active candidate from the same incumbent epoch is
  * rejected, and the chosen candidate returns to pending for a separate,
- * deliberate promotion decision.
+ * deliberate authorization decision.
  *
- * Keeping resolution and promotion separate is intentional: resolving a
- * contest is not itself proof that the replacement credential should own the
- * account. A returning incumbent sync will contest the candidate again before
- * promotion because both paths serialize on the player row.
+ * Keeping resolution and authorization separate is intentional: resolving a
+ * contest is not itself proof that the unknown credential should be added.
+ * Only another competing unknown candidate creates a new contest; activity
+ * from an already-authorized installation is normal in the multi-install
+ * model.
  */
 export async function resolveInstallRecoveryContest(
   candidateId: number,

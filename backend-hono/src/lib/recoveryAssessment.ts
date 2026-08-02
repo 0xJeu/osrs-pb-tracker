@@ -9,6 +9,7 @@ export interface RecoveryAssessmentInput {
   missingCount: number;
   firstSeenAt: Date;
   lastSeenAt: Date;
+  activeInstallCount?: number;
 }
 
 export type RecoverySignalTone = 'positive' | 'caution' | 'danger' | 'neutral';
@@ -44,13 +45,20 @@ export function assessInstallRecovery(
       : storedCount > 0 && coveragePercent >= 50
         ? 'mixed'
         : 'weak';
+  const lane = candidate.status === 'contested'
+    ? 'contested'
+    : candidate.status === 'promoted' || candidate.status === 'rejected'
+      ? 'completed'
+      : candidate.status === 'pending' && candidate.attemptCount >= 2 && continuity === 'strong'
+        ? 'easy'
+        : 'investigate';
 
   const signals: RecoverySignal[] = [
     {
       tone: 'caution',
       label: 'Different install credential',
       detail:
-        'The account identifier already belongs to another install credential, so this sync was quarantined instead of changing public data.',
+        `The account identifier already has ${candidate.activeInstallCount ?? 1} authorized installation(s), so this unknown credential was quarantined instead of changing public data.`,
     },
     {
       tone: candidate.attemptCount >= 2 ? 'positive' : 'caution',
@@ -79,35 +87,34 @@ export function assessInstallRecovery(
     signals.push({
       tone: 'neutral',
       label: `${candidate.newCount} new PB${candidate.newCount === 1 ? '' : 's'}`,
-      detail: 'These records do not exist on the canonical profile and would be added after promotion.',
+      detail: 'These records do not exist on the canonical profile and may be added by the next normal sync after authorization.',
     });
   }
   if (lastAcceptedSyncAt) {
     signals.push({
       tone: 'neutral',
-      label: 'Previous install last synced successfully',
-      detail: `The incumbent credential completed an accepted sync at ${lastAcceptedSyncAt.toISOString()}.`,
+      label: 'Last database-recorded accepted change',
+      detail: `A meaningful accepted sync for this player was recorded at ${lastAcceptedSyncAt.toISOString()}. No-op and replayed requests are intentionally omitted, so this is not installation liveness.`,
     });
   }
   if (candidate.status === 'invalidation_pending') {
     signals.push({
       tone: 'caution',
-      label: 'Replay invalidation in progress',
-      detail: 'Promotion remains disabled until the incumbent replay cache is confirmed invalidated.',
+      label: 'Legacy replay gate remains',
+      detail: 'This candidate predates additive install authorization. Reopen it to move it into current pending review.',
     });
   } else if (candidate.status === 'pending') {
     signals.push({
       tone: 'positive',
       label: 'No credential contest detected',
       detail:
-        'The incumbent credential has not synced again and no second candidate credential has appeared since this candidate was captured.',
+        'No competing unknown credential has appeared since this candidate was captured. Activity from already-authorized installations is expected and does not create a contest.',
     });
   } else if (candidate.status === 'invalidation_failed') {
     signals.push({
       tone: 'caution',
-      label: 'Replay invalidation not confirmed',
-      detail:
-        'Promotion is disabled because incumbent activity during the cache outage cannot be ruled out.',
+      label: 'Legacy replay gate failed',
+      detail: 'This takeover-era gate is not required for additive authorization. Reopen the candidate for current review.',
     });
   } else if (candidate.status === 'contested') {
     signals.push({
@@ -126,32 +133,31 @@ export function assessInstallRecovery(
   };
   if (candidate.status === 'invalidation_pending') {
     recommendation = {
-      action: 'wait',
+      action: 'reopen',
       tone: 'caution',
-      title: 'Wait for replay invalidation',
-      detail: 'This candidate is not promotable while replay invalidation is still being confirmed.',
+      title: 'Reopen legacy candidate',
+      detail: 'Move this preexisting row into current pending review. Reopening does not authorize the installation.',
     };
   } else if (candidate.status === 'invalidation_failed') {
     recommendation = {
-      action: 'do_not_promote',
-      tone: 'danger',
-      title: 'Do not promote',
-      detail:
-        'The cache layer could not confirm replay invalidation, so incumbent activity may have gone unobserved. Investigate or reject this candidate; a later retry cannot remove that uncertainty.',
+      action: 'reopen',
+      tone: 'caution',
+      title: 'Reopen legacy candidate',
+      detail: 'Additive authorization no longer depends on incumbent replay invalidation. Reopen this row, then review it normally.',
     };
   } else if (candidate.status === 'contested') {
     recommendation = {
       action: 'do_not_promote',
       tone: 'danger',
       title: 'Do not promote',
-      detail: 'Review the support context. If this exact candidate is verified, resolve the contest first; that rejects competing active candidates but does not promote or change the incumbent credential. Review again before a separate promotion.',
+      detail: 'Review the support context. If this exact candidate is verified, resolve the contest first; that rejects competing unknown candidates but does not authorize an installation. Review again before a separate authorization.',
     };
   } else if (candidate.status === 'promoted') {
     recommendation = {
       action: 'complete',
       tone: 'positive',
       title: 'Recovery completed',
-      detail: 'This credential has already been promoted and its eligible faster/new PBs were applied.',
+      detail: 'This credential is authorized. Its next plugin retry will run through the normal faster-only PB sync path.',
     };
   } else if (candidate.status === 'rejected') {
     recommendation = {
@@ -204,10 +210,12 @@ export function assessInstallRecovery(
     },
     recommendation,
     promotionEffect: {
-      title: `Promotion would apply ${wouldChangeCount} PB change${wouldChangeCount === 1 ? '' : 's'}`,
-      detail: `${candidate.improvedCount} faster and ${candidate.newCount} new PBs would be applied. ${candidate.equalCount} equal and ${candidate.slowerCount} slower PBs would not overwrite canonical data. The candidate credential would replace the incumbent credential.`,
+      title: 'Approval would authorize one additional installation',
+      detail: `Approval does not apply this quarantined submission. On the plugin's next automatic retry, normal sync rules can apply up to ${wouldChangeCount} faster/new PB change${wouldChangeCount === 1 ? '' : 's'} while preserving equal or slower canonical data. Existing authorized installations remain active.`,
       wouldChangeCount,
     },
+    lane,
+    activeInstallCount: candidate.activeInstallCount ?? 1,
     lastAcceptedSyncAt: lastAcceptedSyncAt?.toISOString() ?? null,
     signals,
     limitation:
