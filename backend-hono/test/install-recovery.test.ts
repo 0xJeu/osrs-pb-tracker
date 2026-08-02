@@ -6,14 +6,18 @@ import {
   installRecoveryCandidates,
   installRecoveryEvents,
   personalBests,
+  playerInstallCredentialEvents,
+  playerInstallCredentials,
   players,
   syncAttempts,
 } from '../src/db/schema.js';
 import {
   promoteInstallRecoveryCandidate,
   pruneExpiredInstallRecoveryCandidates,
+  reactivatePlayerInstallCredential,
   RecoveryDecisionConflictError,
   rejectInstallRecoveryCandidate,
+  revokePlayerInstallCredential,
 } from '../src/lib/installRecovery.js';
 import { hashSecret, resetRateLimiter } from '../src/lib/secret.js';
 import { resetSyncReplayCache } from '../src/lib/syncReplay.js';
@@ -24,12 +28,21 @@ const incumbentSecret = 'a'.repeat(20);
 const candidateSecret = 'b'.repeat(20);
 
 function syncRequest(installSecret: string, pbs: Record<string, number>) {
+  return syncForAccount('recovery-account', '0xSteph Recovery', installSecret, pbs);
+}
+
+function syncForAccount(
+  accountHash: string,
+  displayName: string,
+  installSecret: string,
+  pbs: Record<string, number>
+) {
   return app.request('/api/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      accountHash: 'recovery-account',
-      displayName: '0xSteph Recovery',
+      accountHash,
+      displayName,
       installSecret,
       pbs,
     }),
@@ -196,7 +209,7 @@ describe('install credential recovery', () => {
     expect(await db.select().from(installRecoveryCandidates)).toHaveLength(0);
   });
 
-  it('marks a pending candidate contested when the incumbent credential returns', async () => {
+  it('keeps a pending candidate unopposed when an authorized machine returns', async () => {
     await establishIncumbent();
     await syncRequest(candidateSecret, { Zulrah: 75 });
 
@@ -204,42 +217,33 @@ describe('install credential recovery', () => {
     expect(incumbent.status).toBe(200);
 
     const [candidate] = await db.select().from(installRecoveryCandidates);
-    expect(candidate.status).toBe('contested');
-    const [event] = await db.select().from(installRecoveryEvents);
-    expect(event).toMatchObject({
-      candidateId: candidate.id,
-      eventType: 'incumbent_seen',
-      actor: 'system',
-    });
+    expect(candidate.status).toBe('pending');
+    expect(await db.select().from(installRecoveryEvents)).toHaveLength(0);
   });
 
-  it('contests a pending candidate even when the incumbent replays an already-cached payload', async () => {
+  it('keeps a pending candidate unopposed when an authorized machine replays cached data', async () => {
     await establishIncumbent();
     await syncRequest(candidateSecret, { Zulrah: 75 });
 
-    // Identical to establishIncumbent()'s request, so absent the fix this
-    // would be served from the replay cache and never reach upsertPlayer -
-    // leaving the candidate wrongly "pending" while the incumbent is active.
     const replayedIncumbent = await syncRequest(incumbentSecret, { Zulrah: 80, Vorkath: 70 });
     expect(replayedIncumbent.status).toBe(200);
-    expect(await replayedIncumbent.json()).not.toMatchObject({ deduplicated: true });
 
     const [candidate] = await db.select().from(installRecoveryCandidates);
-    expect(candidate.status).toBe('contested');
+    expect(candidate.status).toBe('pending');
   });
 
-  it('does not serve a cached success to the former credential after promotion', async () => {
+  it('keeps the original machine authorized after approving an additional machine', async () => {
     await establishIncumbent();
     const mismatch = await syncRequest(candidateSecret, { Zulrah: 75, Vorkath: 70, Araxxor: 100 });
     const recoveryId = (await mismatch.json()).recoveryId as number;
 
     await promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin', 'Regression test for promotion.');
 
-    // Identical to establishIncumbent()'s request. Absent the fix, this would
-    // be served from the pre-promotion replay cache instead of being
-    // re-evaluated against the now-rebound credential.
-    const staleIncumbentReplay = await syncRequest(incumbentSecret, { Zulrah: 80, Vorkath: 70 });
-    expect(staleIncumbentReplay.status).toBe(409);
+    const incumbentReplay = await syncRequest(incumbentSecret, { Zulrah: 80, Vorkath: 70 });
+    expect(incumbentReplay.status).toBe(200);
+    expect(
+      await db.select().from(playerInstallCredentials).where(eq(playerInstallCredentials.status, 'active'))
+    ).toHaveLength(2);
   });
 
   it('only invalidates the affected player\'s replay cache, not every player\'s', async () => {
@@ -279,7 +283,7 @@ describe('install credential recovery', () => {
     expect(await otherPlayerReplay.json()).toMatchObject({ deduplicated: true });
   });
 
-  it('promotes the exact pending credential and replays its quarantined faster-only payload', async () => {
+  it('authorizes the exact pending credential without applying its quarantined payload', async () => {
     await establishIncumbent();
     const mismatch = await syncRequest(candidateSecret, { Zulrah: 75, Vorkath: 75, Araxxor: 100 });
     const recoveryId = (await mismatch.json()).recoveryId as number;
@@ -289,18 +293,23 @@ describe('install credential recovery', () => {
       'local-test-admin',
       'Exercise the locally testable recovery flow.'
     );
-    expect(promoted).toMatchObject({ candidateId: recoveryId, changedBosses: ['zulrah', 'araxxor'] });
+    expect(promoted).toMatchObject({
+      candidateId: recoveryId,
+      changedBosses: [],
+      mode: 'additional',
+      revokedInstallCount: 0,
+    });
 
     const [player] = await db.select().from(players);
-    expect(player.installSecretHash).toBe(hashSecret(candidateSecret));
+    expect(player.installSecretHash).toBe(hashSecret(incumbentSecret));
+    expect(await db.select().from(playerInstallCredentials)).toHaveLength(2);
     const canonical = await db
       .select({ boss: personalBests.boss, timeSeconds: personalBests.timeSeconds })
       .from(personalBests)
       .orderBy(asc(personalBests.boss));
     expect(canonical).toEqual([
-      { boss: 'araxxor', timeSeconds: 100 },
       { boss: 'vorkath', timeSeconds: 70 },
-      { boss: 'zulrah', timeSeconds: 75 },
+      { boss: 'zulrah', timeSeconds: 80 },
     ]);
 
     const [candidate] = await db.select().from(installRecoveryCandidates);
@@ -308,13 +317,13 @@ describe('install credential recovery', () => {
     const [event] = await db.select().from(installRecoveryEvents);
     expect(event).toMatchObject({
       candidateId: recoveryId,
-      eventType: 'promoted',
+      eventType: 'authorized_additional',
       actor: 'local-test-admin',
     });
 
-    const accepted = await syncRequest(candidateSecret, { Zulrah: 74 });
+    const accepted = await syncRequest(candidateSecret, { Zulrah: 74, Araxxor: 99 });
     expect(accepted.status).toBe(200);
-    expect(await accepted.json()).toMatchObject({ ok: true, updated: 1 });
+    expect(await accepted.json()).toMatchObject({ ok: true, updated: 2 });
 
     await expect(
       promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin')
@@ -336,12 +345,13 @@ describe('install credential recovery', () => {
     const [candidate] = await db.select().from(installRecoveryCandidates);
     const [player] = await db.select().from(players);
     const [event] = await db.select().from(installRecoveryEvents);
-    expect(event.eventType).toBe(candidate.status);
     if (candidate.status === 'promoted') {
-      expect(player.installSecretHash).toBe(hashSecret(candidateSecret));
+      expect(player.installSecretHash).toBe(hashSecret(incumbentSecret));
+      expect(event.eventType).toBe('authorized_additional');
       expect(event.actor).toBe('promoting-admin');
     } else {
       expect(candidate.status).toBe('rejected');
+      expect(event.eventType).toBe('rejected');
       expect(player.installSecretHash).toBe(hashSecret(incumbentSecret));
       expect(event.actor).toBe('rejecting-admin');
     }
@@ -406,7 +416,7 @@ describe('install credential recovery', () => {
 
     const replacementMismatch = await syncRequest('c'.repeat(20), { Zulrah: 74 });
     const replacementId = (await replacementMismatch.json()).recoveryId as number;
-    await promoteInstallRecoveryCandidate(replacementId, 'local-test-admin');
+    await promoteInstallRecoveryCandidate(replacementId, 'local-test-admin', undefined, 'replace');
 
     const returnedInstall = await syncRequest(candidateSecret, { Zulrah: 73 });
     const body = await returnedInstall.json();
@@ -491,22 +501,45 @@ describe('install credential recovery', () => {
     expect(player.installSecretHash).toBe(hashSecret(incumbentSecret));
   }, 15_000);
 
-  it('rejects a stale authorized commit after recovery promotion replaces the credential', async () => {
+  it('allows machines A and B to alternate and lets the old machine return', async () => {
     const incumbent = await establishIncumbent();
     const { playerId } = await incumbent.json();
     const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
     const recoveryId = (await mismatch.json()).recoveryId as number;
 
-    // Simulate an incumbent request that completed its initial authorization,
-    // paused, and then resumed only after promotion committed.
     await promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin');
-    const nextMismatch = await syncRequest('c'.repeat(20), { Zulrah: 74 });
-    const nextRecoveryId = (await nextMismatch.json()).recoveryId as number;
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
+    expect((await syncRequest(incumbentSecret, { Vorkath: 69 })).status).toBe(200);
+    expect((await syncRequest(candidateSecret, { Zulrah: 73 })).status).toBe(200);
+    expect((await syncRequest(incumbentSecret, { Vorkath: 68 })).status).toBe(200);
+
+    const active = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.status, 'active'));
+    expect(active).toHaveLength(2);
+    expect(new Set(active.map((install) => install.secretHash))).toEqual(
+      new Set([hashSecret(incumbentSecret), hashSecret(candidateSecret)])
+    );
+    expect(active.every((install) => install.playerId === playerId)).toBe(true);
+  });
+
+  it('rejects an in-flight commit after its individual installation is revoked', async () => {
+    const incumbent = await establishIncumbent();
+    const { playerId } = await incumbent.json();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    await promoteInstallRecoveryCandidate((await mismatch.json()).recoveryId, 'local-test-admin');
+    const [candidateInstall] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.secretHash, hashSecret(candidateSecret)));
+    await revokePlayerInstallCredential(candidateInstall.id, 'local-test-admin', 'Revoke test machine.');
+
     const staleCommit = await commitExistingAuthorizedSync({
       playerId,
-      secretHash: hashSecret(incumbentSecret),
-      displayName: 'Former Incumbent Rename',
-      displayNameLower: 'former incumbent rename',
+      secretHash: hashSecret(candidateSecret),
+      displayName: 'Revoked Machine Rename',
+      displayNameLower: 'revoked machine rename',
       pbsByBoss: new Map([['zulrah', 1]]),
     });
 
@@ -517,16 +550,160 @@ describe('install credential recovery', () => {
     });
     const [player] = await db.select().from(players).where(eq(players.id, playerId));
     expect(player.displayName).toBe('0xSteph Recovery');
-    expect(player.installSecretHash).toBe(hashSecret(candidateSecret));
-    const [nextCandidate] = await db
-      .select({ status: installRecoveryCandidates.status })
-      .from(installRecoveryCandidates)
-      .where(eq(installRecoveryCandidates.id, nextRecoveryId));
-    expect(nextCandidate.status).toBe('pending');
     const [zulrah] = await db
       .select({ timeSeconds: personalBests.timeSeconds })
       .from(personalBests)
       .where(eq(personalBests.boss, 'zulrah'));
-    expect(zulrah.timeSeconds).toBe(75);
+    expect(zulrah.timeSeconds).toBe(80);
+  });
+
+  it('supports explicit revoke and reactivation without silently reauthorizing', async () => {
+    await establishIncumbent();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    const recoveryId = (await mismatch.json()).recoveryId as number;
+    await promoteInstallRecoveryCandidate(recoveryId, 'local-test-admin');
+    const [candidateInstall] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.secretHash, hashSecret(candidateSecret)));
+
+    await revokePlayerInstallCredential(candidateInstall.id, 'local-test-admin', 'Lost machine.');
+    const [candidateBeforeRetry] = await db
+      .select()
+      .from(installRecoveryCandidates)
+      .where(eq(installRecoveryCandidates.id, recoveryId));
+    const rejectedRetry = await syncRequest(candidateSecret, { Zulrah: 74 });
+    expect(rejectedRetry.status).toBe(409);
+    expect(await rejectedRetry.json()).toMatchObject({
+      code: 'RECOVERY_REJECTED',
+      recoveryId: null,
+    });
+    const [revoked] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.id, candidateInstall.id));
+    expect(revoked.status).toBe('revoked');
+    const [candidateAfterRetry] = await db
+      .select()
+      .from(installRecoveryCandidates)
+      .where(eq(installRecoveryCandidates.id, recoveryId));
+    expect(candidateAfterRetry.attemptCount).toBe(candidateBeforeRetry.attemptCount);
+    expect(candidateAfterRetry.lastSeenAt.getTime()).toBe(candidateBeforeRetry.lastSeenAt.getTime());
+    expect(candidateAfterRetry.status).toBe('rejected');
+    const [zulrahBeforeReactivation] = await db
+      .select({ timeSeconds: personalBests.timeSeconds })
+      .from(personalBests)
+      .where(eq(personalBests.boss, 'zulrah'));
+    expect(zulrahBeforeReactivation.timeSeconds).toBe(80);
+
+    await reactivatePlayerInstallCredential(candidateInstall.id, 'local-test-admin', 'Machine recovered.');
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
+    const events = await db
+      .select({ eventType: playerInstallCredentialEvents.eventType })
+      .from(playerInstallCredentialEvents)
+      .where(eq(playerInstallCredentialEvents.credentialId, candidateInstall.id))
+      .orderBy(playerInstallCredentialEvents.id);
+    expect(events.map((event) => event.eventType)).toEqual([
+      'authorized_additional',
+      'revoked',
+      'reactivated',
+    ]);
+  });
+
+  it('keeps a revoked legacy-anchor installation dormant until explicit reactivation', async () => {
+    await establishIncumbent();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    await promoteInstallRecoveryCandidate((await mismatch.json()).recoveryId, 'local-test-admin');
+    const [legacyInstall] = await db
+      .select()
+      .from(playerInstallCredentials)
+      .where(eq(playerInstallCredentials.secretHash, hashSecret(incumbentSecret)));
+    await revokePlayerInstallCredential(legacyInstall.id, 'local-test-admin', 'Legacy machine retired.');
+
+    const candidatesBefore = await db.select().from(installRecoveryCandidates);
+    const retry = await syncForAccount(
+      'recovery-account',
+      'Revoked Legacy Rename',
+      incumbentSecret,
+      { Zulrah: 1, Araxxor: 2 }
+    );
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ code: 'RECOVERY_REJECTED', recoveryId: null });
+    expect(await db.select().from(installRecoveryCandidates)).toEqual(candidatesBefore);
+    const [playerBeforeReactivation] = await db.select().from(players);
+    expect(playerBeforeReactivation.displayName).toBe('0xSteph Recovery');
+    const canonicalBeforeReactivation = await db
+      .select({ boss: personalBests.boss, timeSeconds: personalBests.timeSeconds })
+      .from(personalBests)
+      .orderBy(asc(personalBests.boss));
+    expect(canonicalBeforeReactivation).toEqual([
+      { boss: 'vorkath', timeSeconds: 70 },
+      { boss: 'zulrah', timeSeconds: 80 },
+    ]);
+
+    await reactivatePlayerInstallCredential(legacyInstall.id, 'local-test-admin', 'Legacy machine restored.');
+    const restored = await syncForAccount(
+      'recovery-account',
+      'Revoked Legacy Rename',
+      incumbentSecret,
+      { Zulrah: 74 }
+    );
+    expect(restored.status).toBe(200);
+    const [playerAfterReactivation] = await db.select().from(players);
+    expect(playerAfterReactivation.displayName).toBe('Revoked Legacy Rename');
+  });
+
+  it('does not allow the last active installation to be revoked', async () => {
+    await establishIncumbent();
+    const [onlyInstall] = await db.select().from(playerInstallCredentials);
+    await expect(
+      revokePlayerInstallCredential(onlyInstall.id, 'local-test-admin', 'Must fail safely.')
+    ).rejects.toBeInstanceOf(RecoveryDecisionConflictError);
+  });
+
+  it('supports an exceptional replace-all decision and invalidates former machines', async () => {
+    await establishIncumbent();
+    const mismatch = await syncRequest(candidateSecret, { Zulrah: 75 });
+    const recoveryId = (await mismatch.json()).recoveryId as number;
+
+    const replaced = await promoteInstallRecoveryCandidate(
+      recoveryId,
+      'local-test-admin',
+      'Confirmed security replacement.',
+      'replace'
+    );
+    expect(replaced).toMatchObject({ mode: 'replace', revokedInstallCount: 1 });
+    expect((await syncRequest(incumbentSecret, { Zulrah: 70 })).status).toBe(409);
+    expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
+    const installs = await db.select().from(playerInstallCredentials);
+    expect(installs.filter((install) => install.status === 'active')).toHaveLength(1);
+    expect(installs.filter((install) => install.status === 'revoked')).toHaveLength(1);
+  });
+
+  it('allows one RuneLite installation secret to serve multiple game accounts', async () => {
+    const sharedInstall = 's'.repeat(20);
+    expect((await syncForAccount('account-one', 'Account One', sharedInstall, { Zulrah: 80 })).status).toBe(200);
+    expect((await syncForAccount('account-two', 'Account Two', sharedInstall, { Vorkath: 70 })).status).toBe(200);
+
+    const installs = await db.select().from(playerInstallCredentials);
+    expect(installs).toHaveLength(2);
+    expect(new Set(installs.map((install) => install.playerId)).size).toBe(2);
+    expect(new Set(installs.map((install) => install.secretHash))).toEqual(
+      new Set([hashSecret(sharedInstall)])
+    );
+  });
+
+  it('atomically chooses one winner when two first-install claims race', async () => {
+    const responses = await Promise.all([
+      syncForAccount('first-claim-race', 'Race Account', incumbentSecret, { Zulrah: 80 }),
+      syncForAccount('first-claim-race', 'Race Account', candidateSecret, { Zulrah: 79 }),
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const [player] = await db.select().from(players);
+    const installs = await db.select().from(playerInstallCredentials);
+    const candidates = await db.select().from(installRecoveryCandidates);
+    expect(installs).toHaveLength(1);
+    expect(installs[0].playerId).toBe(player.id);
+    expect(candidates).toHaveLength(1);
   });
 });

@@ -52,9 +52,10 @@ export const personalBests = pgTable(
   })
 );
 
-// A rejected install credential is retained only as a one-way hash and a
-// quarantined, already-normalized PB payload. It cannot change the player's
-// public data until an explicit recovery decision promotes this exact row.
+// An unknown install credential is retained only as a one-way hash and a
+// quarantined, already-normalized PB submission. Approval authorizes the
+// credential but deliberately does not apply this mutable snapshot; only the
+// plugin's next normal faster-only sync can change public data.
 export const installRecoveryCandidates = pgTable(
   'install_recovery_candidates',
   {
@@ -64,7 +65,7 @@ export const installRecoveryCandidates = pgTable(
       .references(() => players.id, { onDelete: 'cascade' }),
     incumbentSecretHash: text('incumbent_secret_hash').notNull(),
     candidateSecretHash: text('candidate_secret_hash').notNull(),
-    status: text('status').notNull().default('invalidation_pending'),
+    status: text('status').notNull().default('pending'),
     displayName: text('display_name').notNull(),
     payload: jsonb('payload').$type<Record<string, number>>().notNull(),
     payloadDigest: text('payload_digest').notNull(),
@@ -92,6 +93,73 @@ export const installRecoveryCandidates = pgTable(
     ),
     playerStatusIdx: index('idx_install_recovery_player_status').on(table.playerId, table.status),
     lastSeenAtIdx: index('idx_install_recovery_last_seen_at').on(table.lastSeenAt),
+  })
+);
+
+// Install credentials are authorized per player rather than replacing one
+// another. The legacy players.install_secret_hash column remains populated as
+// a compatibility anchor while deployed code and recovery rows migrate, but
+// this table is the authorization source of truth.
+export const playerInstallCredentials = pgTable(
+  'player_install_credentials',
+  {
+    id: serial('id').primaryKey(),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    secretHash: text('secret_hash').notNull(),
+    status: text('status').notNull().default('active'),
+    source: text('source').notNull().default('legacy'),
+    authorizedFromCandidateId: integer('authorized_from_candidate_id').references(
+      () => installRecoveryCandidates.id,
+      { onDelete: 'set null' }
+    ),
+    authorizedBy: text('authorized_by'),
+    revokedBy: text('revoked_by'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    authorizedAt: timestamp('authorized_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => ({
+    playerSecretUnique: unique().on(table.playerId, table.secretHash),
+    playerStatusIdx: index('idx_player_install_credentials_player_status').on(
+      table.playerId,
+      table.status
+    ),
+    candidateIdx: index('idx_player_install_credentials_candidate').on(
+      table.authorizedFromCandidateId
+    ),
+  })
+);
+
+// Separate audit trail for installation lifecycle decisions. Candidate events
+// describe recovery review; these events also cover later per-install revoke
+// actions without exposing credential hashes.
+export const playerInstallCredentialEvents = pgTable(
+  'player_install_credential_events',
+  {
+    id: serial('id').primaryKey(),
+    credentialId: integer('credential_id')
+      .notNull()
+      .references(() => playerInstallCredentials.id, { onDelete: 'cascade' }),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    actor: text('actor').notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    credentialCreatedAtIdx: index('idx_player_install_events_credential_created_at').on(
+      table.credentialId,
+      table.createdAt
+    ),
+    playerCreatedAtIdx: index('idx_player_install_events_player_created_at').on(
+      table.playerId,
+      table.createdAt
+    ),
   })
 );
 

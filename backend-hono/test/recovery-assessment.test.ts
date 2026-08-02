@@ -59,30 +59,30 @@ describe('install recovery assessment', () => {
     );
   });
 
-  it('never recommends promotion after replay invalidation fails', () => {
+  it('routes a legacy invalidation failure through explicit reopen', () => {
     const assessment = assessInstallRecovery(
       { ...base, status: 'invalidation_failed', attemptCount: 2 },
       null
     );
 
     expect(assessment.recommendation).toMatchObject({
-      action: 'do_not_promote',
-      tone: 'danger',
+      action: 'reopen',
+      tone: 'caution',
     });
     expect(assessment.signals.map((signal) => signal.label)).toContain(
-      'Replay invalidation not confirmed'
+      'Legacy replay gate failed'
     );
   });
 
-  it('keeps a candidate non-promotable while replay invalidation is in flight', () => {
+  it('routes a legacy in-flight invalidation row through explicit reopen', () => {
     const assessment = assessInstallRecovery(
       { ...base, status: 'invalidation_pending', attemptCount: 2 },
       null
     );
 
-    expect(assessment.recommendation).toMatchObject({ action: 'wait', tone: 'caution' });
+    expect(assessment.recommendation).toMatchObject({ action: 'reopen', tone: 'caution' });
     expect(assessment.signals.map((signal) => signal.label)).toContain(
-      'Replay invalidation in progress'
+      'Legacy replay gate remains'
     );
   });
 

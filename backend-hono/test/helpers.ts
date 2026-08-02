@@ -4,6 +4,8 @@ import {
   installRecoveryCandidates,
   installRecoveryEvents,
   personalBests,
+  playerInstallCredentialEvents,
+  playerInstallCredentials,
   playerNameHistory,
   players,
   recoveryAdminLoginLimits,
@@ -14,6 +16,8 @@ export async function truncateAll() {
   await db.delete(recoveryAdminLoginLimits);
   await db.delete(installRecoveryEvents);
   await db.delete(syncAttempts);
+  await db.delete(playerInstallCredentialEvents);
+  await db.delete(playerInstallCredentials);
   await db.delete(installRecoveryCandidates);
   await db.delete(personalBests);
   await db.delete(playerNameHistory);

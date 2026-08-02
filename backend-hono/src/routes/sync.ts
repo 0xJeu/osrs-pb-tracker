@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
-import { personalBests, players, syncAttempts } from '../db/schema.js';
+import { personalBests, playerInstallCredentials, players, syncAttempts } from '../db/schema.js';
 import {
   bossCacheTag,
   cacheTags,
@@ -109,21 +109,63 @@ async function resolvePlayer(accountHash: string, displayName: string, secretHas
   const existing = existingRows[0];
 
   if (!existing) {
-    const [inserted] = await db
-      .insert(players)
-      .values({
-        accountHash,
-        displayName,
-        displayNameLower,
-        installSecretHash: secretHash,
-        updatedAt: new Date(),
-      })
-      .returning({ id: players.id });
+    // The account row and its first authorized install are claimed in one
+    // transaction. If two first-ever syncs race, only the secret that won the
+    // account insert is seeded; the loser is handled as an unknown candidate.
+    const [insertedRows, , claimedRows] = await db.$client.transaction((txn) => [
+      txn(
+        `INSERT INTO players
+           (account_hash, display_name, display_name_lower, install_secret_hash, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (account_hash) DO NOTHING
+         RETURNING id`,
+        [accountHash, displayName, displayNameLower, secretHash]
+      ),
+      txn(
+        `INSERT INTO player_install_credentials
+           (player_id, secret_hash, status, source, first_seen_at, last_seen_at, authorized_at)
+         SELECT id, $2, 'active', 'initial_sync', NOW(), NOW(), NOW()
+         FROM players
+         WHERE account_hash = $1 AND install_secret_hash = $2
+         ON CONFLICT (player_id, secret_hash) DO NOTHING`,
+        [accountHash, secretHash]
+      ),
+      txn(
+        `SELECT player.id, player.display_name, player.display_name_lower,
+                player.install_secret_hash,
+                EXISTS (
+                  SELECT 1 FROM player_install_credentials AS credential
+                  WHERE credential.player_id = player.id
+                    AND credential.secret_hash = $2
+                    AND credential.status = 'active'
+                ) AS authorized
+         FROM players AS player
+         WHERE player.account_hash = $1
+         LIMIT 1`,
+        [accountHash, secretHash]
+      ),
+    ]);
+    const claimed = claimedRows[0];
+    if (!claimed) {
+      throw new Error('Unable to resolve player after initial install claim.');
+    }
+    if (!Boolean(claimed.authorized)) {
+      return {
+        playerId: Number(claimed.id),
+        authorized: false,
+        metadataChanged: false,
+        created: false,
+        bindingStatus: null as 'active' | 'revoked' | null,
+        incumbentSecretHash: String(claimed.install_secret_hash),
+        namesToInvalidate: [] as string[],
+      };
+    }
     return {
-      playerId: inserted.id,
+      playerId: Number(claimed.id),
       authorized: true,
       metadataChanged: true,
-      created: true,
+      created: insertedRows.length > 0,
+      bindingStatus: 'active' as const,
       incumbentSecretHash: null,
       namesToInvalidate: [displayNameLower],
     };
@@ -147,12 +189,47 @@ async function resolvePlayer(accountHash: string, displayName: string, secretHas
     }
   }
 
-  if (incumbentSecretHash !== secretHash) {
+  // Seed the legacy binding lazily as well as through the migration. This
+  // makes rolling deploys safe if a player row appears between the migration's
+  // data copy and the new code becoming active. ON CONFLICT deliberately does
+  // not reactivate a credential an operator explicitly revoked.
+  if (incumbentSecretHash) {
+    const now = new Date();
+    await db
+      .insert(playerInstallCredentials)
+      .values({
+        playerId: existing.id,
+        secretHash: incumbentSecretHash,
+        status: 'active',
+        source: 'legacy',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        authorizedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [playerInstallCredentials.playerId, playerInstallCredentials.secretHash],
+      });
+  }
+
+  const [installBinding] = await db
+    .select({ id: playerInstallCredentials.id, status: playerInstallCredentials.status })
+    .from(playerInstallCredentials)
+    .where(
+      and(
+        eq(playerInstallCredentials.playerId, existing.id),
+        eq(playerInstallCredentials.secretHash, secretHash)
+      )
+    )
+    .limit(1);
+
+  if (!installBinding || installBinding.status !== 'active') {
     return {
       playerId: existing.id,
       authorized: false,
       metadataChanged: false,
       created: false,
+      bindingStatus:
+        installBinding?.status === 'revoked' ? 'revoked' as const : null,
       incumbentSecretHash,
       namesToInvalidate: [] as string[],
     };
@@ -163,12 +240,44 @@ async function resolvePlayer(accountHash: string, displayName: string, secretHas
     authorized: true,
     metadataChanged: existing.displayName !== displayName,
     created: false,
+    bindingStatus: 'active' as const,
     incumbentSecretHash,
     namesToInvalidate:
       existing.displayName === displayName
         ? [] as string[]
         : [existing.displayNameLower, displayNameLower],
   };
+}
+
+export async function isSuccessfulSyncReplayAuthorized(values: {
+  accountHash: string;
+  playerId: number;
+  secretHash: string;
+}) {
+  // Replay is only an optimization. The database credential binding remains
+  // authoritative, so take the same player-first lock used by revoke and
+  // reactivate before accepting a cached success. Two statements are
+  // intentional: after waiting for the player lock, READ COMMITTED gives the
+  // credential query a fresh snapshot that includes the completed operator
+  // action. Holding the player lock also prevents every credential lifecycle
+  // action from racing the fresh credential-status read before this
+  // transaction commits, so the second query deliberately needs no row lock.
+  const [playerRows, credentialRows] = await db.$client.transaction((txn) => [
+    txn(
+      `SELECT id
+       FROM players
+       WHERE id = $1 AND account_hash = $2
+       FOR SHARE`,
+      [values.playerId, values.accountHash]
+    ),
+    txn(
+      `SELECT id
+       FROM player_install_credentials
+       WHERE player_id = $1 AND secret_hash = $2 AND status = 'active'`,
+      [values.playerId, values.secretHash]
+    ),
+  ]);
+  return playerRows.length === 1 && credentialRows.length === 1;
 }
 
 export async function commitExistingAuthorizedSync(values: {
@@ -181,25 +290,38 @@ export async function commitExistingAuthorizedSync(values: {
   const payload = JSON.stringify(Object.fromEntries(values.pbsByBoss));
   const [lockedRows, , renamedRows, , changedRows] = await db.$client.transaction((txn) => [
     txn(
-      'SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2 FOR UPDATE',
+      `SELECT player.id
+       FROM players AS player
+       JOIN player_install_credentials AS credential
+         ON credential.player_id = player.id
+        AND credential.secret_hash = $2
+        AND credential.status = 'active'
+       WHERE player.id = $1
+       FOR UPDATE OF player, credential`,
       [values.playerId, values.secretHash]
     ),
     txn(
       `INSERT INTO player_name_history
          (player_id, display_name, display_name_lower, created_at)
-       SELECT id, display_name, display_name_lower, NOW()
-       FROM players
-       WHERE id = $1
-         AND install_secret_hash = $2
-         AND display_name <> $3
+       SELECT player.id, player.display_name, player.display_name_lower, NOW()
+       FROM players AS player
+       JOIN player_install_credentials AS credential
+         ON credential.player_id = player.id
+        AND credential.secret_hash = $2
+        AND credential.status = 'active'
+       WHERE player.id = $1 AND player.display_name <> $3
        ON CONFLICT DO NOTHING`,
       [values.playerId, values.secretHash, values.displayName]
     ),
     txn(
       `WITH current AS MATERIALIZED (
-         SELECT id, display_name_lower
-         FROM players
-         WHERE id = $1 AND install_secret_hash = $2 AND display_name <> $3
+         SELECT player.id, player.display_name_lower
+         FROM players AS player
+         JOIN player_install_credentials AS credential
+           ON credential.player_id = player.id
+          AND credential.secret_hash = $2
+          AND credential.status = 'active'
+         WHERE player.id = $1 AND player.display_name <> $3
        )
        UPDATE players
        SET display_name = $3, display_name_lower = $4, updated_at = NOW()
@@ -209,21 +331,9 @@ export async function commitExistingAuthorizedSync(values: {
       [values.playerId, values.secretHash, values.displayName, values.displayNameLower]
     ),
     txn(
-      `WITH authorized AS (
-         SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2
-       ), transitioned AS (
-         UPDATE install_recovery_candidates
-         SET status = 'contested'
-         FROM authorized
-         WHERE player_id = authorized.id
-           AND status IN ('invalidation_pending', 'pending', 'invalidation_failed')
-         RETURNING install_recovery_candidates.id
-       )
-       INSERT INTO install_recovery_events
-         (candidate_id, player_id, event_type, actor, reason, created_at)
-       SELECT id, $1, 'incumbent_seen', 'system',
-              'The incumbent credential synced while recovery was pending.', NOW()
-       FROM transitioned`,
+      `UPDATE player_install_credentials
+       SET last_seen_at = NOW()
+       WHERE player_id = $1 AND secret_hash = $2 AND status = 'active'`,
       [values.playerId, values.secretHash]
     ),
     txn(
@@ -231,7 +341,13 @@ export async function commitExistingAuthorizedSync(values: {
          SELECT key AS boss, value::real AS time_seconds
          FROM jsonb_each_text($3::jsonb)
        ), authorized AS (
-         SELECT id FROM players WHERE id = $1 AND install_secret_hash = $2
+         SELECT player.id
+         FROM players AS player
+         JOIN player_install_credentials AS credential
+           ON credential.player_id = player.id
+          AND credential.secret_hash = $2
+          AND credential.status = 'active'
+         WHERE player.id = $1
        )
        INSERT INTO personal_bests (player_id, boss, time_seconds, updated_at)
        SELECT authorized.id, incoming.boss, incoming.time_seconds, NOW()
@@ -381,7 +497,11 @@ sync.post('/', async (c) => {
   });
   const replay = await getSuccessfulSyncReplay(replayKey);
 
-  if (replay) {
+  if (replay && await isSuccessfulSyncReplayAuthorized({
+    accountHash,
+    playerId: replay.playerId,
+    secretHash,
+  })) {
     noteSuccessfulSyncReplay();
     return c.json({
       ok: true,
@@ -404,11 +524,32 @@ sync.post('/', async (c) => {
     authorized,
     metadataChanged,
     created,
+    bindingStatus,
     incumbentSecretHash,
     namesToInvalidate,
   } = await resolvePlayer(accountHash, displayName, secretHash);
 
   if (!authorized) {
+    if (bindingStatus === 'revoked') {
+      const syncAttemptId = await recordSyncAttempt({
+        playerId,
+        outcome: 'install_secret_mismatch',
+        httpStatus: 409,
+        receivedCount: entries.length,
+        eligibleCount: pbsByBoss.size,
+      });
+      return c.json(
+        {
+          error: 'This installation has been revoked for this account.',
+          code: 'RECOVERY_REJECTED',
+          recoveryId: null,
+          retryAfterSeconds: 900,
+          syncAttemptId,
+        },
+        409
+      );
+    }
+
     let recoveryCandidate:
       | Awaited<ReturnType<typeof captureInstallRecoveryCandidate>>
       | null = null;
@@ -455,7 +596,7 @@ sync.post('/', async (c) => {
       : 'INSTALL_SECRET_MISMATCH';
     return c.json(
       {
-        error: 'This account is already bound to a different install.',
+        error: 'This installation is not yet authorized for this account.',
         code,
         recoveryId: recoveryCandidate?.id ?? null,
         retryAfterSeconds: recoveryCandidate ? 900 : null,
@@ -484,7 +625,8 @@ sync.post('/', async (c) => {
         pbsByBoss,
       });
 
-  // A promotion may have replaced the credential after the initial lookup.
+  // An operator may have revoked or replaced this installation after the
+  // initial lookup.
   // The transaction above locks and rechecks the player row before any name,
   // recovery-state, or PB mutation, so an in-flight former credential fails
   // closed instead of writing after the handoff boundary.
@@ -498,7 +640,7 @@ sync.post('/', async (c) => {
     });
     return c.json(
       {
-        error: 'This account is already bound to a different install.',
+        error: 'This installation is no longer authorized for this account.',
         code: 'INSTALL_SECRET_CHANGED',
         recoveryId: null,
         retryAfterSeconds: null,

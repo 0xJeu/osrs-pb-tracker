@@ -34,12 +34,14 @@ const CANDIDATE_PBS = {
 
 const SAFE_METADATA_KEYS = [
   'attemptCount',
+  'activeInstallCount',
   'displayName',
   'eligibleCount',
   'equalCount',
   'firstSeenAt',
   'id',
   'improvedCount',
+  'installations',
   'lastSeenAt',
   'missingCount',
   'newCount',
@@ -102,7 +104,7 @@ export async function cleanupInstallRecoveryE2eFixture() {
 }
 
 /**
- * Runs the real sync route and operator promotion path end to end. The caller
+ * Runs the real sync route and operator authorization path end to end. The caller
  * must perform the database target guard before invoking this write-enabled
  * harness outside Vitest. Returned data is deliberately allowlisted and never
  * contains credential hashes, install secrets, PB payloads, or payload digests.
@@ -140,56 +142,53 @@ export async function runInstallRecoveryE2e() {
   assert(pendingMetadata.newCount === 1, 'candidate new count was incorrect');
   assert(pendingMetadata.slowerCount === 0, 'candidate slower count was incorrect');
   assert(pendingMetadata.missingCount === 0, 'candidate missing count was incorrect');
+  assert(pendingMetadata.activeInstallCount === 1, 'active install count was incorrect');
+  assert(pendingMetadata.installations.length === 1, 'safe install evidence was missing');
 
-  const beforePromotion = await canonicalPbs(playerId);
-  assertCanonical(beforePromotion, { zulrah: 80, vorkath: 70 }, 'pre-promotion');
+  const beforeAuthorization = await canonicalPbs(playerId);
+  assertCanonical(beforeAuthorization, { zulrah: 80, vorkath: 70 }, 'pre-authorization');
 
   const promotion = await promoteInstallRecoveryCandidate(
     recoveryId,
     '0xSteph',
     'Seeded staging install recovery E2E verification.'
   );
-  assert(promotion.candidateId === recoveryId, 'the exact candidate was not promoted');
-  assert(promotion.changedBosses.length === 2, 'promotion changed an unexpected PB count');
+  assert(promotion.candidateId === recoveryId, 'the exact candidate was not authorized');
+  assert(promotion.mode === 'additional', 'candidate was not authorized additively');
+  assert(promotion.changedBosses.length === 0, 'authorization applied quarantined PB data');
 
   const promotedMetadata = await getSafeInstallRecoveryCandidate(recoveryId);
   assert(promotedMetadata?.status === 'promoted', 'candidate metadata did not show promotion');
   assert(promotedMetadata.promotedAt instanceof Date, 'candidate promotion timestamp was missing');
 
+  assert(promotedMetadata?.activeInstallCount === 2, 'second install was not active');
   const afterPromotion = await canonicalPbs(playerId);
   assertCanonical(
     afterPromotion,
-    { araxxor: 100, vorkath: 70, zulrah: 75 },
-    'post-promotion'
+    { vorkath: 70, zulrah: 80 },
+    'post-authorization'
   );
 
-  const candidateRetryResponse = await sync(CANDIDATE_SECRET, { Zulrah: 74 });
+  const candidateRetryResponse = await sync(CANDIDATE_SECRET, { Zulrah: 74, Araxxor: 99 });
   const candidateRetryBody = await readJson(candidateRetryResponse);
   assert(candidateRetryResponse.status === 200, 'promoted candidate was not accepted');
   assert(candidateRetryBody.ok === true, 'promoted candidate response was not successful');
-  assert(candidateRetryBody.updated === 1, 'promoted candidate PB was not applied');
+  assert(candidateRetryBody.updated === 2, 'authorized candidate PB was not applied normally');
 
-  const incumbentRetryResponse = await sync(INCUMBENT_SECRET, { Zulrah: 73 });
+  const incumbentRetryResponse = await sync(INCUMBENT_SECRET, { Vorkath: 69 });
   const incumbentRetryBody = await readJson(incumbentRetryResponse);
-  assert(incumbentRetryResponse.status === 409, 'former incumbent was not rejected');
-  assert(
-    incumbentRetryBody.code === 'RECOVERY_PENDING',
-    'former incumbent was not quarantined in the new credential epoch'
-  );
-  assert(
-    typeof incumbentRetryBody.recoveryId === 'number' && incumbentRetryBody.recoveryId !== recoveryId,
-    'former incumbent did not receive a distinct recovery ID'
-  );
+  assert(incumbentRetryResponse.status === 200, 'original authorized install stopped working');
+  assert(incumbentRetryBody.ok === true, 'original authorized install response was not successful');
 
   const finalCanonical = await canonicalPbs(playerId);
-  assertCanonical(finalCanonical, { araxxor: 100, vorkath: 70, zulrah: 74 }, 'final');
+  assertCanonical(finalCanonical, { araxxor: 99, vorkath: 69, zulrah: 74 }, 'final');
 
   const [promotionEvent] = await db
     .select({ eventType: installRecoveryEvents.eventType, actor: installRecoveryEvents.actor })
     .from(installRecoveryEvents)
     .where(eq(installRecoveryEvents.candidateId, recoveryId));
-  assert(promotionEvent?.eventType === 'promoted', 'promotion event was not recorded');
-  assert(promotionEvent.actor === '0xSteph', 'promotion actor was not recorded');
+  assert(promotionEvent?.eventType === 'authorized_additional', 'authorization event was not recorded');
+  assert(promotionEvent.actor === '0xSteph', 'authorization actor was not recorded');
 
   const attempts = await db
     .select({ outcome: syncAttempts.outcome, httpStatus: syncAttempts.httpStatus })
@@ -202,7 +201,7 @@ export async function runInstallRecoveryE2e() {
         { outcome: 'accepted', httpStatus: 200 },
         { outcome: 'install_secret_mismatch', httpStatus: 409 },
         { outcome: 'accepted', httpStatus: 200 },
-        { outcome: 'install_secret_mismatch', httpStatus: 409 },
+        { outcome: 'accepted', httpStatus: 200 },
       ]),
     'sync audit trail did not match the recovery sequence'
   );
@@ -214,11 +213,8 @@ export async function runInstallRecoveryE2e() {
     .orderBy(asc(installRecoveryCandidates.id));
   assert(
     JSON.stringify(finalCandidates) ===
-      JSON.stringify([
-        { id: recoveryId, status: 'promoted' },
-        { id: incumbentRetryBody.recoveryId, status: 'pending' },
-      ]),
-    'credential epochs were not retained as expected'
+      JSON.stringify([{ id: recoveryId, status: 'promoted' }]),
+    'unexpected recovery candidates were created after additive authorization'
   );
 
   return {
@@ -233,7 +229,7 @@ export async function runInstallRecoveryE2e() {
       },
       { name: 'safe_metadata_visible', candidate: pendingMetadata },
       {
-        name: 'candidate_promoted',
+        name: 'candidate_authorized_additional',
         recoveryId,
         changedPbCount: promotion.changedBosses.length,
       },
@@ -243,17 +239,15 @@ export async function runInstallRecoveryE2e() {
         updatedPbCount: candidateRetryBody.updated,
       },
       {
-        name: 'former_incumbent_rejected',
+        name: 'original_install_still_accepted',
         httpStatus: incumbentRetryResponse.status,
-        code: incumbentRetryBody.code,
-        recoveryId: incumbentRetryBody.recoveryId,
       },
     ],
     checks: {
-      canonicalUnchangedBeforePromotion: true,
-      quarantinedPayloadAppliedOnPromotion: true,
-      promotedCandidateAccepted: true,
-      formerIncumbentCouldNotWrite: true,
+      canonicalUnchangedBeforeAuthorization: true,
+      quarantinedSubmissionNotAppliedOnAuthorization: true,
+      authorizedCandidateAccepted: true,
+      originalInstallStillAccepted: true,
       auditSequenceVerified: true,
       sensitiveRecoveryDataExposed: false,
     },
