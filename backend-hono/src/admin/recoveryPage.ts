@@ -4,7 +4,7 @@ export function recoveryAdminPage(nonce: string) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PB Tracker Recovery Admin</title>
+  <title>PB Tracker Admin</title>
   <style nonce="${nonce}">
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     body { margin: 0; background: #111318; color: #edf0f7; }
@@ -16,6 +16,12 @@ export function recoveryAdminPage(nonce: string) {
     .login-card { width: min(420px, calc(100% - 34px)); margin: 48px auto; padding: 22px; }
     .login-card form { display: grid; gap: 14px; }
     .toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+    .tabs { display: flex; gap: 8px; margin: 22px 0 18px; padding-bottom: 1px; border-bottom: 1px solid #303746; }
+    .tab { color: #9ba4b7; background: transparent; border-color: transparent; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    .tab:hover { color: #edf0f7; background: #202632; }
+    .tab.active { color: #fff; background: #315bb6; border-color: #456dc4; }
+    .section-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 16px; }
+    .section-head h2 { margin: 0 0 5px; }
     .controls { padding: 16px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; }
     label { display: grid; gap: 6px; color: #bac2d2; font-size: 13px; }
     input, select, button { border: 1px solid #3c4659; border-radius: 8px; padding: 10px; font: inherit; }
@@ -29,6 +35,11 @@ export function recoveryAdminPage(nonce: string) {
     #candidates { display: grid; gap: 14px; }
     .installation-search { margin-top: 18px; grid-template-columns: 1fr auto; }
     #installation-results { display: grid; gap: 14px; margin-top: 14px; }
+    #feedback-results { display: grid; gap: 14px; }
+    .feedback-card { display: grid; gap: 12px; }
+    .feedback-meta { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: #909aad; font-size: 12px; }
+    .feedback-context { display: inline-flex; width: fit-content; border-radius: 999px; padding: 4px 9px; color: #dbe4f7; background: #29364f; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .feedback-card p { margin: 0; color: #d6dbea; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
     article { padding: 16px; }
     .candidate-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
     .candidate-head h2 { margin: 0 0 4px; font-size: 19px; }
@@ -81,8 +92,8 @@ export function recoveryAdminPage(nonce: string) {
 <body>
   <main>
     <section id="login-panel" class="login-card">
-      <h1>Recovery admin login</h1>
-      <p class="subtle">Sign in to review quarantined install mismatches.</p>
+      <h1>PB Tracker admin login</h1>
+      <p class="subtle">Sign in to review install recovery and player feedback.</p>
       <form id="login-form">
         <label>Username<input id="username" value="admin" readonly autocomplete="username"></label>
         <label>Password<input id="password" type="password" required autocomplete="current-password"></label>
@@ -94,23 +105,40 @@ export function recoveryAdminPage(nonce: string) {
     <section id="admin-panel" class="hidden">
       <div class="toolbar">
         <div>
-          <h1>Install recovery</h1>
-          <p class="subtle">Credential hashes and PB payloads are never shown here.</p>
+          <h1>PB Tracker admin</h1>
+          <p class="subtle">Internal tools for support and recovery triage.</p>
         </div>
         <button id="logout" type="button" class="secondary">Sign out</button>
       </div>
-      <section class="controls" aria-label="Recovery controls">
-        <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="invalidation_pending">Invalidation pending</option><option value="pending">Pending</option><option value="invalidation_failed">Invalidation failed</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
-        <label>Recovery ID<input id="candidate-id" inputmode="numeric" placeholder="Exact ID"></label>
-        <button id="refresh" type="button">Refresh</button>
+      <nav class="tabs" role="tablist" aria-label="Admin sections">
+        <button id="recovery-tab" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="recovery-view">Install recovery</button>
+        <button id="feedback-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="feedback-view">Feedback</button>
+      </nav>
+      <section id="recovery-view" role="tabpanel" aria-labelledby="recovery-tab">
+        <section class="controls" aria-label="Recovery controls">
+          <label>Status<select id="status"><option value="active">Active</option><option value="all">All</option><option value="invalidation_pending">Invalidation pending</option><option value="pending">Pending</option><option value="invalidation_failed">Invalidation failed</option><option value="contested">Contested</option><option value="promoted">Promoted</option><option value="rejected">Rejected</option></select></label>
+          <label>Recovery ID<input id="candidate-id" inputmode="numeric" placeholder="Exact ID"></label>
+          <button id="refresh" type="button">Refresh</button>
+        </section>
+        <p id="message" class="message" role="status"></p>
+        <section id="candidates" aria-live="polite"></section>
+        <section class="controls installation-search" aria-label="Installation lookup">
+          <label>Exact display name or player ID<input id="installation-query" placeholder="Player name or numeric ID"></label>
+          <button id="search-installations" type="button">Find installations</button>
+        </section>
+        <section id="installation-results" aria-live="polite"></section>
       </section>
-      <p id="message" class="message" role="status"></p>
-      <section id="candidates" aria-live="polite"></section>
-      <section class="controls installation-search" aria-label="Installation lookup">
-        <label>Exact display name or player ID<input id="installation-query" placeholder="Player name or numeric ID"></label>
-        <button id="search-installations" type="button">Find installations</button>
+      <section id="feedback-view" class="hidden" role="tabpanel" aria-labelledby="feedback-tab">
+        <div class="section-head">
+          <div>
+            <h2>Player feedback</h2>
+            <p class="subtle">All feedback submissions, newest first.</p>
+          </div>
+          <button id="refresh-feedback" type="button">Refresh</button>
+        </div>
+        <p id="feedback-message" class="message" role="status"></p>
+        <section id="feedback-results" aria-live="polite"></section>
       </section>
-      <section id="installation-results" aria-live="polite"></section>
     </section>
   </main>
   <script nonce="${nonce}">
@@ -122,6 +150,10 @@ export function recoveryAdminPage(nonce: string) {
     const loginButton = document.querySelector('#login');
     const loginMessage = document.querySelector('#login-message');
     const logoutButton = document.querySelector('#logout');
+    const recoveryTab = document.querySelector('#recovery-tab');
+    const feedbackTab = document.querySelector('#feedback-tab');
+    const recoveryView = document.querySelector('#recovery-view');
+    const feedbackView = document.querySelector('#feedback-view');
     const statusInput = document.querySelector('#status');
     const candidateIdInput = document.querySelector('#candidate-id');
     const refreshButton = document.querySelector('#refresh');
@@ -130,12 +162,16 @@ export function recoveryAdminPage(nonce: string) {
     const installationQueryInput = document.querySelector('#installation-query');
     const searchInstallationsButton = document.querySelector('#search-installations');
     const installationResultsRoot = document.querySelector('#installation-results');
+    const refreshFeedbackButton = document.querySelector('#refresh-feedback');
+    const feedbackMessage = document.querySelector('#feedback-message');
+    const feedbackResultsRoot = document.querySelector('#feedback-results');
 
     function showLogin(error) {
       adminPanel.classList.add('hidden');
       loginPanel.classList.remove('hidden');
       candidatesRoot.replaceChildren();
       installationResultsRoot.replaceChildren();
+      feedbackResultsRoot.replaceChildren();
       loginMessage.textContent = error || '';
       passwordInput.value = '';
       passwordInput.focus();
@@ -177,6 +213,47 @@ export function recoveryAdminPage(nonce: string) {
       const wrapper = document.createElement('div');
       wrapper.append(textElement('dt', label), textElement('dd', value));
       return wrapper;
+    }
+
+    function feedbackCard(entry) {
+      const card = document.createElement('article');
+      card.className = 'feedback-card';
+      const meta = document.createElement('div');
+      meta.className = 'feedback-meta';
+      meta.append(
+        textElement('span', entry.context || 'No page context', 'feedback-context'),
+        textElement('span', 'Feedback ' + entry.id + ' · ' + new Date(entry.createdAt).toLocaleString())
+      );
+      card.append(meta, textElement('p', entry.message));
+      return card;
+    }
+
+    async function loadFeedback() {
+      refreshFeedbackButton.disabled = true;
+      feedbackMessage.textContent = 'Loading feedback…';
+      try {
+        const body = await request('/api/admin/recovery/feedback');
+        feedbackResultsRoot.replaceChildren(...body.feedback.map(feedbackCard));
+        if (!body.feedback.length) feedbackResultsRoot.append(textElement('div', 'No feedback has been submitted.', 'empty'));
+        feedbackMessage.textContent = 'Loaded ' + body.feedback.length + ' feedback submission(s).';
+      } finally {
+        refreshFeedbackButton.disabled = false;
+      }
+    }
+
+    async function activateTab(name, loadContent) {
+      const feedbackActive = name === 'feedback';
+      recoveryTab.classList.toggle('active', !feedbackActive);
+      feedbackTab.classList.toggle('active', feedbackActive);
+      recoveryTab.setAttribute('aria-selected', String(!feedbackActive));
+      feedbackTab.setAttribute('aria-selected', String(feedbackActive));
+      recoveryView.classList.toggle('hidden', feedbackActive);
+      feedbackView.classList.toggle('hidden', !feedbackActive);
+      window.history.replaceState(null, '', feedbackActive ? '#feedback' : window.location.pathname);
+      if (loadContent) {
+        if (feedbackActive) await loadFeedback();
+        else await load();
+      }
     }
 
     function eventList(events) {
@@ -430,7 +507,7 @@ export function recoveryAdminPage(nonce: string) {
         });
         passwordInput.value = '';
         showAdmin();
-        await load();
+        await activateTab(window.location.hash === '#feedback' ? 'feedback' : 'recovery', true);
       } catch (error) {
         showLogin(error instanceof Error ? error.message : 'Unable to sign in.');
       } finally {
@@ -443,13 +520,16 @@ export function recoveryAdminPage(nonce: string) {
       finally { showLogin('Signed out.'); }
     });
     refreshButton.addEventListener('click', function () { load().catch(showError); });
+    refreshFeedbackButton.addEventListener('click', function () { loadFeedback().catch(function (error) { feedbackMessage.textContent = error instanceof Error ? error.message : 'Unexpected error.'; }); });
+    recoveryTab.addEventListener('click', function () { activateTab('recovery', true).catch(showError); });
+    feedbackTab.addEventListener('click', function () { activateTab('feedback', true).catch(function (error) { feedbackMessage.textContent = error instanceof Error ? error.message : 'Unexpected error.'; }); });
     statusInput.addEventListener('change', function () { load().catch(showError); });
     candidateIdInput.addEventListener('change', function () { load().catch(showError); });
     searchInstallationsButton.addEventListener('click', function () { loadInstallations().catch(showError); });
     installationQueryInput.addEventListener('change', function () { loadInstallations().catch(showError); });
 
     request('/api/admin/recovery/session')
-      .then(function () { showAdmin(); return load(); })
+      .then(function () { showAdmin(); return activateTab(window.location.hash === '#feedback' ? 'feedback' : 'recovery', true); })
       .catch(function () { showLogin(''); });
   </script>
 </body>
