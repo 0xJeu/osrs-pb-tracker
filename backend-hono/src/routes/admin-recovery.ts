@@ -40,6 +40,7 @@ import { assessInstallRecovery } from '../lib/recoveryAssessment.js';
 const adminRecovery = new Hono();
 const candidateApi = new Hono();
 const installationApi = new Hono();
+const feedbackApi = new Hono();
 
 const statuses = [
   'invalidation_pending',
@@ -212,6 +213,26 @@ adminRecovery.get('/session', requireRecoveryAdmin, (c) =>
 
 candidateApi.use('*', requireRecoveryAdmin);
 installationApi.use('*', requireRecoveryAdmin);
+feedbackApi.use('*', requireRecoveryAdmin);
+
+feedbackApi.get('/', async (c) => {
+  const rows = await db
+    .select({
+      id: feedback.id,
+      message: feedback.message,
+      context: feedback.context,
+      createdAt: feedback.createdAt,
+    })
+    .from(feedback)
+    .orderBy(desc(feedback.createdAt));
+
+  return c.json({
+    feedback: rows.map((entry) => ({
+      ...entry,
+      createdAt: entry.createdAt.toISOString(),
+    })),
+  });
+});
 
 installationApi.get('/', async (c) => {
   const playerIdRaw = c.req.query('playerId')?.trim();
@@ -492,5 +513,6 @@ installationApi.post('/:id/reactivate', (c) => decideInstallation(c, 'reactivate
 
 adminRecovery.route('/candidates', candidateApi);
 adminRecovery.route('/installations', installationApi);
+adminRecovery.route('/feedback', feedbackApi);
 
 export default adminRecovery;

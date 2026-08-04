@@ -89,8 +89,11 @@ describe('recovery admin', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
     expect(response.headers.get('access-control-allow-origin')).toBeNull();
-    expect(html).toContain('PB Tracker Recovery Admin');
-    expect(html).toContain('Recovery admin login');
+    expect(html).toContain('PB Tracker Admin');
+    expect(html).toContain('PB Tracker admin login');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('Install recovery');
+    expect(html).toContain('Feedback');
     expect(html).not.toContain(adminPassword);
   });
 
@@ -146,13 +149,49 @@ describe('recovery admin', () => {
     expect(await wrongUsername.response.json()).toEqual({ error: 'Invalid username or password.' });
 
     const missing = await app.request('/api/admin/recovery/candidates');
+    const missingFeedback = await app.request('/api/admin/recovery/feedback');
     const { cookie } = await login(adminPassword, 'admin', '127.0.0.4');
     const tampered = await app.request('/api/admin/recovery/candidates', {
       headers: sessionHeaders(`${cookie}x`),
     });
 
     expect(missing.status).toBe(401);
+    expect(missingFeedback.status).toBe(401);
     expect(tampered.status).toBe(401);
+  });
+
+  it('lists every feedback submission newest first without account identifiers', async () => {
+    const older = new Date('2026-08-01T12:00:00.000Z');
+    const newer = new Date('2026-08-02T12:00:00.000Z');
+    await db.insert(feedback).values([
+      { message: 'Older general feedback.', context: null, createdAt: older },
+      { message: 'The Zulrah time looks wrong.', context: 'boss:zulrah', createdAt: newer },
+    ]);
+    const { cookie } = await login();
+
+    const response = await app.request('/api/admin/recovery/feedback', {
+      headers: sessionHeaders(cookie),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+    expect(await response.json()).toEqual({
+      feedback: [
+        {
+          id: expect.any(Number),
+          message: 'The Zulrah time looks wrong.',
+          context: 'boss:zulrah',
+          createdAt: newer.toISOString(),
+        },
+        {
+          id: expect.any(Number),
+          message: 'Older general feedback.',
+          context: null,
+          createdAt: older.toISOString(),
+        },
+      ],
+    });
   });
 
   it('rate-limits repeated failed logins without blocking a different source', async () => {
