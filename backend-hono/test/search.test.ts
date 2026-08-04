@@ -54,4 +54,19 @@ describe('GET /api/search', () => {
       { type: 'boss', value: 'tombs of amascut - expert mode' },
     ]);
   });
+
+  it('omits legacy bosses that do not have official Jagex personal bests', async () => {
+    await insertTestPlayerWithPb({ boss: 'dagannoth prime', timeSeconds: 60, displayName: 'Dag Fan' });
+    await insertTestPlayerWithPb({ boss: 'prifddinas agility course', timeSeconds: 45, displayName: 'Course Fan' });
+
+    const dagResponse = await app.request('/api/search/all?q=dag');
+    expect(await dagResponse.json()).toEqual([
+      { type: 'player', value: 'Dag Fan' },
+    ]);
+
+    const courseResponse = await app.request('/api/search/all?q=course');
+    expect(await courseResponse.json()).toEqual([
+      { type: 'player', value: 'Course Fan' },
+    ]);
+  });
 });
