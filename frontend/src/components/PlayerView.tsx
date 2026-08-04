@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { PbEntry, PlayerPayload } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { formatDate, formatTime, titleCase } from '../lib/format';
-import { groupPlayerRaidPbs } from '../lib/bossGroups';
+import { groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
 import type { Route } from '../hooks/useRoute';
@@ -14,21 +14,15 @@ function visiblePbs(player: PlayerPayload) {
     .sort((a, b) => a.rank - b.rank);
 }
 
-export function summarizePlayerRecords(pbs: PbEntry[], flat: PbEntry[], groups: PlayerRaidGroup[]) {
-  const records = [
-    ...flat.map((pb) => ({ name: titleCase(pb.boss), rank: pb.rank })),
-    ...groups.map((group) => ({ name: group.heading, rank: group.summary.rank })),
-  ];
-  const best = records.reduce<(typeof records)[number] | undefined>((current, record) => {
-    if (!current || record.rank < current.rank) return record;
-    if (record.rank === current.rank && record.name.localeCompare(current.name) < 0) return record;
-    return current;
-  }, undefined);
+export function summarizePlayerRecords(pbs: PbEntry[]) {
+  const numberOnePbs = pbs.filter((pb) => pb.rank === 1);
+  const numberOneBosses = Array.from(new Set(numberOnePbs.map((pb) => titleCase(
+    isGroupedVariant(pb.boss) ? groupedBaseForKey(pb.boss) : pb.boss
+  )))).sort((a, b) => a.localeCompare(b));
 
   return {
-    bestRankedBoss: best?.name,
-    bestRank: best?.rank,
-    numberOneRecords: pbs.filter((pb) => pb.rank === 1).length,
+    numberOneRecords: numberOnePbs.length,
+    numberOneBosses,
   };
 }
 
@@ -38,7 +32,7 @@ export function PlayerView({ state, navigate }: { state: PlayerState; navigate: 
   // when there's no loaded player yet.
   const pbs = state.s === 'loaded' ? visiblePbs(state.player) : [];
   const { groups, flat } = useMemo(() => groupPlayerRaidPbs(pbs), [pbs]);
-  const summary = useMemo(() => summarizePlayerRecords(pbs, flat, groups), [pbs, flat, groups]);
+  const summary = useMemo(() => summarizePlayerRecords(pbs), [pbs]);
   const [recordSort, setRecordSort] = useState<BossRecordSort>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const recordRows = useMemo(() => {
@@ -109,15 +103,14 @@ export function PlayerView({ state, navigate }: { state: PlayerState; navigate: 
           <span className="num">{pbs.length}</span>
           <div className="lbl">Boss PBs held</div>
         </div>
-        <div className="pbt-stat best-boss">
-          <span className="num">{summary.bestRankedBoss ?? '-'}</span>
-          <div className="lbl">
-            Best-ranked boss{summary.bestRank ? ` · #${summary.bestRank}` : ''}
-          </div>
-        </div>
         <div className="pbt-stat">
           <span className="num">{summary.numberOneRecords}</span>
           <div className="lbl">#1 records</div>
+          {summary.numberOneBosses.length > 0 && (
+            <ul className="record-bosses" aria-label="Bosses with number one records">
+              {summary.numberOneBosses.map((boss) => <li key={boss}>{boss}</li>)}
+            </ul>
+          )}
         </div>
       </div>
 
