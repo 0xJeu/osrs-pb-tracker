@@ -14,12 +14,31 @@ function visiblePbs(player: PlayerPayload) {
     .sort((a, b) => a.rank - b.rank);
 }
 
+export function summarizePlayerRecords(pbs: PbEntry[], flat: PbEntry[], groups: PlayerRaidGroup[]) {
+  const records = [
+    ...flat.map((pb) => ({ name: titleCase(pb.boss), rank: pb.rank })),
+    ...groups.map((group) => ({ name: group.heading, rank: group.summary.rank })),
+  ];
+  const best = records.reduce<(typeof records)[number] | undefined>((current, record) => {
+    if (!current || record.rank < current.rank) return record;
+    if (record.rank === current.rank && record.name.localeCompare(current.name) < 0) return record;
+    return current;
+  }, undefined);
+
+  return {
+    bestRankedBoss: best?.name,
+    bestRank: best?.rank,
+    numberOneRecords: pbs.filter((pb) => pb.rank === 1).length,
+  };
+}
+
 export function PlayerView({ state, navigate }: { state: PlayerState; navigate: (route: Route) => void }) {
   // Hooks must run unconditionally on every render (Rules of Hooks), so this
   // is computed before the early returns below - it just resolves to empty
   // when there's no loaded player yet.
   const pbs = state.s === 'loaded' ? visiblePbs(state.player) : [];
   const { groups, flat } = useMemo(() => groupPlayerRaidPbs(pbs), [pbs]);
+  const summary = useMemo(() => summarizePlayerRecords(pbs, flat, groups), [pbs, flat, groups]);
   const [recordSort, setRecordSort] = useState<BossRecordSort>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const recordRows = useMemo(() => {
@@ -72,7 +91,6 @@ export function PlayerView({ state, navigate }: { state: PlayerState; navigate: 
   if (state.s === 'notFound') return <div className="pbt-panel-state">No synced profile found for "{state.name}".</div>;
   if (state.s === 'ambiguous') return <div className="pbt-panel-state">{state.count} matching profiles found for "{state.name}".</div>;
 
-  const bestRank = pbs.length > 0 ? Math.min(...pbs.map((pb) => pb.rank)) : undefined;
   const goToBossHighlighted = (boss: string) => navigate({ name: 'boss', boss, highlight: state.player.displayName });
 
   return (
@@ -91,12 +109,14 @@ export function PlayerView({ state, navigate }: { state: PlayerState; navigate: 
           <span className="num">{pbs.length}</span>
           <div className="lbl">Boss PBs held</div>
         </div>
-        <div className="pbt-stat">
-          <span className="num">{bestRank ? `#${bestRank}` : '-'}</span>
-          <div className="lbl">Best rank</div>
+        <div className="pbt-stat best-boss">
+          <span className="num">{summary.bestRankedBoss ?? '-'}</span>
+          <div className="lbl">
+            Best-ranked boss{summary.bestRank ? ` · #${summary.bestRank}` : ''}
+          </div>
         </div>
         <div className="pbt-stat">
-          <span className="num">{pbs.filter((pb) => pb.rank === 1).length}</span>
+          <span className="num">{summary.numberOneRecords}</span>
           <div className="lbl">#1 records</div>
         </div>
       </div>

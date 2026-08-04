@@ -127,6 +127,22 @@ describe('createApiClient', () => {
     expect(fetchFn).toHaveBeenCalledWith('/api/search/all?q=muspah');
   });
 
+  it('drops untracked bosses from universal-search suggestions', async () => {
+    const suggestions = [
+      { type: 'player' as const, value: 'Dag Fan' },
+      { type: 'boss' as const, value: 'dagannoth prime' },
+      { type: 'boss' as const, value: 'phantom muspah' },
+      { type: 'boss' as const, value: 'prifddinas agility course' },
+    ];
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(suggestions));
+    const api = createApiClient('', fetchFn);
+
+    expect(await api.searchAll('dag')).toEqual([
+      { type: 'player', value: 'Dag Fan' },
+      { type: 'boss', value: 'phantom muspah' },
+    ]);
+  });
+
   it('loads a paginated leaderboard page', async () => {
     const page = { rows: [], total: 80, limit: 50, offset: 50 };
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(page));
