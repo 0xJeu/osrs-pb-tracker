@@ -4,6 +4,7 @@ import { db } from '../db/client.js';
 import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import { bossSearchAliasTarget } from '../lib/bossAliases.js';
 import { cachePolicies, cacheTags, setSharedCache } from '../lib/cache.js';
+import { isTrackedBoss } from '../lib/trackedBosses.js';
 
 const search = new Hono();
 
@@ -54,14 +55,17 @@ search.get('/all', async (c) => {
         ? or(like(personalBests.boss, `%${q}%`), like(personalBests.boss, `%${bossAliasTarget}%`))
         : like(personalBests.boss, `%${q}%`))
       .orderBy(asc(personalBests.boss))
-      .limit(8),
+      // Over-fetch before applying the legacy-row allowlist below, while
+      // keeping broad one-character searches bounded.
+      .limit(64),
   ]);
 
   const playerValues = Array.from(new Set([...currentPlayers, ...historicPlayers].map((row) => row.value))).slice(0, 8);
+  const bossValues = bosses.filter(({ value }) => isTrackedBoss(value)).slice(0, 8);
   setSharedCache(c, cachePolicies.publicData, [cacheTags.search]);
   return c.json([
     ...playerValues.map((value) => ({ type: 'player' as const, value })),
-    ...bosses.map(({ value }) => ({ type: 'boss' as const, value })),
+    ...bossValues.map(({ value }) => ({ type: 'boss' as const, value })),
   ]);
 });
 

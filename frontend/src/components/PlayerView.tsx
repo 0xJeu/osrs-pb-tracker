@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { PbEntry, PlayerPayload } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { formatDate, formatTime, titleCase } from '../lib/format';
-import { groupPlayerRaidPbs } from '../lib/bossGroups';
+import { groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
 import type { Route } from '../hooks/useRoute';
@@ -14,12 +14,25 @@ function visiblePbs(player: PlayerPayload) {
     .sort((a, b) => a.rank - b.rank);
 }
 
+export function summarizePlayerRecords(pbs: PbEntry[]) {
+  const numberOnePbs = pbs.filter((pb) => pb.rank === 1);
+  const numberOneBosses = Array.from(new Set(numberOnePbs.map((pb) => titleCase(
+    isGroupedVariant(pb.boss) ? groupedBaseForKey(pb.boss) : pb.boss
+  )))).sort((a, b) => a.localeCompare(b));
+
+  return {
+    numberOneRecords: numberOnePbs.length,
+    numberOneBosses,
+  };
+}
+
 export function PlayerView({ state, navigate }: { state: PlayerState; navigate: (route: Route) => void }) {
   // Hooks must run unconditionally on every render (Rules of Hooks), so this
   // is computed before the early returns below - it just resolves to empty
   // when there's no loaded player yet.
   const pbs = state.s === 'loaded' ? visiblePbs(state.player) : [];
   const { groups, flat } = useMemo(() => groupPlayerRaidPbs(pbs), [pbs]);
+  const summary = useMemo(() => summarizePlayerRecords(pbs), [pbs]);
   const [recordSort, setRecordSort] = useState<BossRecordSort>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const recordRows = useMemo(() => {
@@ -72,7 +85,6 @@ export function PlayerView({ state, navigate }: { state: PlayerState; navigate: 
   if (state.s === 'notFound') return <div className="pbt-panel-state">No synced profile found for "{state.name}".</div>;
   if (state.s === 'ambiguous') return <div className="pbt-panel-state">{state.count} matching profiles found for "{state.name}".</div>;
 
-  const bestRank = pbs.length > 0 ? Math.min(...pbs.map((pb) => pb.rank)) : undefined;
   const goToBossHighlighted = (boss: string) => navigate({ name: 'boss', boss, highlight: state.player.displayName });
 
   return (
@@ -92,12 +104,13 @@ export function PlayerView({ state, navigate }: { state: PlayerState; navigate: 
           <div className="lbl">Boss PBs held</div>
         </div>
         <div className="pbt-stat">
-          <span className="num">{bestRank ? `#${bestRank}` : '-'}</span>
-          <div className="lbl">Best rank</div>
-        </div>
-        <div className="pbt-stat">
-          <span className="num">{pbs.filter((pb) => pb.rank === 1).length}</span>
+          <span className="num">{summary.numberOneRecords}</span>
           <div className="lbl">#1 records</div>
+          {summary.numberOneBosses.length > 0 && (
+            <ul className="record-bosses" aria-label="Bosses with number one records">
+              {summary.numberOneBosses.map((boss) => <li key={boss}>{boss}</li>)}
+            </ul>
+          )}
         </div>
       </div>
 

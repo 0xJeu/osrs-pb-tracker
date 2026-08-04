@@ -238,12 +238,13 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
         return [];
       }
       try {
-        return await getJson(
+        const suggestions = await getJson<SearchSuggestion[]>(
           `/api/search/all?q=${encodeURIComponent(canonicalQuery)}`,
           TTL.search,
           options.signal,
           'search'
         );
+        return suggestions.filter((suggestion) => suggestion.type !== 'boss' || isTrackedBoss(suggestion.value));
       } catch (error) {
         if (isAbortError(error, options.signal)) {
           throw error;
