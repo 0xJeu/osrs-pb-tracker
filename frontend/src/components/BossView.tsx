@@ -9,6 +9,75 @@ import type { Route } from '../hooks/useRoute';
 import { BossComboboxCollapsed } from './BossComboboxCollapsed';
 import { RaidVariantPicker } from './RaidVariantPicker';
 
+type PaginationItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+export function paginationItems(currentPage: number, totalPages: number): PaginationItem[] {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  if (currentPage <= 4) return [1, 2, 3, 4, 5, 'ellipsis-end', totalPages];
+  if (currentPage >= totalPages - 3) {
+    return [1, 'ellipsis-start', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+  return [1, 'ellipsis-start', currentPage - 1, currentPage, currentPage + 1, 'ellipsis-end', totalPages];
+}
+
+function LeaderboardPagination({
+  page,
+  isPageLoading,
+  position,
+  onPageChange,
+}: {
+  page: LeaderboardPage;
+  isPageLoading: boolean;
+  position: 'top' | 'bottom';
+  onPageChange: (pageNumber: number) => void;
+}) {
+  const totalPages = Math.ceil(page.total / page.limit);
+  const currentPage = Math.floor(page.offset / page.limit) + 1;
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <nav
+      className={`pbt-pagination pbt-pagination--${position}`}
+      aria-label={`Leaderboard pages (${position})`}
+    >
+      <button
+        type="button"
+        className="pbt-pagination-step"
+        disabled={isPageLoading || currentPage === 1}
+        onClick={() => onPageChange(currentPage - 1)}
+      >
+        Previous
+      </button>
+      <span className="pbt-pagination-pages">
+        {paginationItems(currentPage, totalPages).map((item) => typeof item === 'number' ? (
+          <button
+            type="button"
+            className={`pbt-pagination-number${item === currentPage ? ' active' : ''}`}
+            aria-label={`Page ${item}`}
+            aria-current={item === currentPage ? 'page' : undefined}
+            disabled={isPageLoading}
+            key={item}
+            onClick={() => onPageChange(item)}
+          >
+            {item}
+          </button>
+        ) : (
+          <span className="pbt-pagination-ellipsis" aria-hidden="true" key={item}>…</span>
+        ))}
+      </span>
+      <button
+        type="button"
+        className="pbt-pagination-step"
+        disabled={isPageLoading || currentPage === totalPages}
+        onClick={() => onPageChange(currentPage + 1)}
+      >
+        Next
+      </button>
+    </nav>
+  );
+}
+
 export function BossView({
   titleParts,
   bosses,
@@ -17,6 +86,7 @@ export function BossView({
   goToBoss,
   navigate,
   leaderboard,
+  isPageLoading,
   setLeaderboardOffset,
   rows,
   lookupPlayer,
@@ -28,6 +98,7 @@ export function BossView({
   goToBoss: (boss: string) => void;
   navigate: (route: Route) => void;
   leaderboard: LoadState<LeaderboardPage>;
+  isPageLoading: boolean;
   setLeaderboardOffset: (offset: number) => void;
   rows: LeaderboardRow[];
   lookupPlayer: (name: string) => void;
@@ -39,6 +110,7 @@ export function BossView({
   const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
   const highlightLower = highlight?.toLowerCase();
   const highlightRowRef = useRef<HTMLButtonElement | null>(null);
+  const leaderboardTopRef = useRef<HTMLDivElement | null>(null);
   const sortedRows = useMemo(() => {
     const rankedRows = rows.map((row, index) => ({ row, rank: (page?.offset ?? 0) + index + 1 }));
     const direction = leaderboardDirection === 'asc' ? 1 : -1;
@@ -77,6 +149,18 @@ export function BossView({
       highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [highlight, rows]);
+
+  const changePage = (offset: number) => {
+    setLeaderboardOffset(offset);
+    window.requestAnimationFrame(() => {
+      leaderboardTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const goToPage = (pageNumber: number) => {
+    if (!page) return;
+    changePage((pageNumber - 1) * page.limit);
+  };
 
   return (
     <div className="pbt-section" style={{ paddingTop: 40 }}>
@@ -117,11 +201,24 @@ export function BossView({
         />
       )}
 
-      {leaderboard.s === 'loading' && <div className="pbt-panel-state">Loading leaderboard...</div>}
-      {leaderboard.s === 'error' && <div className="pbt-panel-state">Leaderboard unavailable.</div>}
-      {isLoaded(leaderboard) && rows.length === 0 && <div className="pbt-panel-state">No synced PBs for this boss yet.</div>}
-      {rows.length > 0 && (
-        <div className="pbt-rows pbt-leaderboard-rows">
+      <div
+        ref={leaderboardTopRef}
+        className={`pbt-leaderboard-content${isPageLoading && isLoaded(leaderboard) ? ' is-loading' : ''}`}
+        aria-busy={isPageLoading}
+      >
+        {leaderboard.s === 'loading' && <div className="pbt-panel-state">Loading leaderboard...</div>}
+        {leaderboard.s === 'error' && <div className="pbt-panel-state">Leaderboard unavailable.</div>}
+        {isLoaded(leaderboard) && rows.length === 0 && <div className="pbt-panel-state">No synced PBs for this boss yet.</div>}
+        {page && (
+          <LeaderboardPagination
+            page={page}
+            isPageLoading={isPageLoading}
+            position="top"
+            onPageChange={goToPage}
+          />
+        )}
+        {rows.length > 0 && (
+          <div className="pbt-rows pbt-leaderboard-rows">
           <div className="pbt-thead">
             <span>{leaderboardSortLabel('rank', 'Rank')}</span>
             <span>{leaderboardSortLabel('name', 'Player')}</span>
@@ -157,29 +254,17 @@ export function BossView({
               </button>
             );
           })}
-        </div>
-      )}
-      {page && page.total > page.limit && (
-        <nav className="pbt-pagination" aria-label="Leaderboard pages">
-          <button
-            type="button"
-            disabled={page.offset === 0}
-            onClick={() => setLeaderboardOffset(Math.max(0, page.offset - page.limit))}
-          >
-            Previous
-          </button>
-          <span>
-            {page.offset + 1}–{Math.min(page.offset + page.rows.length, page.total)} of {page.total}
-          </span>
-          <button
-            type="button"
-            disabled={page.offset + page.limit >= page.total}
-            onClick={() => setLeaderboardOffset(page.offset + page.limit)}
-          >
-            Next
-          </button>
-        </nav>
-      )}
+          </div>
+        )}
+        {page && (
+          <LeaderboardPagination
+            page={page}
+            isPageLoading={isPageLoading}
+            position="bottom"
+            onPageChange={goToPage}
+          />
+        )}
+      </div>
     </div>
   );
 }
