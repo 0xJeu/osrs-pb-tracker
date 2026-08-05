@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { selectDisplayLeaderboard, useBossLeaderboard } from '../src/hooks/useBossLeaderboard';
 import { api } from '../src/lib/api';
 import type { Route } from '../src/hooks/useRoute';
@@ -86,5 +86,52 @@ describe('useBossLeaderboard', () => {
 
     await waitFor(() => expect(result.current.rows[0]?.displayName).toBe('ZulrahPlayer'));
     expect(result.current.selectedBoss).toBe('zulrah');
+  });
+
+  it('uses a player highlight only to select the initial page, then honors pagination offsets', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      requests.push(url);
+      const parsed = new URL(url, 'https://example.test');
+      const offset = Number(parsed.searchParams.get('offset'));
+      const hasHighlight = parsed.searchParams.has('highlight');
+      const responseOffset = hasHighlight ? 50 : offset;
+      return Promise.resolve(jsonResponse({
+        rows: [{
+          displayName: responseOffset === 50 ? 'HighlightedPlayer' : `Player${responseOffset + 1}`,
+          timeSeconds: 10,
+          updatedAt: '2026-07-26T00:00:00.000Z',
+        }],
+        total: 150,
+        limit: 50,
+        offset: responseOffset,
+      }));
+    }));
+
+    const bosses = { s: 'loaded' as const, data: ['zulrah'] };
+    const { result } = renderHook(() => useBossLeaderboard(
+      { name: 'boss', boss: 'zulrah', highlight: 'HighlightedPlayer' },
+      bosses
+    ));
+
+    await waitFor(() => expect(result.current.leaderboard.s).toBe('loaded'));
+    expect(requests.at(-1)).toContain('offset=0&highlight=highlightedplayer');
+    expect(result.current.leaderboard.s === 'loaded' && result.current.leaderboard.data.offset).toBe(50);
+
+    act(() => result.current.setLeaderboardOffset(100));
+
+    await waitFor(() => {
+      expect(requests.at(-1)).toContain('offset=100');
+      expect(requests.at(-1)).not.toContain('highlight=');
+      expect(result.current.leaderboard.s === 'loaded' && result.current.leaderboard.data.offset).toBe(100);
+    });
+
+    act(() => result.current.setLeaderboardOffset(0));
+
+    await waitFor(() => {
+      expect(requests.at(-1)).toContain('offset=0');
+      expect(requests.at(-1)).not.toContain('highlight=');
+      expect(result.current.leaderboard.s === 'loaded' && result.current.leaderboard.data.offset).toBe(0);
+    });
   });
 });
