@@ -77,20 +77,6 @@ public class PbTrackerPlugin extends Plugin
 	private static final String SYNC_STATUS_KEY = "syncStatus";
 	private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-	// Doom of Mokhaiotl's deepest delve record isn't a fight-duration PB -
-	// there's no "Personal best:" chat message for it like every other boss
-	// here. It's an integer depth level shown only on the boss's physical
-	// in-game scoreboard (see "Scoreboard (Doom of Mokhaiotl)" on the OSRS
-	// Wiki), read when the player interacts with it. This regex is best-effort
-	// against the scoreboard widget's rendered text and hasn't been verified
-	// against every possible page state - if the wiki's wording changes or a
-	// world-record column sits ahead of the player's own value in widget
-	// order, this will need adjusting.
-	private static final Pattern DOM_DEEPEST_DELVE_PATTERN = Pattern.compile(
-		"deepest delve[^0-9]*([0-9][0-9,]*)", Pattern.CASE_INSENSITIVE
-	);
-	private static final String DOM_DEEPEST_DELVE_KEY = "doom of mokhaiotl deepest delve";
-
 	// Matches any "Fastest <descriptor>: <value>" line on the Adventure Log
 	// Counters page, e.g. "Fastest kill: 3:34", "Fastest run: -",
 	// "Fastest Room time - (Team size: 3 player): 18:34". The descriptor is
@@ -139,7 +125,6 @@ public class PbTrackerPlugin extends Plugin
 	private String accountHash;
 	private String installSecret;
 	private boolean journalScrollLoaded;
-	private boolean domScoreboardLoaded;
 
 	// Adventure Log headings (lowercased) we've successfully parsed a record
 	// for this session - lets us tell whether a KNOWN_DUPLICATE_RAW_KEYS boss
@@ -303,24 +288,11 @@ public class PbTrackerPlugin extends Plugin
 			// isn't populated until the following game tick.
 			journalScrollLoaded = true;
 		}
-		else if (event.getGroupId() == InterfaceID.DOM_SCOREBOARD)
-		{
-			// Doom of Mokhaiotl's scoreboard just opened (the "Read" /
-			// "General-stats" option) - same one-tick-late population as the
-			// Adventure Log above.
-			domScoreboardLoaded = true;
-		}
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
-		if (domScoreboardLoaded)
-		{
-			domScoreboardLoaded = false;
-			readDomScoreboard();
-		}
-
 		if (!journalScrollLoaded)
 		{
 			return;
@@ -411,77 +383,6 @@ public class PbTrackerPlugin extends Plugin
 		{
 			log.debug("Parsed {} PB(s) from Adventure Log Counters page", pbs.size());
 			syncPbs(pbs);
-		}
-	}
-
-	/**
-	 * Reads the deepest delve record off the just-opened Doom of Mokhaiotl
-	 * scoreboard widget. Best-effort: collects every text child under the
-	 * interface and takes the first number that follows a "Deepest delve"
-	 * label, since the exact widget layout (and whether a world-record value
-	 * sits before the player's own) hasn't been verified against the live
-	 * client. Silently does nothing if the label/value pair isn't found -
-	 * safer than guessing wrong on a record that, once synced, can only be
-	 * overwritten by an even higher value.
-	 */
-	private void readDomScoreboard()
-	{
-		Widget root = client.getWidget(InterfaceID.DOM_SCOREBOARD, 0);
-		if (root == null)
-		{
-			return;
-		}
-
-		StringBuilder combined = new StringBuilder();
-		collectWidgetText(root, combined);
-
-		Matcher matcher = DOM_DEEPEST_DELVE_PATTERN.matcher(combined.toString());
-		if (!matcher.find())
-		{
-			return;
-		}
-
-		try
-		{
-			double delve = Double.parseDouble(matcher.group(1).replace(",", ""));
-			Map<String, Double> single = new HashMap<>();
-			single.put(DOM_DEEPEST_DELVE_KEY, delve);
-			syncPbs(single);
-		}
-		catch (NumberFormatException ex)
-		{
-			log.debug("Ignoring unparsable deepest delve value: {}", matcher.group(1));
-		}
-	}
-
-	private static void collectWidgetText(Widget widget, StringBuilder out)
-	{
-		if (widget == null)
-		{
-			return;
-		}
-
-		String text = widget.getText();
-		if (text != null && !text.isEmpty())
-		{
-			out.append(Text.removeTags(text)).append('\n');
-		}
-
-		for (Widget[] children : new Widget[][] {
-			widget.getStaticChildren(), widget.getDynamicChildren(), widget.getNestedChildren(), widget.getChildren()
-		})
-		{
-			if (children == null)
-			{
-				continue;
-			}
-			for (Widget child : children)
-			{
-				if (child != widget)
-				{
-					collectWidgetText(child, out);
-				}
-			}
 		}
 	}
 
