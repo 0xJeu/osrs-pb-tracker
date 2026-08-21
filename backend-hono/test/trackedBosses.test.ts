@@ -69,6 +69,14 @@ describe('isReasonablePersonalBestTime', () => {
     expect(isReasonablePersonalBestTime('zulrah', Number.NaN)).toBe(false);
   });
 
+  it('rejects impossible full Theatre of Blood completion times', () => {
+    expect(isReasonablePersonalBestTime('theatre of blood', 45)).toBe(false);
+    expect(isReasonablePersonalBestTime('Theatre of Blood', 73)).toBe(false);
+    expect(isReasonablePersonalBestTime('theatre of blood', 299.9)).toBe(false);
+    expect(isReasonablePersonalBestTime('theatre of blood', 300)).toBe(true);
+    expect(isReasonablePersonalBestTime('theatre of blood', 682.8)).toBe(true);
+  });
+
   it('caps the deepest delve record at a generous but bounded ceiling', () => {
     expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 1)).toBe(true);
     expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 260)).toBe(true);

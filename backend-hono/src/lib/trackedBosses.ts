@@ -92,9 +92,18 @@ export function isHigherIsBetterBoss(boss: string): boolean {
  * Inferno has 69 waves, so a full completion under one minute cannot be the
  * official run time. A historical 12-second value polluted the leaderboard
  * and could never be displaced because PB updates only accept faster times.
+ *
+ * Theatre of Blood has six fixed encounters (Maiden, Bloat, Nylocas, Sotetseg,
+ * Xarpus, Verzik), each with mechanics that take multiple minutes even for a
+ * flawless team - the fastest confirmed team times are in the 11-12 minute
+ * range. Two historical values (45s and 73s) polluted this leaderboard's top
+ * ranks and, same as Inferno, could never be displaced by a real time. 300s
+ * (5 minutes) is well below any plausible legitimate run, not a competitive
+ * threshold.
  */
 const MIN_REASONABLE_SECONDS_BY_BOSS = new Map<string, number>([
   ['inferno', 60],
+  ['theatre of blood', 300],
 ]);
 
 // Deepest delve has no natural floor (a higher value is a better record), but
