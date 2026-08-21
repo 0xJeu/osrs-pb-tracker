@@ -243,8 +243,8 @@ export const syncAttempts = pgTable(
 // Deliberately minimal - just enough to triage. No IP/user-agent/account
 // linkage is stored, both to keep row size small (site is in beta, feedback
 // volume is unpredictable) and to avoid collecting more than we need from
-// anonymous submitters. Read directly from the database when it's time to
-// review (no admin API endpoint exposes this table).
+// anonymous submitters. Review through the authenticated PB Tracker admin
+// feedback endpoint; no public endpoint exposes this table.
 export const feedback = pgTable(
   'feedback',
   {
