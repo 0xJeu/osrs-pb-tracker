@@ -114,6 +114,11 @@ describe('categorize', () => {
     expect(categorize('vardorvis (awakened)')).toBe('Bosses');
   });
 
+  it('buckets Doom of Mokhaiotl and its deepest delve record as Bosses', () => {
+    expect(categorize('doom of mokhaiotl')).toBe('Bosses');
+    expect(categorize('doom of mokhaiotl deepest delve')).toBe('Bosses');
+  });
+
   it('falls back to Other for unrecognized keys instead of dropping them', () => {
     expect(categorize('some brand new boss')).toBe('Other');
   });

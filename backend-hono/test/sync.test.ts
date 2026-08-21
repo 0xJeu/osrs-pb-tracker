@@ -198,6 +198,34 @@ describe('POST /api/sync', () => {
     expect((await better.json()).updated).toBe(1);
   });
 
+  it('only overwrites the deepest delve record when the new value is higher', async () => {
+    const secret = 'a'.repeat(20);
+    const boss = 'Doom of Mokhaiotl Deepest Delve';
+    const first = await syncRequest({
+      accountHash: 'delve-acct',
+      displayName: 'Delver',
+      installSecret: secret,
+      pbs: { [boss]: 100 },
+    });
+    expect((await first.json()).updated).toBe(1);
+
+    const worse = await syncRequest({
+      accountHash: 'delve-acct',
+      displayName: 'Delver',
+      installSecret: secret,
+      pbs: { [boss]: 50 },
+    });
+    expect((await worse.json()).updated).toBe(0);
+
+    const better = await syncRequest({
+      accountHash: 'delve-acct',
+      displayName: 'Delver',
+      installSecret: secret,
+      pbs: { [boss]: 150 },
+    });
+    expect((await better.json()).updated).toBe(1);
+  });
+
   it('upserts a bulk PB payload as one set and only reports changed rows', async () => {
     const secret = 'a'.repeat(20);
     const initialPbs = {

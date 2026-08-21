@@ -65,6 +65,8 @@ const MINIGAMES = [
 // rather than disappearing. Entries are stored already normalized (no
 // leading "the "), since matchesCurated() compares against normalized keys.
 const KNOWN_BOSSES = [
+  'doom of mokhaiotl',
+  'doom of mokhaiotl deepest delve',
   'nex',
   'zulrah',
   'vorkath',

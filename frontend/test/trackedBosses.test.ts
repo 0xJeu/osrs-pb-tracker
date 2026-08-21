@@ -13,6 +13,11 @@ describe('isTrackedBoss', () => {
     expect(isTrackedBoss('tombs of amascut expert mode')).toBe(true);
   });
 
+  it('accepts Doom of Mokhaiotl and its deepest delve record', () => {
+    expect(isTrackedBoss('doom of mokhaiotl')).toBe(true);
+    expect(isTrackedBoss('doom of mokhaiotl deepest delve')).toBe(true);
+  });
+
   it('rejects bosses with no official Jagex personal best', () => {
     expect(isTrackedBoss('dagannoth prime')).toBe(false);
     expect(isTrackedBoss('dagannoth rex')).toBe(false);

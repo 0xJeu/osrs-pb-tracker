@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import type { LeaderboardRow } from '../lib/api';
-import { formatDate, formatTime, titleCase } from '../lib/format';
+import { formatDate, formatPbValue, titleCase } from '../lib/format';
 import { EmptyState, ErrorState, Loading } from './States';
 
 type State = { s: 'loading' } | { s: 'error' } | { s: 'loaded'; rows: LeaderboardRow[] };
@@ -66,7 +66,7 @@ export function Leaderboard({ boss, highlight }: { boss: string; highlight?: str
                 </td>
                 <td data-label="Player">{r.displayName}</td>
                 <td className="time" data-label="Personal Best">
-                  {formatTime(r.timeSeconds)}
+                  {formatPbValue(boss, r.timeSeconds)}
                 </td>
                 <td data-label="Recorded">{formatDate(r.updatedAt)}</td>
               </tr>

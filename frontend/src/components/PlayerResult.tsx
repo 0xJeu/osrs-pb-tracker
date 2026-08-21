@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import type { AmbiguousMatch, PbEntry, PlayerPayload } from '../lib/api';
-import { formatDate, formatTime, titleCase } from '../lib/format';
+import { formatDate, formatPbValue, formatTime, titleCase } from '../lib/format';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
 import { groupPlayerRaidPbs } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
@@ -176,7 +176,7 @@ export function PlayerResult({
                   {rankCell(pb.boss, row.label, pb.rank)}
                   {bossCell(pb.boss, row.label)}
                   <td data-label="Personal Best" className="time">
-                    {formatTime(pb.timeSeconds)}
+                    {formatPbValue(pb.boss, pb.timeSeconds)}
                   </td>
                   <td data-label="Recorded">{formatDate(pb.updatedAt)}</td>
                 </tr>

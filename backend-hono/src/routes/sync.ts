@@ -23,10 +23,24 @@ import {
   rememberSuccessfulSync,
 } from '../lib/syncReplay.js';
 import {
+  DEEPEST_DELVE_BOSS,
+  isHigherIsBetterBoss,
   isReasonablePersonalBestTime,
   isRedundantDuplicateKey,
   isTrackedBoss,
 } from '../lib/trackedBosses.js';
+
+// A conflicting row is only overwritten if the incoming value is an
+// improvement - lower for a normal (faster-is-better) boss, higher for
+// deepest delve. Written per-row (referencing excluded.boss) rather than
+// per-statement so a single batched upsert can mix both kinds of boss.
+// Inlines the one known higher-is-better boss rather than an ANY(array)
+// lookup since there's currently only one; generalize if a second is added.
+const PB_IMPROVEMENT_SQL = sql`(
+  excluded.boss = ${DEEPEST_DELVE_BOSS} AND excluded.time_seconds > personal_bests.time_seconds
+) OR (
+  excluded.boss <> ${DEEPEST_DELVE_BOSS} AND excluded.time_seconds < personal_bests.time_seconds
+)`;
 
 const sync = new Hono();
 
@@ -354,9 +368,10 @@ export async function commitExistingAuthorizedSync(values: {
        FROM authorized CROSS JOIN incoming
        ON CONFLICT (player_id, boss) DO UPDATE
          SET time_seconds = EXCLUDED.time_seconds, updated_at = EXCLUDED.updated_at
-         WHERE EXCLUDED.time_seconds < personal_bests.time_seconds
+         WHERE (EXCLUDED.boss = $4 AND EXCLUDED.time_seconds > personal_bests.time_seconds)
+            OR (EXCLUDED.boss <> $4 AND EXCLUDED.time_seconds < personal_bests.time_seconds)
        RETURNING boss, (xmax = 0) AS inserted`,
-      [values.playerId, values.secretHash, payload]
+      [values.playerId, values.secretHash, payload, DEEPEST_DELVE_BOSS]
     ),
   ]);
 
@@ -388,10 +403,15 @@ export function normalizePbEntries(entries: Array<[string, unknown]>) {
       continue;
     }
 
-    // Different raw keys can normalize to the same boss. Keep the fastest so
-    // one batched INSERT never attempts to affect the same conflict row twice.
+    // Different raw keys can normalize to the same boss. Keep the best value
+    // (lowest time, or highest for a higher-is-better boss like deepest
+    // delve) so one batched INSERT never attempts to affect the same
+    // conflict row twice.
     const pendingTime = pbsByBoss.get(boss);
-    if (pendingTime === undefined || timeSeconds < pendingTime) {
+    const isBetter =
+      pendingTime === undefined ||
+      (isHigherIsBetterBoss(boss) ? timeSeconds > pendingTime : timeSeconds < pendingTime);
+    if (isBetter) {
       pbsByBoss.set(boss, timeSeconds);
     }
   }
@@ -422,7 +442,7 @@ export async function upsertPbs(playerId: number, pbsByBoss: Map<string, number>
     .onConflictDoUpdate({
       target: [personalBests.playerId, personalBests.boss],
       set: { timeSeconds: sql`excluded.time_seconds`, updatedAt },
-      setWhere: sql`excluded.time_seconds < ${personalBests.timeSeconds}`,
+      setWhere: PB_IMPROVEMENT_SQL,
     })
     .returning({
       boss: personalBests.boss,

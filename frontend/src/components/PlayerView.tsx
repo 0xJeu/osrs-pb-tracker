@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { PbEntry, PlayerPayload } from '../lib/api';
 import { hideAmbiguousBaseEntries } from '../lib/dedupe';
-import { formatDate, formatTime, titleCase } from '../lib/format';
+import { formatDate, formatPbValue, formatTime, titleCase } from '../lib/format';
 import { groupedBaseForKey, groupPlayerRaidPbs, isGroupedVariant } from '../lib/bossGroups';
 import type { PlayerRaidGroup } from '../lib/bossGroups';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
@@ -144,7 +144,7 @@ function PbRow({ pb, onBossClick }: { pb: PbEntry; onBossClick: (boss: string) =
     <button type="button" className="pbt-row" onClick={() => onBossClick(pb.boss)}>
       <span className="rank">#{pb.rank}</span>
       <span className="name">{titleCase(pb.boss)}</span>
-      <span className="time">{formatTime(pb.timeSeconds)}</span>
+      <span className="time">{formatPbValue(pb.boss, pb.timeSeconds)}</span>
       <span className="when">{formatDate(pb.updatedAt)}</span>
     </button>
   );

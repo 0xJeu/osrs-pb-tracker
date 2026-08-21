@@ -24,6 +24,7 @@ const TRACKED_BOSS_PREFIXES = [
   'chambers of xeric',
   'corrupted gauntlet',
   'gauntlet',
+  'doom of mokhaiotl',
   'duke sucellus',
   'fortis colosseum',
   'sol heredit',
@@ -65,6 +66,23 @@ export function isTrackedBoss(boss: string): boolean {
 }
 
 /**
+ * Doom of Mokhaiotl's deepest delve record is a depth level read off the
+ * boss's in-game scoreboard (see Scoreboard (Doom of Mokhaiotl) on the OSRS
+ * Wiki), not a fight-duration PB - a bigger number is a better record, the
+ * opposite of every time-based boss here. The `personal_bests.time_seconds`
+ * column is reused to store it (no schema change) since it's just a numeric
+ * value column; every "faster is better" comparison in sync.ts, leaderboard.ts,
+ * and players.ts checks this set to flip direction for this one boss key.
+ */
+export const DEEPEST_DELVE_BOSS = 'doom of mokhaiotl deepest delve';
+
+const HIGHER_IS_BETTER_BOSSES = new Set([DEEPEST_DELVE_BOSS]);
+
+export function isHigherIsBetterBoss(boss: string): boolean {
+  return HIGHER_IS_BETTER_BOSSES.has(normalize(boss));
+}
+
+/**
  * Extremely conservative activity-specific floors for values that cannot
  * represent a full completion. These are not competitive-record thresholds:
  * they only reject physically impossible outliers while leaving ample room
@@ -79,12 +97,25 @@ const MIN_REASONABLE_SECONDS_BY_BOSS = new Map<string, number>([
   ['inferno', 60],
 ]);
 
+// Deepest delve has no natural floor (a higher value is a better record), but
+// an unbounded value could otherwise let a bogus reading corrupt the public
+// leaderboard forever, since a "faster/higher" resync can never overwrite it
+// downward. The global record was 260 as of August 2026; this cap leaves
+// generous headroom for future progress while still rejecting obvious
+// garbage (e.g. a misparsed widget value in the millions).
+const MAX_REASONABLE_VALUE_BY_BOSS = new Map<string, number>([[DEEPEST_DELVE_BOSS, 2000]]);
+
 export function isReasonablePersonalBestTime(boss: string, timeSeconds: number): boolean {
   if (!Number.isFinite(timeSeconds) || timeSeconds <= 0) {
     return false;
   }
-  const minimum = MIN_REASONABLE_SECONDS_BY_BOSS.get(normalize(boss));
-  return minimum === undefined || timeSeconds >= minimum;
+  const normalized = normalize(boss);
+  const minimum = MIN_REASONABLE_SECONDS_BY_BOSS.get(normalized);
+  if (minimum !== undefined && timeSeconds < minimum) {
+    return false;
+  }
+  const maximum = MAX_REASONABLE_VALUE_BY_BOSS.get(normalized);
+  return maximum === undefined || timeSeconds <= maximum;
 }
 
 /**
