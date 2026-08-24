@@ -97,6 +97,8 @@ describe('recovery admin', () => {
     expect(html).toContain('id="decision-panel"');
     expect(html).toContain('id="decision-reason"');
     expect(html).toContain('id="confirm-decision"');
+    expect(html).toContain('/api/admin/recovery/candidate-action');
+    expect(html).toContain('/api/admin/recovery/installation-action');
     expect(html).not.toContain("window.prompt('Reason for ' + verb + ' candidate '");
     expect(html).not.toContain(adminPassword);
   });
@@ -154,6 +156,16 @@ describe('recovery admin', () => {
 
     const missing = await app.request('/api/admin/recovery/candidates');
     const missingFeedback = await app.request('/api/admin/recovery/feedback');
+    const missingCandidateAction = await app.request('/api/admin/recovery/candidate-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidateId: 1, decision: 'promote', reason: 'Unauthorized test.' }),
+    });
+    const missingInstallationAction = await app.request('/api/admin/recovery/installation-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installationId: 1, decision: 'revoke', reason: 'Unauthorized test.' }),
+    });
     const { cookie } = await login(adminPassword, 'admin', '127.0.0.4');
     const tampered = await app.request('/api/admin/recovery/candidates', {
       headers: sessionHeaders(`${cookie}x`),
@@ -161,6 +173,8 @@ describe('recovery admin', () => {
 
     expect(missing.status).toBe(401);
     expect(missingFeedback.status).toBe(401);
+    expect(missingCandidateAction.status).toBe(401);
+    expect(missingInstallationAction.status).toBe(401);
     expect(tampered.status).toBe(401);
   });
 
@@ -349,6 +363,17 @@ describe('recovery admin', () => {
     });
 
     expect(response.status).toBe(400);
+    const unsupported = await app.request('/api/admin/recovery/candidate-action', {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({
+        candidateId: recoveryId,
+        decision: 'delete',
+        reason: 'Unsupported action test.',
+      }),
+    });
+    expect(unsupported.status).toBe(400);
+    expect(await unsupported.json()).toEqual({ error: 'unsupported candidate decision' });
     const [candidate] = await db.select().from(installRecoveryCandidates);
     expect(candidate.status).toBe('pending');
   });
@@ -356,10 +381,15 @@ describe('recovery admin', () => {
   it('promotes a pending candidate and exposes only the safe audit event', async () => {
     const recoveryId = await createCandidate();
     const { cookie } = await login();
-    const response = await app.request(`/api/admin/recovery/candidates/${recoveryId}/promote`, {
+    const response = await app.request('/api/admin/recovery/candidate-action', {
       method: 'POST',
       headers: sessionHeaders(cookie),
-      body: JSON.stringify({ actor: '0xSteph', reason: 'Verified local recovery test.' }),
+      body: JSON.stringify({
+        candidateId: recoveryId,
+        decision: 'promote',
+        actor: '0xSteph',
+        reason: 'Verified local recovery test.',
+      }),
     });
 
     expect(response.status).toBe(200);
@@ -508,25 +538,27 @@ describe('recovery admin', () => {
       .from(playerInstallCredentials)
       .where(eq(playerInstallCredentials.source, 'recovery_additional'));
 
-    const revoke = await app.request(
-      `/api/admin/recovery/candidates/installations/${candidateInstall.id}/revoke`,
-      {
-        method: 'POST',
-        headers: sessionHeaders(cookie),
-        body: JSON.stringify({ reason: 'Machine reported lost by operator.' }),
-      }
-    );
+    const revoke = await app.request('/api/admin/recovery/installation-action', {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({
+        installationId: candidateInstall.id,
+        decision: 'revoke',
+        reason: 'Machine reported lost by operator.',
+      }),
+    });
     expect(revoke.status).toBe(200);
     expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(409);
 
-    const reactivate = await app.request(
-      `/api/admin/recovery/candidates/installations/${candidateInstall.id}/reactivate`,
-      {
-        method: 'POST',
-        headers: sessionHeaders(cookie),
-        body: JSON.stringify({ reason: 'Machine was recovered and verified.' }),
-      }
-    );
+    const reactivate = await app.request('/api/admin/recovery/installation-action', {
+      method: 'POST',
+      headers: sessionHeaders(cookie),
+      body: JSON.stringify({
+        installationId: candidateInstall.id,
+        decision: 'reactivate',
+        reason: 'Machine was recovered and verified.',
+      }),
+    });
     expect(reactivate.status).toBe(200);
     expect((await syncRequest(candidateSecret, { Zulrah: 74 })).status).toBe(200);
     const audit = await db

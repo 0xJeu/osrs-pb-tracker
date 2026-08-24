@@ -56,6 +56,22 @@ interface DecisionBody {
   reason?: unknown;
 }
 
+interface CandidateActionBody extends DecisionBody {
+  candidateId?: unknown;
+  decision?: unknown;
+}
+
+interface InstallationActionBody extends DecisionBody {
+  installationId?: unknown;
+  decision?: unknown;
+}
+
+type CandidateDecision = 'promote' | 'replace' | 'reject' | 'resolve' | 'reopen';
+type InstallationDecision = 'revoke' | 'reactivate';
+
+const candidateDecisions: readonly CandidateDecision[] = ['promote', 'replace', 'reject', 'resolve', 'reopen'];
+const installationDecisions: readonly InstallationDecision[] = ['revoke', 'reactivate'];
+
 interface LoginBody {
   username?: unknown;
   password?: unknown;
@@ -78,6 +94,13 @@ function parseCandidateId(value: string | undefined) {
   if (!/^[1-9]\d*$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function parseActionId(value: unknown) {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    return parseCandidateId(String(value));
+  }
+  return parseCandidateId(typeof value === 'string' ? value : undefined);
 }
 
 function parseDecisionBody(body: DecisionBody | null) {
@@ -386,19 +409,18 @@ candidateApi.get('/', async (c) => {
   });
 });
 
-async function decide(c: Context, decision: 'promote' | 'replace' | 'reject' | 'resolve') {
-  const candidateId = parseCandidateId(c.req.param('id'));
-  if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
-
-  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
-  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
-
+async function applyCandidateDecision(
+  c: Context,
+  candidateId: number,
+  decision: CandidateDecision,
+  reason: string
+) {
   try {
     if (decision === 'promote' || decision === 'replace') {
       const result = await promoteInstallRecoveryCandidate(
         candidateId,
         RECOVERY_ADMIN_USERNAME,
-        parsed.reason,
+        reason,
         decision === 'replace' ? 'replace' : 'additional'
       );
       return c.json({
@@ -415,7 +437,7 @@ async function decide(c: Context, decision: 'promote' | 'replace' | 'reject' | '
       const result = await resolveInstallRecoveryContest(
         candidateId,
         RECOVERY_ADMIN_USERNAME,
-        parsed.reason
+        reason
       );
       return c.json({
         ok: true,
@@ -426,10 +448,19 @@ async function decide(c: Context, decision: 'promote' | 'replace' | 'reject' | '
       });
     }
 
+    if (decision === 'reopen') {
+      const result = await reopenRejectedInstallRecoveryCandidate(
+        candidateId,
+        RECOVERY_ADMIN_USERNAME,
+        reason
+      );
+      return c.json({ ok: true, decision, ...result });
+    }
+
     const result = await rejectInstallRecoveryCandidate(
       candidateId,
       RECOVERY_ADMIN_USERNAME,
-      parsed.reason
+      reason
     );
     return c.json({
       ok: true,
@@ -451,48 +482,40 @@ async function decide(c: Context, decision: 'promote' | 'replace' | 'reject' | '
   }
 }
 
+async function decide(c: Context, decision: CandidateDecision) {
+  const candidateId = parseCandidateId(c.req.param('id'));
+  if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
+
+  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+  return applyCandidateDecision(c, candidateId, decision, parsed.reason);
+}
+
 candidateApi.post('/:id/promote', (c) => decide(c, 'promote'));
 candidateApi.post('/:id/replace', (c) => decide(c, 'replace'));
 candidateApi.post('/:id/reject', (c) => decide(c, 'reject'));
 candidateApi.post('/:id/resolve', (c) => decide(c, 'resolve'));
-candidateApi.post('/:id/reopen', async (c) => {
-  const candidateId = parseCandidateId(c.req.param('id'));
-  if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
-  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
-  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
-  try {
-    const result = await reopenRejectedInstallRecoveryCandidate(
-      candidateId,
-      RECOVERY_ADMIN_USERNAME,
-      parsed.reason
-    );
-    return c.json({ ok: true, decision: 'reopen', ...result });
-  } catch (error) {
-    if (error instanceof RecoveryDecisionConflictError) {
-      return c.json({ error: error.message, code: 'RECOVERY_DECISION_CONFLICT' }, 409);
-    }
-    throw error;
-  }
-});
+candidateApi.post('/:id/reopen', (c) => decide(c, 'reopen'));
 
-async function decideInstallation(c: Context, decision: 'revoke' | 'reactivate') {
-  const credentialId = parseCandidateId(c.req.param('id'));
-  if (!credentialId) return c.json({ error: 'installation ID must be a positive integer' }, 400);
-  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
-  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+async function applyInstallationDecision(
+  c: Context,
+  credentialId: number,
+  decision: InstallationDecision,
+  reason: string
+) {
   try {
     if (decision === 'revoke') {
       const result = await revokePlayerInstallCredential(
         credentialId,
         RECOVERY_ADMIN_USERNAME,
-        parsed.reason
+        reason
       );
       return c.json({ ok: true, decision, ...result });
     }
     const result = await reactivatePlayerInstallCredential(
       credentialId,
       RECOVERY_ADMIN_USERNAME,
-      parsed.reason
+      reason
     );
     return c.json({ ok: true, decision, ...result });
   } catch (error) {
@@ -502,6 +525,38 @@ async function decideInstallation(c: Context, decision: 'revoke' | 'reactivate')
     throw error;
   }
 }
+
+async function decideInstallation(c: Context, decision: InstallationDecision) {
+  const credentialId = parseCandidateId(c.req.param('id'));
+  if (!credentialId) return c.json({ error: 'installation ID must be a positive integer' }, 400);
+  const parsed = parseDecisionBody((await c.req.json().catch(() => null)) as DecisionBody | null);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+  return applyInstallationDecision(c, credentialId, decision, parsed.reason);
+}
+
+adminRecovery.post('/candidate-action', requireRecoveryAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as CandidateActionBody | null;
+  const candidateId = parseActionId(body?.candidateId);
+  if (!candidateId) return c.json({ error: 'candidate ID must be a positive integer' }, 400);
+  if (!candidateDecisions.includes(body?.decision as CandidateDecision)) {
+    return c.json({ error: 'unsupported candidate decision' }, 400);
+  }
+  const parsed = parseDecisionBody(body);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+  return applyCandidateDecision(c, candidateId, body?.decision as CandidateDecision, parsed.reason);
+});
+
+adminRecovery.post('/installation-action', requireRecoveryAdmin, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as InstallationActionBody | null;
+  const credentialId = parseActionId(body?.installationId);
+  if (!credentialId) return c.json({ error: 'installation ID must be a positive integer' }, 400);
+  if (!installationDecisions.includes(body?.decision as InstallationDecision)) {
+    return c.json({ error: 'unsupported installation decision' }, 400);
+  }
+  const parsed = parseDecisionBody(body);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+  return applyInstallationDecision(c, credentialId, body?.decision as InstallationDecision, parsed.reason);
+});
 
 // Keep the original candidate-nested action paths compatible with the first
 // admin UI release while exposing installation management independently of

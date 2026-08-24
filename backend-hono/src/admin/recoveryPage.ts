@@ -410,9 +410,9 @@ export function recoveryAdminPage(nonce: string) {
       cancelDecisionButton.disabled = true;
       decisionMessage.textContent = 'Submitting decision…';
       try {
-        await request('/api/admin/recovery/candidates/' + candidate.id + '/' + decision, {
+        await request('/api/admin/recovery/candidate-action', {
           method: 'POST',
-          body: JSON.stringify({ reason: reason })
+          body: JSON.stringify({ candidateId: candidate.id, decision: decision, reason: reason })
         });
         const success = candidateDecisionSuccess(candidate, decision);
         cancelDecision();
@@ -431,9 +431,9 @@ export function recoveryAdminPage(nonce: string) {
       if (reason === null) return;
       if (reason.trim().length < 5) throw new Error('Decision reason must be at least 5 characters.');
       if (!window.confirm((decision === 'revoke' ? 'Revoke' : 'Reactivate') + ' installation ' + installation.id + '?')) return;
-      await request('/api/admin/recovery/installations/' + installation.id + '/' + decision, {
+      await request('/api/admin/recovery/installation-action', {
         method: 'POST',
-        body: JSON.stringify({ reason: reason.trim() })
+        body: JSON.stringify({ installationId: installation.id, decision: decision, reason: reason.trim() })
       });
       message.textContent = 'Installation ' + installation.id + ' was ' + (decision === 'revoke' ? 'revoked' : 'reactivated') + '.';
       await load();
