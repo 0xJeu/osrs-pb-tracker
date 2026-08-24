@@ -94,6 +94,10 @@ describe('recovery admin', () => {
     expect(html).toContain('role="tablist"');
     expect(html).toContain('Install recovery');
     expect(html).toContain('Feedback');
+    expect(html).toContain('id="decision-panel"');
+    expect(html).toContain('id="decision-reason"');
+    expect(html).toContain('id="confirm-decision"');
+    expect(html).not.toContain("window.prompt('Reason for ' + verb + ' candidate '");
     expect(html).not.toContain(adminPassword);
   });
 

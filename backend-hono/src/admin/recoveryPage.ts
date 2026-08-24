@@ -12,7 +12,7 @@ export function recoveryAdminPage(nonce: string) {
     h1 { margin-bottom: 6px; }
     .subtle { color: #9ba4b7; margin-top: 0; }
     .hidden { display: none !important; }
-    .login-card, .controls, article { background: #1a1e27; border: 1px solid #303746; border-radius: 12px; }
+    .login-card, .controls, .decision-panel, article { background: #1a1e27; border: 1px solid #303746; border-radius: 12px; }
     .login-card { width: min(420px, calc(100% - 34px)); margin: 48px auto; padding: 22px; }
     .login-card form { display: grid; gap: 14px; }
     .toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
@@ -24,14 +24,19 @@ export function recoveryAdminPage(nonce: string) {
     .section-head h2 { margin: 0 0 5px; }
     .controls { padding: 16px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; }
     label { display: grid; gap: 6px; color: #bac2d2; font-size: 13px; }
-    input, select, button { border: 1px solid #3c4659; border-radius: 8px; padding: 10px; font: inherit; }
-    input, select { color: #edf0f7; background: #11151d; }
+    input, select, textarea, button { border: 1px solid #3c4659; border-radius: 8px; padding: 10px; font: inherit; }
+    input, select, textarea { color: #edf0f7; background: #11151d; }
+    textarea { box-sizing: border-box; width: 100%; resize: vertical; }
     input[readonly] { color: #9ba4b7; }
     button { color: #fff; background: #315bb6; cursor: pointer; align-self: end; }
     button.secondary { background: #343b49; }
     button.danger { background: #8d3542; }
     button:disabled { cursor: not-allowed; opacity: .45; }
     .message { min-height: 24px; margin: 14px 2px; color: #f0c674; }
+    .decision-panel { margin: 14px 0; padding: 16px; border-color: #8a6c25; }
+    .decision-panel h2 { margin: 0 0 8px; font-size: 19px; }
+    .decision-warning { margin: 0 0 14px; color: #f0c674; line-height: 1.5; }
+    .decision-panel .actions { margin-top: 12px; }
     #candidates { display: grid; gap: 14px; }
     .installation-search { margin-top: 18px; grid-template-columns: 1fr auto; }
     #installation-results { display: grid; gap: 14px; margin-top: 14px; }
@@ -121,6 +126,16 @@ export function recoveryAdminPage(nonce: string) {
           <button id="refresh" type="button">Refresh</button>
         </section>
         <p id="message" class="message" role="status"></p>
+        <section id="decision-panel" class="decision-panel hidden" aria-labelledby="decision-title">
+          <h2 id="decision-title">Confirm recovery decision</h2>
+          <p id="decision-warning" class="decision-warning"></p>
+          <label>Decision reason<textarea id="decision-reason" rows="3" minlength="5" maxlength="500" placeholder="Required: explain why this decision is appropriate"></textarea></label>
+          <p id="decision-message" class="message" role="status"></p>
+          <div class="actions">
+            <button id="confirm-decision" type="button">Confirm decision</button>
+            <button id="cancel-decision" type="button" class="secondary">Cancel</button>
+          </div>
+        </section>
         <section id="candidates" aria-live="polite"></section>
         <section class="controls installation-search" aria-label="Installation lookup">
           <label>Exact display name or player ID<input id="installation-query" placeholder="Player name or numeric ID"></label>
@@ -158,6 +173,13 @@ export function recoveryAdminPage(nonce: string) {
     const candidateIdInput = document.querySelector('#candidate-id');
     const refreshButton = document.querySelector('#refresh');
     const message = document.querySelector('#message');
+    const decisionPanel = document.querySelector('#decision-panel');
+    const decisionTitle = document.querySelector('#decision-title');
+    const decisionWarning = document.querySelector('#decision-warning');
+    const decisionReasonInput = document.querySelector('#decision-reason');
+    const decisionMessage = document.querySelector('#decision-message');
+    const confirmDecisionButton = document.querySelector('#confirm-decision');
+    const cancelDecisionButton = document.querySelector('#cancel-decision');
     const candidatesRoot = document.querySelector('#candidates');
     const installationQueryInput = document.querySelector('#installation-query');
     const searchInstallationsButton = document.querySelector('#search-installations');
@@ -165,6 +187,7 @@ export function recoveryAdminPage(nonce: string) {
     const refreshFeedbackButton = document.querySelector('#refresh-feedback');
     const feedbackMessage = document.querySelector('#feedback-message');
     const feedbackResultsRoot = document.querySelector('#feedback-results');
+    let pendingDecision = null;
 
     function showLogin(error) {
       adminPanel.classList.add('hidden');
@@ -172,6 +195,7 @@ export function recoveryAdminPage(nonce: string) {
       candidatesRoot.replaceChildren();
       installationResultsRoot.replaceChildren();
       feedbackResultsRoot.replaceChildren();
+      cancelDecision();
       loginMessage.textContent = error || '';
       passwordInput.value = '';
       passwordInput.focus();
@@ -312,12 +336,8 @@ export function recoveryAdminPage(nonce: string) {
       return section;
     }
 
-    async function decide(candidate, decision) {
-      const verb = decision === 'resolve' ? 'resolving the contest for' : decision + 'ing';
-      const reason = window.prompt('Reason for ' + verb + ' candidate ' + candidate.id + ':');
-      if (reason === null) return;
-      if (reason.trim().length < 5) throw new Error('Decision reason must be at least 5 characters.');
-      const warning = decision === 'resolve'
+    function candidateDecisionWarning(candidate, decision) {
+      return decision === 'resolve'
         ? 'Resolve candidate ' + candidate.id + ' for ' + candidate.displayName + ' and reject every competing active candidate? This does not promote or change the current credential.'
         : decision === 'replace'
         ? 'REPLACE ALL authorized installations for ' + candidate.displayName + '? Existing machines will stop syncing. Use this only for a confirmed security recovery.'
@@ -326,18 +346,84 @@ export function recoveryAdminPage(nonce: string) {
         : decision === 'reopen'
         ? 'Reopen rejected candidate ' + candidate.id + '? This does not authorize it; the candidate returns to pending or contested review.'
         : decision + ' recovery candidate ' + candidate.id + ' for ' + candidate.displayName + '?';
-      if (!window.confirm(warning)) return;
+    }
 
-      await request('/api/admin/recovery/candidates/' + candidate.id + '/' + decision, {
-        method: 'POST',
-        body: JSON.stringify({ reason: reason.trim() })
-      });
-      message.textContent = decision === 'resolve'
+    function candidateDecisionLabel(decision) {
+      return decision === 'promote' ? 'Authorize additional install'
+        : decision === 'replace' ? 'Replace all installs'
+        : decision === 'reject' ? 'Reject candidate'
+        : decision === 'resolve' ? 'Resolve contest'
+        : 'Reopen candidate';
+    }
+
+    function cancelDecision() {
+      pendingDecision = null;
+      decisionReasonInput.value = '';
+      decisionMessage.textContent = '';
+      decisionPanel.classList.add('hidden');
+      confirmDecisionButton.disabled = false;
+      cancelDecisionButton.disabled = false;
+    }
+
+    function beginDecision(candidate, decision) {
+      pendingDecision = { candidate: candidate, decision: decision };
+      decisionTitle.textContent = candidateDecisionLabel(decision) + ' for ' + candidate.displayName;
+      decisionWarning.textContent = candidateDecisionWarning(candidate, decision);
+      decisionReasonInput.value = '';
+      decisionMessage.textContent = '';
+      confirmDecisionButton.textContent = candidateDecisionLabel(decision);
+      confirmDecisionButton.className = decision === 'replace' || decision === 'reject' ? 'danger' : '';
+      decisionPanel.classList.remove('hidden');
+      decisionReasonInput.focus();
+      decisionPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function candidateDecisionSuccess(candidate, decision) {
+      return decision === 'resolve'
         ? 'Candidate ' + candidate.id + ' contest was resolved. Review it again before authorization.'
         : decision === 'reopen'
         ? 'Candidate ' + candidate.id + ' was reopened for review.'
-        : 'Candidate ' + candidate.id + ' was ' + (decision === 'promote' ? 'promoted' : 'rejected') + '.';
-      await load();
+        : decision === 'replace'
+        ? 'Candidate ' + candidate.id + ' replaced all prior authorized installations.'
+        : decision === 'promote'
+        ? 'Candidate ' + candidate.id + ' was promoted. It moved to Status → Promoted.'
+        : 'Candidate ' + candidate.id + ' was rejected.';
+    }
+
+    async function submitDecision() {
+      if (!pendingDecision) return;
+      const candidate = pendingDecision.candidate;
+      const decision = pendingDecision.decision;
+      const reason = decisionReasonInput.value.trim();
+      if (reason.length < 5) {
+        decisionMessage.textContent = 'Decision reason must be at least 5 characters.';
+        decisionReasonInput.focus();
+        return;
+      }
+      if (reason.length > 500) {
+        decisionMessage.textContent = 'Decision reason must be 500 characters or fewer.';
+        decisionReasonInput.focus();
+        return;
+      }
+
+      confirmDecisionButton.disabled = true;
+      cancelDecisionButton.disabled = true;
+      decisionMessage.textContent = 'Submitting decision…';
+      try {
+        await request('/api/admin/recovery/candidates/' + candidate.id + '/' + decision, {
+          method: 'POST',
+          body: JSON.stringify({ reason: reason })
+        });
+        const success = candidateDecisionSuccess(candidate, decision);
+        cancelDecision();
+        await load();
+        message.textContent = success;
+      } catch (error) {
+        decisionMessage.textContent = error instanceof Error ? error.message : 'Unable to submit decision.';
+      } finally {
+        confirmDecisionButton.disabled = false;
+        cancelDecisionButton.disabled = false;
+      }
     }
 
     async function decideInstallation(installation, decision) {
@@ -418,23 +504,23 @@ export function recoveryAdminPage(nonce: string) {
       const promote = textElement('button', 'Authorize additional install');
       promote.type = 'button';
       promote.disabled = candidate.status !== 'pending';
-      promote.addEventListener('click', function () { decide(candidate, 'promote').catch(showError); });
+      promote.addEventListener('click', function () { beginDecision(candidate, 'promote'); });
       const replace = textElement('button', 'Replace all installs', 'danger');
       replace.type = 'button';
       replace.disabled = candidate.status !== 'pending';
-      replace.addEventListener('click', function () { decide(candidate, 'replace').catch(showError); });
+      replace.addEventListener('click', function () { beginDecision(candidate, 'replace'); });
       const reject = textElement('button', 'Reject', 'danger');
       reject.type = 'button';
       reject.disabled = candidate.status !== 'invalidation_pending' && candidate.status !== 'pending' && candidate.status !== 'invalidation_failed' && candidate.status !== 'contested';
-      reject.addEventListener('click', function () { decide(candidate, 'reject').catch(showError); });
+      reject.addEventListener('click', function () { beginDecision(candidate, 'reject'); });
       const resolve = textElement('button', 'Resolve contest', 'secondary');
       resolve.type = 'button';
       resolve.disabled = candidate.status !== 'contested';
-      resolve.addEventListener('click', function () { decide(candidate, 'resolve').catch(showError); });
+      resolve.addEventListener('click', function () { beginDecision(candidate, 'resolve'); });
       const reopen = textElement('button', 'Reopen candidate', 'secondary');
       reopen.type = 'button';
       reopen.disabled = candidate.status !== 'rejected' && candidate.status !== 'invalidation_pending' && candidate.status !== 'invalidation_failed';
-      reopen.addEventListener('click', function () { decide(candidate, 'reopen').catch(showError); });
+      reopen.addEventListener('click', function () { beginDecision(candidate, 'reopen'); });
       actions.append(promote, resolve, reject, reopen, replace);
 
       card.append(
@@ -520,6 +606,8 @@ export function recoveryAdminPage(nonce: string) {
       finally { showLogin('Signed out.'); }
     });
     refreshButton.addEventListener('click', function () { load().catch(showError); });
+    confirmDecisionButton.addEventListener('click', function () { submitDecision(); });
+    cancelDecisionButton.addEventListener('click', cancelDecision);
     refreshFeedbackButton.addEventListener('click', function () { loadFeedback().catch(function (error) { feedbackMessage.textContent = error instanceof Error ? error.message : 'Unexpected error.'; }); });
     recoveryTab.addEventListener('click', function () { activateTab('recovery', true).catch(showError); });
     feedbackTab.addEventListener('click', function () { activateTab('feedback', true).catch(function (error) { feedbackMessage.textContent = error instanceof Error ? error.message : 'Unexpected error.'; }); });
