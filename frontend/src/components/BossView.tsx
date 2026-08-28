@@ -1,7 +1,7 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import type { LeaderboardPage, LeaderboardRow } from '../lib/api';
 import { isLoaded, type LoadState } from '../lib/loadState';
-import { formatDate, formatPbValue, formatTime, isDeepestDelveBoss } from '../lib/format';
+import { formatDate, formatTime } from '../lib/format';
 import { bossBannerFit, bossBannerUrl } from '../lib/bossBanners';
 import { getRaidModes, groupedBaseForKey, isGroupedVariant } from '../lib/bossGroups';
 import type { BossRecordSort, SortDirection } from '../lib/sortTypes';
@@ -35,13 +35,7 @@ export function BossView({
   const [leaderboardSort, setLeaderboardSort] = useState<BossRecordSort>('rank');
   const [leaderboardDirection, setLeaderboardDirection] = useState<SortDirection>('asc');
   const page = isLoaded(leaderboard) ? leaderboard.data : undefined;
-  const higherIsBetter = isDeepestDelveBoss(selectedBoss);
-  const best =
-    rows.length > 0
-      ? higherIsBetter
-        ? Math.max(...rows.map((r) => r.timeSeconds))
-        : Math.min(...rows.map((r) => r.timeSeconds))
-      : undefined;
+  const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
   const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
   const highlightLower = highlight?.toLowerCase();
   const highlightRowRef = useRef<HTMLButtonElement | null>(null);
@@ -152,12 +146,10 @@ export function BossView({
                   {isHighlighted && <span className="pbt-tag">Here</span>}
                 </span>
                 <span className="time">
-                  {formatPbValue(selectedBoss, row.timeSeconds)}
-                  {page?.offset === 0 && best !== undefined && row.timeSeconds !== best && (
+                  {formatTime(row.timeSeconds)}
+                  {page?.offset === 0 && fastest !== undefined && row.timeSeconds !== fastest && (
                     <span style={{ opacity: 0.6, fontSize: 12, marginLeft: 8 }}>
-                      {higherIsBetter
-                        ? `${Math.round(row.timeSeconds - best)}`
-                        : `+${formatTime(row.timeSeconds - best)}`}
+                      +{formatTime(row.timeSeconds - fastest)}
                     </span>
                   )}
                 </span>

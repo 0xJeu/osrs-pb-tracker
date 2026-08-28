@@ -1,9 +1,9 @@
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, players } from '../db/schema.js';
 import { bossCacheTag, cachePolicies, setSharedCache } from '../lib/cache.js';
-import { isHigherIsBetterBoss, isTrackedBoss } from '../lib/trackedBosses.js';
+import { isTrackedBoss } from '../lib/trackedBosses.js';
 
 const leaderboard = new Hono();
 
@@ -27,7 +27,6 @@ leaderboard.get('/:boss', async (c) => {
     return c.json([]);
   }
 
-  const rankOrder = isHigherIsBetterBoss(boss) ? desc : asc;
   const orderedQuery = db
     .select({
       displayName: players.displayName,
@@ -37,7 +36,7 @@ leaderboard.get('/:boss', async (c) => {
     .from(personalBests)
     .innerJoin(players, eq(players.id, personalBests.playerId))
     .where(eq(personalBests.boss, boss))
-    .orderBy(rankOrder(personalBests.timeSeconds));
+    .orderBy(asc(personalBests.timeSeconds));
 
   if (paged) {
     const [totalRow] = await db

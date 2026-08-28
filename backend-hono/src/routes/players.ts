@@ -1,9 +1,8 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { db } from '../db/client.js';
 import { personalBests, playerNameHistory, players } from '../db/schema.js';
-import { DEEPEST_DELVE_BOSS } from '../lib/trackedBosses.js';
 import {
   cachePolicies,
   fitsExactProfileTags,
@@ -28,24 +27,13 @@ const publicPlayerColumns = {
 type PublicPlayer = Pick<typeof players.$inferSelect, 'id' | 'displayName' | 'updatedAt'>;
 
 // Rank on the boss's overall leaderboard: 1 + how many other players have a
-// strictly better time for the same boss - "better" means faster (lower) for
-// every boss except deepest delve, where a higher value is the record. Built
-// via the query builder (not a raw `sql` template referencing the alias
-// directly) so drizzle actually emits the `AS other_pbs` aliasing in the
-// generated SQL.
+// strictly faster time for the same boss. Built via the query builder (not a
+// raw `sql` template referencing the alias directly) so drizzle actually
+// emits the `AS other_pbs` aliasing in the generated SQL.
 const rankSubquery = db
   .select({ rank: sql<number>`count(*) + 1` })
   .from(otherPbs)
-  .where(
-    and(
-      eq(otherPbs.boss, personalBests.boss),
-      sql`(
-        ${otherPbs.boss} = ${DEEPEST_DELVE_BOSS} AND ${otherPbs.timeSeconds} > ${personalBests.timeSeconds}
-      ) OR (
-        ${otherPbs.boss} <> ${DEEPEST_DELVE_BOSS} AND ${otherPbs.timeSeconds} < ${personalBests.timeSeconds}
-      )`
-    )
-  );
+  .where(and(eq(otherPbs.boss, personalBests.boss), lt(otherPbs.timeSeconds, personalBests.timeSeconds)));
 
 async function playerWithPbs(player: PublicPlayer) {
   const pbs = await db

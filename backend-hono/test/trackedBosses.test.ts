@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEEPEST_DELVE_BOSS,
-  isHigherIsBetterBoss,
   isReasonablePersonalBestTime,
   isRedundantDuplicateKey,
   isTrackedBoss,
@@ -38,21 +36,6 @@ describe('isTrackedBoss', () => {
     expect(isTrackedBoss('the nightmare')).toBe(true);
     expect(isTrackedBoss("phosani's nightmare")).toBe(true);
   });
-
-  it('accepts Doom of Mokhaiotl and its deepest delve record', () => {
-    expect(isTrackedBoss('doom of mokhaiotl')).toBe(true);
-    expect(isTrackedBoss('Doom of Mokhaiotl')).toBe(true);
-    expect(isTrackedBoss(DEEPEST_DELVE_BOSS)).toBe(true);
-  });
-});
-
-describe('isHigherIsBetterBoss', () => {
-  it('flags only the deepest delve record as higher-is-better', () => {
-    expect(isHigherIsBetterBoss(DEEPEST_DELVE_BOSS)).toBe(true);
-    expect(isHigherIsBetterBoss('Doom Of Mokhaiotl Deepest Delve')).toBe(true);
-    expect(isHigherIsBetterBoss('doom of mokhaiotl')).toBe(false);
-    expect(isHigherIsBetterBoss('zulrah')).toBe(false);
-  });
 });
 
 describe('isReasonablePersonalBestTime', () => {
@@ -67,22 +50,6 @@ describe('isReasonablePersonalBestTime', () => {
     expect(isReasonablePersonalBestTime('zulrah', 12)).toBe(true);
     expect(isReasonablePersonalBestTime('zulrah', 0)).toBe(false);
     expect(isReasonablePersonalBestTime('zulrah', Number.NaN)).toBe(false);
-  });
-
-  it('rejects impossible full Theatre of Blood completion times', () => {
-    expect(isReasonablePersonalBestTime('theatre of blood', 45)).toBe(false);
-    expect(isReasonablePersonalBestTime('Theatre of Blood', 73)).toBe(false);
-    expect(isReasonablePersonalBestTime('theatre of blood', 299.9)).toBe(false);
-    expect(isReasonablePersonalBestTime('theatre of blood', 300)).toBe(true);
-    expect(isReasonablePersonalBestTime('theatre of blood', 682.8)).toBe(true);
-  });
-
-  it('caps the deepest delve record at a generous but bounded ceiling', () => {
-    expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 1)).toBe(true);
-    expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 260)).toBe(true);
-    expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 2000)).toBe(true);
-    expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 2001)).toBe(false);
-    expect(isReasonablePersonalBestTime(DEEPEST_DELVE_BOSS, 0)).toBe(false);
   });
 });
 

@@ -7,7 +7,6 @@ import {
   playerInstallCredentials,
 } from '../db/schema.js';
 import { invalidatePlayerSyncReplay } from './syncReplay.js';
-import { DEEPEST_DELVE_BOSS } from './trackedBosses.js';
 
 const MAX_CANDIDATES_PER_CREDENTIAL_EPOCH = 5;
 const RECOVERY_CANDIDATE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -191,20 +190,14 @@ export async function captureInstallRecoveryCandidate(values: {
            )::int AS equal_count,
            COUNT(*) FILTER (
              WHERE stored.boss IS NOT NULL
+               AND incoming.time_seconds < stored.time_seconds
                AND ABS(stored.time_seconds - incoming.time_seconds) >= 0.001
-               AND (
-                 (incoming.boss = $11 AND incoming.time_seconds > stored.time_seconds) OR
-                 (incoming.boss <> $11 AND incoming.time_seconds < stored.time_seconds)
-               )
            )::int AS improved_count,
            COUNT(*) FILTER (WHERE stored.boss IS NULL)::int AS new_count,
            COUNT(*) FILTER (
              WHERE stored.boss IS NOT NULL
+               AND incoming.time_seconds > stored.time_seconds
                AND ABS(stored.time_seconds - incoming.time_seconds) >= 0.001
-               AND (
-                 (incoming.boss = $11 AND incoming.time_seconds < stored.time_seconds) OR
-                 (incoming.boss <> $11 AND incoming.time_seconds > stored.time_seconds)
-               )
            )::int AS slower_count
          FROM incoming
          LEFT JOIN personal_bests AS stored
@@ -277,7 +270,6 @@ export async function captureInstallRecoveryCandidate(values: {
         values.pbsByBoss.size,
         now,
         MAX_CANDIDATES_PER_CREDENTIAL_EPOCH,
-        DEEPEST_DELVE_BOSS,
       ]
     ),
     txn(

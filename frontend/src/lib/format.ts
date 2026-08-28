@@ -16,19 +16,6 @@ export function formatTime(totalSeconds: number): string {
   return `${m}:${secStr}`;
 }
 
-// Doom of Mokhaiotl's deepest delve record is a depth level, not a duration
-// - it's read off the boss's in-game scoreboard, not a fight-timer PB. Keep
-// this in sync with backend-hono's HIGHER_IS_BETTER_BOSSES.
-export const DEEPEST_DELVE_BOSS = 'doom of mokhaiotl deepest delve';
-
-export function isDeepestDelveBoss(boss: string): boolean {
-  return boss.trim().toLowerCase() === DEEPEST_DELVE_BOSS;
-}
-
-export function formatPbValue(boss: string, value: number): string {
-  return isDeepestDelveBoss(boss) ? `Delve ${Math.round(value)}` : formatTime(value);
-}
-
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();

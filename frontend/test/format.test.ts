@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTime, formatDate, formatPbValue, isDeepestDelveBoss, titleCase } from '../src/lib/format';
+import { formatTime, formatDate, titleCase } from '../src/lib/format';
 
 describe('formatTime', () => {
   it('formats sub-minute times', () => {
@@ -30,20 +30,6 @@ describe('formatDate', () => {
 
   it('falls back to the raw value for unparseable input', () => {
     expect(formatDate('not-a-date')).toBe('not-a-date');
-  });
-});
-
-describe('formatPbValue', () => {
-  it('formats the deepest delve record as a depth level, not a duration', () => {
-    expect(isDeepestDelveBoss('doom of mokhaiotl deepest delve')).toBe(true);
-    expect(isDeepestDelveBoss('Doom Of Mokhaiotl Deepest Delve')).toBe(true);
-    expect(formatPbValue('doom of mokhaiotl deepest delve', 260)).toBe('Delve 260');
-  });
-
-  it('formats every other boss, including the base Doom of Mokhaiotl PB, as a time', () => {
-    expect(isDeepestDelveBoss('doom of mokhaiotl')).toBe(false);
-    expect(formatPbValue('doom of mokhaiotl', 340.4)).toBe(formatTime(340.4));
-    expect(formatPbValue('zulrah', 80)).toBe(formatTime(80));
   });
 });
 

@@ -17,7 +17,6 @@ const TRACKED_BOSS_PREFIXES = [
   'chambers of xeric',
   'corrupted gauntlet',
   'gauntlet',
-  'doom of mokhaiotl',
   'duke sucellus',
   'fortis colosseum',
   'sol heredit',

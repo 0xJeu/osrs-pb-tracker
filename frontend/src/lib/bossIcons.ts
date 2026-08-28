@@ -12,7 +12,6 @@
  * bundle) falls back to a text monogram in the caller.
  */
 const ALIASES: Record<string, string> = {
-  doom_of_mokhaiotl_deepest_delve: 'doom_of_mokhaiotl',
   'duke_sucellus_(awakened)': 'duke_sucellus',
   'leviathan_(awakened)': 'leviathan',
   'vardorvis_(awakened)': 'vardorvis',

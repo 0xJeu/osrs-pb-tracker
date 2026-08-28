@@ -29,7 +29,6 @@ const BOSS_ACCENTS: Record<string, string> = {
   whisperer: '#4a3f7a',
   vardorvis: '#7a1f1f',
   yama: '#c0392b',
-  'doom of mokhaiotl': '#8b5a2b',
   'alchemical hydra': '#4a7c59',
   'king black dragon': '#3fae5a',
   'corporeal beast': '#8e7cc3',
