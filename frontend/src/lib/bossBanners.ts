@@ -40,6 +40,7 @@ const BOSS_BANNERS: Record<string, string> = {
   dagannoth_rex: 'https://oldschool.runescape.wiki/images/Dagannoth_Rex.png',
   dagannoth_supreme: 'https://oldschool.runescape.wiki/images/Dagannoth_Supreme.png',
   deranged_archaeologist: 'https://oldschool.runescape.wiki/images/Deranged_archaeologist.png',
+  doom_of_mokhaiotl: 'https://oldschool.runescape.wiki/images/Doom_of_Mokhaiotl.png',
   duke_sucellus: 'https://oldschool.runescape.wiki/images/Duke_Sucellus.png',
   fragment_of_seren: 'https://oldschool.runescape.wiki/images/Fragment_of_Seren.png',
   galvek: 'https://oldschool.runescape.wiki/images/Galvek.png',

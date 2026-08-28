@@ -36,6 +36,19 @@ describe('isTrackedBoss', () => {
     expect(isTrackedBoss('the nightmare')).toBe(true);
     expect(isTrackedBoss("phosani's nightmare")).toBe(true);
   });
+
+  it('accepts timed Doom of Mokhaiotl delve keys', () => {
+    expect(isTrackedBoss('Doom of Mokhaiotl - Delve 1')).toBe(true);
+    expect(isTrackedBoss('doom of mokhaiotl - delve 7')).toBe(true);
+    expect(isTrackedBoss('doom of mokhaiotl - delve 8+')).toBe(true);
+  });
+
+  it('keeps unsupported Doom record shapes out of the timed-delves release', () => {
+    expect(isTrackedBoss('doom of mokhaiotl')).toBe(false);
+    expect(isTrackedBoss('doom of mokhaiotl deepest delve')).toBe(false);
+    expect(isTrackedBoss('doom of mokhaiotl - delve 9')).toBe(false);
+    expect(isTrackedBoss('doom of mokhaiotl nonsense')).toBe(false);
+  });
 });
 
 describe('isReasonablePersonalBestTime', () => {
@@ -50,6 +63,14 @@ describe('isReasonablePersonalBestTime', () => {
     expect(isReasonablePersonalBestTime('zulrah', 12)).toBe(true);
     expect(isReasonablePersonalBestTime('zulrah', 0)).toBe(false);
     expect(isReasonablePersonalBestTime('zulrah', Number.NaN)).toBe(false);
+  });
+
+  it('rejects impossible bare Theatre of Blood completion times without constraining variants', () => {
+    expect(isReasonablePersonalBestTime('theatre of blood', 45)).toBe(false);
+    expect(isReasonablePersonalBestTime('Theatre of Blood', 299.9)).toBe(false);
+    expect(isReasonablePersonalBestTime('theatre of blood', 300)).toBe(true);
+    expect(isReasonablePersonalBestTime('theatre of blood - fastest overall (3 player)', 73)).toBe(true);
+    expect(isReasonablePersonalBestTime('theatre of blood - fastest room (3 player)', 45)).toBe(true);
   });
 });
 

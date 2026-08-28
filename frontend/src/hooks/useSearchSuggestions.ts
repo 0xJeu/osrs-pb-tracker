@@ -11,7 +11,22 @@ export function compactAliasSuggestions(query: string, bosses: string[]): Search
   if (!alias) return undefined;
   const modes = getRaidModes(bosses, alias.base)
     .filter((mode) => !alias.modeLabel || mode.modeLabel === alias.modeLabel);
-  if (modes.length === 0) return undefined;
+  if (modes.length === 0) {
+    const normalizedTarget = alias.target.trim().toLowerCase();
+    const matches = bosses
+      .filter((boss) => {
+        const normalizedBoss = boss.trim().toLowerCase();
+        return normalizedBoss === normalizedTarget || normalizedBoss.startsWith(`${normalizedTarget} -`);
+      })
+      .sort((a, b) => {
+        const aExact = a.trim().toLowerCase() === normalizedTarget;
+        const bExact = b.trim().toLowerCase() === normalizedTarget;
+        return Number(bExact) - Number(aExact) || a.localeCompare(b);
+      });
+    return matches.length > 0
+      ? matches.map((boss) => ({ type: 'boss' as const, value: boss, label: titleCase(boss) }))
+      : undefined;
+  }
   const raidLabel = titleCase(alias.base);
   return modes.map((mode) => ({
     type: 'boss',

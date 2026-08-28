@@ -41,6 +41,9 @@ const BOSS_SEARCH_ALIASES: Record<string, BossSearchAlias> = {
   sire: { base: 'abyssal sire', target: 'abyssal sire' },
   thermy: { base: 'thermonuclear smoke devil', target: 'thermonuclear smoke devil' },
   gg: { base: 'grotesque guardians', target: 'grotesque guardians' },
+  mok: { base: 'doom of mokhaiotl', target: 'doom of mokhaiotl' },
+  mokhaiotl: { base: 'doom of mokhaiotl', target: 'doom of mokhaiotl' },
+  doom: { base: 'doom of mokhaiotl', target: 'doom of mokhaiotl' },
 };
 
 function normalizeAlias(value: string): string {

@@ -54,6 +54,8 @@ const TRACKED_BOSS_PREFIXES = [
   'tombs of amascut',
 ];
 
+const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-7]|8\+)$/;
+
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();
   return lower.startsWith('the ') ? lower.slice(4) : lower;
@@ -61,7 +63,8 @@ function normalize(boss: string): string {
 
 export function isTrackedBoss(boss: string): boolean {
   const normalized = normalize(boss);
-  return TRACKED_BOSS_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  return TIMED_DOOM_DELVE_PATTERN.test(normalized)
+    || TRACKED_BOSS_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
 /**
@@ -74,9 +77,16 @@ export function isTrackedBoss(boss: string): boolean {
  * Inferno has 69 waves, so a full completion under one minute cannot be the
  * official run time. A historical 12-second value polluted the leaderboard
  * and could never be displaced because PB updates only accept faster times.
+ *
+ * Theatre of Blood has six fixed encounters. Two historical values (45s and
+ * 73s) polluted the bare full-completion leaderboard and could never be
+ * displaced by a legitimate run. The 300-second floor applies only to the
+ * bare full-completion key; room and labelled variant records remain
+ * unconstrained because they represent different measurements.
  */
 const MIN_REASONABLE_SECONDS_BY_BOSS = new Map<string, number>([
   ['inferno', 60],
+  ['theatre of blood', 300],
 ]);
 
 export function isReasonablePersonalBestTime(boss: string, timeSeconds: number): boolean {

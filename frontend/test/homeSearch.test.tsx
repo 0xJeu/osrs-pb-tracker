@@ -9,7 +9,9 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
 
 function mockFetch() {
   return vi.fn().mockImplementation((url: string) => {
-    if (url.includes('/api/bosses')) return Promise.resolve(jsonResponse(['zulrah']));
+    if (url.includes('/api/bosses')) {
+      return Promise.resolve(jsonResponse(['doom of mokhaiotl - delve 1', 'doom of mokhaiotl - delve 8+', 'zulrah']));
+    }
     if (url.includes('/api/stats')) return Promise.resolve(jsonResponse({ trackedPlayers: 1, personalBestRecords: 1 }));
     if (url.includes('/api/recent-syncs')) return Promise.resolve(jsonResponse([]));
     if (url.includes('/api/leaderboard-overview')) return Promise.resolve(jsonResponse([]));
@@ -37,5 +39,16 @@ describe('home search box', () => {
     fireEvent.submit(form);
 
     await waitFor(() => expect(window.location.pathname).toBe('/player/Blitzen'));
+  });
+
+  it('submitting a flat boss alias navigates to its first available timed record', async () => {
+    render(<PbTrackerApp />);
+    const input = await screen.findByPlaceholderText('Search players or bosses');
+    fireEvent.change(input, { target: { value: 'doom' } });
+    fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() => {
+      expect(decodeURIComponent(window.location.pathname)).toBe('/boss/doom of mokhaiotl - delve 1');
+    });
   });
 });

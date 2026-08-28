@@ -18,4 +18,11 @@ describe('boss search aliases', () => {
     expect(matchesBossSearch('tombs of amascut - expert mode', 'toa')).toBe(true);
     expect(matchesBossSearch('zulrah', 'toa')).toBe(false);
   });
+
+  it('resolves Doom of Mokhaiotl aliases to the timed-record prefix', () => {
+    expect(bossSearchAliasTarget('doom')).toBe('doom of mokhaiotl');
+    expect(bossSearchAliasTarget('mok')).toBe('doom of mokhaiotl');
+    expect(bossSearchAliasTarget('mokhaiotl')).toBe('doom of mokhaiotl');
+    expect(matchesBossSearch('doom of mokhaiotl - delve 8+', 'doom')).toBe(true);
+  });
 });

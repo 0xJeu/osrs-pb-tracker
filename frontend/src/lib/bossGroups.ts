@@ -115,6 +115,8 @@ const KNOWN_BOSSES = [
   'yama',
 ];
 
+const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-7]|8\+)$/;
+
 // Entry < Normal < Hard/Challenge Mode/Expert, matching each raid's real
 // in-game difficulty progression (the "hardest tier" name differs per raid -
 // Hard for ToB, Challenge Mode for CoX, Expert for ToA - so they all share
@@ -210,6 +212,7 @@ export function categorize(bossKey: string): Category {
   if (tzhaarChallengeNumber(bossKey) !== undefined) return 'Minigames & Challenges';
   if (matchesCurated(bossKey, SLAYER_MONSTERS)) return 'Slayer Monsters';
   if (matchesCurated(bossKey, MINIGAMES)) return 'Minigames & Challenges';
+  if (TIMED_DOOM_DELVE_PATTERN.test(normalize(bossKey))) return 'Bosses';
   if (matchesCurated(bossKey, KNOWN_BOSSES)) return 'Bosses';
   // Same run-on-phrase issue as isRaid() above, but for The Nightmare's
   // bare/no-"the" sync format (e.g. "nightmare 6+ players" instead of "the
