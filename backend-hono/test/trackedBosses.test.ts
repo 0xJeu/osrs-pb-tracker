@@ -38,9 +38,9 @@ describe('isTrackedBoss', () => {
   });
 
   it('accepts timed Doom of Mokhaiotl delve keys', () => {
-    expect(isTrackedBoss('Doom of Mokhaiotl - Delve 1')).toBe(true);
-    expect(isTrackedBoss('doom of mokhaiotl - delve 7')).toBe(true);
-    expect(isTrackedBoss('doom of mokhaiotl - delve 8+')).toBe(true);
+    for (const delve of ['1', '2', '3', '4', '5', '6', '7', '8', '8+']) {
+      expect(isTrackedBoss(`Doom of Mokhaiotl - Delve ${delve}`)).toBe(true);
+    }
   });
 
   it('keeps unsupported Doom record shapes out of the timed-delves release', () => {

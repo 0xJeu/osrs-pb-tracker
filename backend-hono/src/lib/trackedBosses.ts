@@ -54,7 +54,7 @@ const TRACKED_BOSS_PREFIXES = [
   'tombs of amascut',
 ];
 
-const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-7]|8\+)$/;
+const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-8]|8\+)$/;
 
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();

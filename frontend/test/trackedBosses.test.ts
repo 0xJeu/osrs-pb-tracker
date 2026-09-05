@@ -15,6 +15,7 @@ describe('isTrackedBoss', () => {
 
   it('accepts timed Doom of Mokhaiotl delve keys', () => {
     expect(isTrackedBoss('doom of mokhaiotl - delve 1')).toBe(true);
+    expect(isTrackedBoss('Doom of Mokhaiotl - Delve 8')).toBe(true);
     expect(isTrackedBoss('Doom of Mokhaiotl - Delve 8+')).toBe(true);
   });
 

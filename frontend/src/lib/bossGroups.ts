@@ -115,7 +115,7 @@ const KNOWN_BOSSES = [
   'yama',
 ];
 
-const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-7]|8\+)$/;
+const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-8]|8\+)$/;
 
 // Entry < Normal < Hard/Challenge Mode/Expert, matching each raid's real
 // in-game difficulty progression (the "hardest tier" name differs per raid -

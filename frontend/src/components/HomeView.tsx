@@ -61,13 +61,16 @@ export function HomeView({
   const onPlayerSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const alias = bossSearchAlias(playerQuery);
-    const aliasSuggestions = alias && isLoaded(bosses) ? compactAliasSuggestions(playerQuery, bosses.data) : undefined;
-    const aliasBoss = aliasSuggestions?.[0]?.value;
+    if (alias) {
+      if (!isLoaded(bosses)) return;
+      const aliasBoss = compactAliasSuggestions(playerQuery, bosses.data)?.[0]?.value;
+      if (aliasBoss) goToBoss(aliasBoss);
+      return;
+    }
     const exactBoss = suggestions.find(
       (suggestion) => suggestion.type === 'boss' && normalize(suggestion.value) === normalize(playerQuery)
     );
-    if (aliasBoss) goToBoss(aliasBoss);
-    else if (exactBoss) goToBoss(exactBoss.value);
+    if (exactBoss) goToBoss(exactBoss.value);
     else submitLookup(playerQuery);
   };
 

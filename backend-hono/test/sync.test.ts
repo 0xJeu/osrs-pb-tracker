@@ -139,17 +139,19 @@ describe('POST /api/sync', () => {
       installSecret: 'a'.repeat(20),
       pbs: {
         'Doom of Mokhaiotl - Delve 1': 120.5,
+        'Doom of Mokhaiotl - Delve 8': 240,
         'Doom of Mokhaiotl - Delve 8+': 300,
         'Theatre of Blood': 45,
         'Theatre of Blood - Fastest Room (3 player)': 73,
       },
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, received: 4, updated: 3 });
+    expect(await res.json()).toMatchObject({ ok: true, received: 5, updated: 4 });
 
     const lookup = await app.request('/api/players/delver');
     expect((await lookup.json()).pbs).toEqual([
       { boss: 'doom of mokhaiotl - delve 1', timeSeconds: 120.5, updatedAt: expect.any(String), rank: 1 },
+      { boss: 'doom of mokhaiotl - delve 8', timeSeconds: 240, updatedAt: expect.any(String), rank: 1 },
       { boss: 'doom of mokhaiotl - delve 8+', timeSeconds: 300, updatedAt: expect.any(String), rank: 1 },
       { boss: 'theatre of blood - fastest room (3 player)', timeSeconds: 73, updatedAt: expect.any(String), rank: 1 },
     ]);

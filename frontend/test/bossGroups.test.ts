@@ -116,6 +116,7 @@ describe('categorize', () => {
 
   it('buckets timed Doom of Mokhaiotl delve records as Bosses', () => {
     expect(categorize('doom of mokhaiotl - delve 1')).toBe('Bosses');
+    expect(categorize('doom of mokhaiotl - delve 8')).toBe('Bosses');
     expect(categorize('doom of mokhaiotl - delve 8+')).toBe('Bosses');
     expect(categorize('doom of mokhaiotl')).toBe('Other');
     expect(categorize('doom of mokhaiotl deepest delve')).toBe('Other');

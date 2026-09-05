@@ -41,9 +41,13 @@ export function useSearchSuggestions(query: string, bosses: LoadState<string[]>)
   useEffect(() => {
     const trimmed = query.trim();
     if (trimmed.length < 2) { setSuggestions([]); return; }
-    const compactSuggestions = isLoaded(bosses) ? compactAliasSuggestions(trimmed, bosses.data) : undefined;
-    if (compactSuggestions) {
-      setSuggestions(compactSuggestions);
+    const alias = bossSearchAlias(trimmed);
+    if (alias) {
+      const compactSuggestions = isLoaded(bosses) ? compactAliasSuggestions(trimmed, bosses.data) : undefined;
+      // A recognized boss alias is reserved for boss navigation. Do not let
+      // universal player results appear while boss metadata is unavailable,
+      // or when this deployment does not yet expose a matching boss record.
+      setSuggestions(compactSuggestions ?? []);
       return;
     }
     let alive = true;
