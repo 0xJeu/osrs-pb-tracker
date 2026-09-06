@@ -13,6 +13,19 @@ describe('isTrackedBoss', () => {
     expect(isTrackedBoss('tombs of amascut expert mode')).toBe(true);
   });
 
+  it('accepts timed Doom of Mokhaiotl delve keys', () => {
+    expect(isTrackedBoss('doom of mokhaiotl - delve 1')).toBe(true);
+    expect(isTrackedBoss('Doom of Mokhaiotl - Delve 8')).toBe(true);
+    expect(isTrackedBoss('Doom of Mokhaiotl - Delve 8+')).toBe(true);
+  });
+
+  it('rejects unsupported Doom record shapes', () => {
+    expect(isTrackedBoss('doom of mokhaiotl')).toBe(false);
+    expect(isTrackedBoss('doom of mokhaiotl deepest delve')).toBe(false);
+    expect(isTrackedBoss('doom of mokhaiotl - delve 9')).toBe(false);
+    expect(isTrackedBoss('doom of mokhaiotl nonsense')).toBe(false);
+  });
+
   it('rejects bosses with no official Jagex personal best', () => {
     expect(isTrackedBoss('dagannoth prime')).toBe(false);
     expect(isTrackedBoss('dagannoth rex')).toBe(false);

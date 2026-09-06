@@ -47,6 +47,8 @@ const TRACKED_BOSS_PREFIXES = [
   'tombs of amascut',
 ];
 
+const TIMED_DOOM_DELVE_PATTERN = /^doom of mokhaiotl - delve (?:[1-8]|8\+)$/;
+
 function normalize(boss: string): string {
   const lower = boss.trim().toLowerCase();
   return lower.startsWith('the ') ? lower.slice(4) : lower;
@@ -54,5 +56,6 @@ function normalize(boss: string): string {
 
 export function isTrackedBoss(boss: string): boolean {
   const normalized = normalize(boss);
-  return TRACKED_BOSS_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  return TIMED_DOOM_DELVE_PATTERN.test(normalized)
+    || TRACKED_BOSS_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
