@@ -122,12 +122,11 @@ function compactAliasSuggestions(query: string, bosses: string[]): SearchSuggest
   }));
 }
 
-// Request a thumb ~2x the rendered box (32px sm / 64px lg boxes at 72% fit)
-// so icons stay crisp on retina displays without over-fetching.
-const PET_ICON_PIXEL_WIDTH: Record<'sm' | 'lg', number> = { sm: 64, lg: 128 };
-
+// One 128px thumb covers both sizes (32px sm / 64px lg boxes at 72% fit), still
+// 2x for retina on the larger one. Requesting a single canonical width keeps us
+// hitting one cached thumbnail on the wiki's side instead of two.
 function PetIcon({ boss, size = 'sm' }: { boss: string; size?: 'sm' | 'lg' }) {
-  const url = useBossPetIconUrl(boss, PET_ICON_PIXEL_WIDTH[size]);
+  const url = useBossPetIconUrl(boss);
   return (
     <span className={`pbt-pet ${size}`}>
       {url ? <img src={url} alt="" loading="lazy" /> : bossMonogram(boss)}
@@ -366,6 +365,16 @@ export function PhaseTwoOsrsPreview() {
       <div className="pbt-footer">
         <div className="pbt-footer-inner">
           <span>PB Tracker by Zenyte Labs — community boss personal-best leaderboards.</span>
+          <span className="pbt-footer-credit">
+            Boss and pet icons from the{' '}
+            <a href="https://oldschool.runescape.wiki/" target="_blank" rel="noreferrer">OSRS Wiki</a>
+            {' '}(CC BY-NC-SA 3.0). Game art © Jagex Ltd. Running something that talks to us, or
+            seeing traffic you'd like us to stop?{' '}
+            <a href="https://github.com/0xJeu/osrs-pb-tracker/issues" target="_blank" rel="noreferrer">
+              Open an issue
+            </a>
+            {' '}— a human reads them.
+          </span>
           {DONATE_URL && (
             <a className="pbt-donate" href={DONATE_URL} target="_blank" rel="noreferrer">Donate</a>
           )}
