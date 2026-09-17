@@ -50,9 +50,9 @@ export function bossMonogram(boss: string): string {
     .join('');
 }
 
-const resolver = createWikiImageResolver();
+const resolver = createWikiImageResolver('pet-icons');
 
 /** React hook: resolves a boss's pet icon to a real, cacheable thumb URL. */
-export function useBossPetIconUrl(boss: string, pixelWidth = 96): string | undefined {
-  return useWikiImageUrl(resolver, bossPetIconFile(boss), pixelWidth);
+export function useBossPetIconUrl(boss: string): string | undefined {
+  return useWikiImageUrl(resolver, bossPetIconFile(boss));
 }
