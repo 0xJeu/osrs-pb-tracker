@@ -28,6 +28,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pull PostgreSQL image
+        shell: bash
+        run: |
+          image="postgres:17"
+          max_attempts=3
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            if docker pull "$image"; then
+              exit 0
+            fi
+
+            if (( attempt == max_attempts )); then
+              echo "Failed to pull $image after $max_attempts attempts." >&2
+              exit 1
+            fi
+
+            delay_seconds=$((attempt * 5))
+            echo "Image pull attempt $attempt failed; retrying in $delay_seconds seconds."
+            sleep "$delay_seconds"
+          done
+
       - name: Refresh and verify standby
         env:
           PRIMARY_DATABASE_URL_UNPOOLED: ${{ secrets.PRIMARY_DATABASE_URL_UNPOOLED }}
@@ -39,7 +60,7 @@ jobs:
           STANDBY_DATABASE_EXPECTED_BRANCH_ID: ${{ vars.STANDBY_DATABASE_EXPECTED_BRANCH_ID }}
           STANDBY_DATABASE_EXPECTED_DATABASE_NAME: ${{ vars.STANDBY_DATABASE_EXPECTED_DATABASE_NAME }}
         run: >-
-          docker run --rm
+          docker run --rm --pull=never
           --volume "$GITHUB_WORKSPACE:/workspace:ro"
           --workdir /workspace
           --env PRIMARY_DATABASE_URL_UNPOOLED
