@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BossView } from '../src/components/BossView';
+import { PlayerView } from '../src/components/PlayerView';
 import { compactAliasSuggestions } from '../src/hooks/useSearchSuggestions';
 import { bossIconFile } from '../src/lib/bossIcons';
 
@@ -47,6 +48,21 @@ describe('Doom of Mokhaiotl boss page', () => {
     const { container } = renderBossView(['zulrah'], 'doom of mokhaiotl - delve 1');
     expect(pickerLabels(container)).toEqual(['Delve 1']);
     expect(screen.getByText('No synced PBs for this boss yet.')).toBeInTheDocument();
+  });
+});
+
+describe('Doom of Mokhaiotl player profile', () => {
+  it('shows the deepest delve and its time on the collapsed row', () => {
+    const pbs = [['1', 49], ['2', 55], ['3', 96], ['4', 113]].map(([tier, timeSeconds], i) => ({
+      boss: `doom of mokhaiotl - delve ${tier}`, timeSeconds: timeSeconds as number, updatedAt: '2026-09-23T00:00:00Z', rank: i + 1,
+    }));
+    const { container } = render(
+      <PlayerView state={{ s: 'loaded', player: { id: 1, displayName: '0xSteph', updatedAt: '2026-09-23T00:00:00Z', pbs } }} navigate={vi.fn()} />
+    );
+    const row = container.querySelector('.pbt-brow.raid') as HTMLElement;
+    expect(row).toHaveTextContent('Doom Of Mokhaiotl');
+    expect(row).toHaveTextContent('1:53(Delve 4)');
+    expect(row).toHaveTextContent('#4');
   });
 });
 

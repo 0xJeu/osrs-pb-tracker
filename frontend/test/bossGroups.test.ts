@@ -91,7 +91,31 @@ describe('Doom of Mokhaiotl delves', () => {
     ];
     const [group] = groupPlayerRaidPbs(pbs).groups;
     expect(group.variants.map((v) => v.label)).toEqual(['Delve 1', 'Delve 2', 'Delve 3', 'Delve 4']);
-    expect(group.summary).toMatchObject({ key: 'doom of mokhaiotl - delve 1', label: 'Delve 1', timeSeconds: 49 });
+    expect(group.summary).toMatchObject({ key: 'doom of mokhaiotl - delve 4', label: 'Delve 4', timeSeconds: 113 });
+  });
+
+  it('summarizes the collapsed row with the deepest delve, counting 8+ as deeper than 8', () => {
+    const pb = (tier: string, timeSeconds: number, rank = 1) => ({
+      boss: `doom of mokhaiotl - delve ${tier}`, timeSeconds, updatedAt: `2026-09-2${rank}T00:00:00Z`, rank,
+    });
+    const summaryOf = (pbs: ReturnType<typeof pb>[]) => groupPlayerRaidPbs(pbs).groups[0].summary;
+
+    expect(summaryOf([pb('8+', 30, 7), pb('8', 20, 3), pb('1', 10, 1)]))
+      .toEqual({ key: 'doom of mokhaiotl - delve 8+', label: 'Delve 8+', kind: 'Other', timeSeconds: 30, rank: 7, updatedAt: '2026-09-27T00:00:00Z' });
+    expect(summaryOf([pb('2', 55), pb('8', 20), pb('7', 10)]).label).toBe('Delve 8');
+    expect(summaryOf([pb('3', 96)]).label).toBe('Delve 3');
+  });
+
+  it('keeps the fastest-time summary for raids and The Nightmare', () => {
+    const pb = (boss: string, timeSeconds: number) => ({ boss, timeSeconds, updatedAt: '2026-09-22T00:00:00Z', rank: 1 });
+    const { groups } = groupPlayerRaidPbs([
+      pb('the nightmare - fastest overall (solo)', 600),
+      pb('the nightmare - fastest overall (6+ players)', 190),
+      pb('chambers of xeric - fastest overall (solo)', 1100),
+      pb('chambers of xeric - fastest overall (24+ players)', 1500),
+    ]);
+    expect(groups.find((g) => g.heading === 'The Nightmare')?.summary.label).toBe('6+');
+    expect(groups.find((g) => g.heading === 'Chambers Of Xeric')?.summary.label).toBe('Solo');
   });
 
   it('produces no Doom entry, and no errors, when no Doom records exist yet', () => {

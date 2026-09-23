@@ -475,7 +475,7 @@ const KIND_PREFERENCE: VariantKind[] = ['Overall', 'Room', 'Other', 'Legacy'];
 // numerically lower), otherwise the fastest variant of the next-preferred
 // kind present. Rank/Recorded always come from this same variant, so the
 // summary row's date never gets detached from the time it's paired with.
-function pickSummary(variants: PlayerRaidVariant[]): PlayerRaidVariant {
+function pickFastestSummary(variants: PlayerRaidVariant[]): PlayerRaidVariant {
   for (const kind of KIND_PREFERENCE) {
     const ofKind = variants.filter((v) => v.kind === kind);
     if (ofKind.length > 0) {
@@ -483,6 +483,32 @@ function pickSummary(variants: PlayerRaidVariant[]): PlayerRaidVariant {
     }
   }
   return variants[0];
+}
+
+// Deepest tier reached (highest teamSizeRank, so "Delve 8+" beats "Delve 8"),
+// with the fastest time breaking a tie between duplicate keys for one tier.
+function pickDeepestSummary(variants: (PlayerRaidVariant & { subLabel: string })[]): PlayerRaidVariant {
+  return variants.reduce((best, v) => {
+    const depth = teamSizeRank(v.subLabel) - teamSizeRank(best.subLabel);
+    return depth > 0 || (depth === 0 && v.timeSeconds < best.timeSeconds) ? v : best;
+  });
+}
+
+type SummaryRule = 'fastest' | 'deepest';
+
+// Which variant a grouped boss's collapsed row summarizes. Anything not
+// listed uses the fastest-time rule. Doom's delve tiers are separate
+// progress milestones rather than interchangeable team sizes, so its row
+// shows how deep the player has got instead of their quickest (shallowest)
+// tier.
+const SUMMARY_RULE_BY_BASE: Record<string, SummaryRule> = {
+  [DOOM_BASE]: 'deepest',
+};
+
+function pickSummary(base: string, variants: (PlayerRaidVariant & { subLabel: string })[]): PlayerRaidVariant {
+  const summary = SUMMARY_RULE_BY_BASE[base] === 'deepest' ? pickDeepestSummary(variants) : pickFastestSummary(variants);
+  const { subLabel: _subLabel, ...rest } = summary as PlayerRaidVariant & { subLabel: string };
+  return rest;
 }
 
 // Groups a player's own synced PBs (not just boss-key strings, since the
@@ -497,6 +523,7 @@ export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]
   // needed for sorting/kind classification - the friendly `label` (nickname
   // like "Trio") is derived from it but isn't itself sortable by team size.
   const byHeading = new Map<string, (PlayerRaidVariant & { subLabel: string })[]>();
+  const baseByHeading = new Map<string, string>();
   for (const pb of groupedPbs) {
     const variant = parseRaidVariant(pb.boss);
     const entry = {
@@ -510,10 +537,12 @@ export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]
     };
     if (!byHeading.has(variant.heading)) byHeading.set(variant.heading, []);
     byHeading.get(variant.heading)!.push(entry);
+    baseByHeading.set(variant.heading, variant.base);
   }
 
   const groups = Array.from(byHeading.entries())
     .map(([heading, variants]) => {
+      const summary = pickSummary(baseByHeading.get(heading)!, variants);
       const sorted = variants
         .sort((a, b) => teamSizeRank(a.subLabel) - teamSizeRank(b.subLabel) || variantRank(a.subLabel) - variantRank(b.subLabel))
         .map(({ subLabel: _subLabel, ...rest }) => rest);
@@ -526,7 +555,6 @@ export function groupPlayerRaidPbs(pbs: PlayerPb[]): { groups: PlayerRaidGroup[]
       // unique on their own (a lone bare "Overall" became "Overall -
       // Overall"; a Legacy "(Former)" label, already self-describing, got a
       // pointless "- Legacy" appended).
-      const summary = pickSummary(sorted);
       const labelCounts = new Map<string, number>();
       for (const v of sorted) labelCounts.set(v.label, (labelCounts.get(v.label) ?? 0) + 1);
       const labeled = sorted.map((v) => (labelCounts.get(v.label)! > 1 ? { ...v, label: `${v.label} - ${v.kind}` } : v));
