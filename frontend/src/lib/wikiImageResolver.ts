@@ -50,6 +50,9 @@ export interface WikiImageResolver {
 export function createWikiImageResolver(cacheKey: string): WikiImageResolver {
   const storageKey = `pbt:wiki-images:${cacheKey}:v1`;
   const resolvedCache = new Map<string, string | null>();
+  // When each URL was actually resolved against the wiki. Kept per entry so that
+  // writing one new resolution doesn't renew every other entry's TTL.
+  const resolvedAt = new Map<string, number>();
   const pendingFiles = new Set<string>();
   const subscribers = new Set<() => void>();
   let batchTimer: number | undefined;
@@ -64,6 +67,7 @@ export function createWikiImageResolver(cacheKey: string): WikiImageResolver {
       for (const [file, entry] of Object.entries(parsed)) {
         if (entry && typeof entry.url === 'string' && now - entry.ts < CACHE_TTL_MS) {
           resolvedCache.set(file, entry.url);
+          resolvedAt.set(file, entry.ts);
         }
       }
     }
@@ -75,6 +79,11 @@ export function createWikiImageResolver(cacheKey: string): WikiImageResolver {
    * Persists successful resolutions only. A null stays in memory so it isn't
    * re-requested this page load, but is not written: a transient wiki blip
    * shouldn't cost a visitor their icons for the next 30 days.
+   *
+   * Each entry keeps the time it was actually resolved. Stamping everything with
+   * `now` here would renew every old entry whenever any new icon resolved, so the
+   * TTL would never expire for a returning visitor - and a stale thumb URL (the
+   * wiki re-uploaded the file) would render as a broken image indefinitely.
    */
   function persist() {
     try {
@@ -82,7 +91,7 @@ export function createWikiImageResolver(cacheKey: string): WikiImageResolver {
       const now = Date.now();
       const out: Record<string, PersistedEntry> = {};
       for (const [file, url] of resolvedCache) {
-        if (typeof url === 'string') out[file] = { url, ts: now };
+        if (typeof url === 'string') out[file] = { url, ts: resolvedAt.get(file) ?? now };
       }
       window.localStorage.setItem(storageKey, JSON.stringify(out));
     } catch {
@@ -110,10 +119,13 @@ export function createWikiImageResolver(cacheKey: string): WikiImageResolver {
           title: string;
           imageinfo?: Array<{ thumburl?: string; url?: string }>;
         }>;
+        const resolvedNow = Date.now();
         for (const page of pages) {
           const file = page.title.replace(/^File:/, '');
           const info = page.imageinfo?.[0];
-          resolvedCache.set(file, info?.thumburl ?? info?.url ?? null);
+          const url = info?.thumburl ?? info?.url ?? null;
+          resolvedCache.set(file, url);
+          if (url) resolvedAt.set(file, resolvedNow);
         }
         for (const f of files) {
           if (!resolvedCache.has(f)) resolvedCache.set(f, null);
