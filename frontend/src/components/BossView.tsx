@@ -37,6 +37,16 @@ export function BossView({
   const page = isLoaded(leaderboard) ? leaderboard.data : undefined;
   const fastest = rows.length > 0 ? Math.min(...rows.map((r) => r.timeSeconds)) : undefined;
   const showRaidPicker = isLoaded(bosses) && isGroupedVariant(selectedBoss);
+  // The boss list only contains keys with synced records, so a grouped
+  // variant reached by URL before anyone has synced it would otherwise
+  // render an empty picker.
+  const pickerBosses = useMemo(() => {
+    if (!isLoaded(bosses)) return [];
+    const selectedLower = selectedBoss.trim().toLowerCase();
+    return bosses.data.some((boss) => boss.trim().toLowerCase() === selectedLower)
+      ? bosses.data
+      : [...bosses.data, selectedBoss];
+  }, [bosses, selectedBoss]);
   const highlightLower = highlight?.toLowerCase();
   const highlightRowRef = useRef<HTMLButtonElement | null>(null);
   const sortedRows = useMemo(() => {
@@ -111,7 +121,7 @@ export function BossView({
       {showRaidPicker && isLoaded(bosses) && (
         <RaidVariantPicker
           base={groupedBaseForKey(selectedBoss)}
-          bosses={bosses.data}
+          bosses={pickerBosses}
           selected={selectedBoss}
           onSelect={goToBoss}
         />
