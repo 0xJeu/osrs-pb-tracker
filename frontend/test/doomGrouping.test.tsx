@@ -1,7 +1,10 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { BossView } from '../src/components/BossView';
 import { compactAliasSuggestions } from '../src/hooks/useSearchSuggestions';
+import { bossIconFile } from '../src/lib/bossIcons';
 
 const PARTIAL_DOOM = [
   'doom of mokhaiotl - delve 3',
@@ -44,6 +47,14 @@ describe('Doom of Mokhaiotl boss page', () => {
     const { container } = renderBossView(['zulrah'], 'doom of mokhaiotl - delve 1');
     expect(pickerLabels(container)).toEqual(['Delve 1']);
     expect(screen.getByText('No synced PBs for this boss yet.')).toBeInTheDocument();
+  });
+});
+
+describe('Doom of Mokhaiotl icon', () => {
+  it('resolves the grouped entry and every delve tier to the bundled icon', () => {
+    const keys = ['doom of mokhaiotl', ...['1', '2', '3', '4', '5', '6', '7', '8', '8+'].map((t) => `Doom of Mokhaiotl - Delve ${t}`)];
+    for (const key of keys) expect(bossIconFile(key)).toBe('/boss-icons/doom_of_mokhaiotl.png');
+    expect(existsSync(resolve(__dirname, '../public/boss-icons/doom_of_mokhaiotl.png'))).toBe(true);
   });
 });
 

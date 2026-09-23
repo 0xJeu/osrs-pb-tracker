@@ -35,7 +35,7 @@ const AVAILABLE_ICONS = new Set([
   'cerberus', 'chambers_of_xeric', 'chaos_elemental', 'chaos_fanatic',
   'commander_zilyana', 'corporeal_beast', 'corrupted_gauntlet',
   'crazy_archaeologist', 'dagannoth_prime', 'dagannoth_rex',
-  'dagannoth_supreme', 'deranged_archaeologist', 'duke_sucellus',
+  'dagannoth_supreme', 'deranged_archaeologist', 'doom_of_mokhaiotl', 'duke_sucellus',
   'fortis_colosseum', 'fragment_of_seren', 'galvek', 'gauntlet',
   'general_graardor', 'giant_mole', 'grotesque_guardians',
   'guardians_of_the_rift', 'hallowed_sepulchre', 'hespori', 'hueycoatl',
