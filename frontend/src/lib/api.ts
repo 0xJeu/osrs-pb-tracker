@@ -186,7 +186,8 @@ export function createApiClient(baseUrl: string, fetchFn: typeof fetch = fetch) 
   // inferred from a TTL value that another endpoint could legitimately share.
   const TTL = {
     playerProfile: 5 * 60 * 1000,
-    bossList: Number.POSITIVE_INFINITY, // session lifetime
+    // Bounded so a boss synced for the first time mid-session still appears.
+    bossList: 10 * 60 * 1000,
     statsRecentOverview: 2 * 60 * 1000,
     search: 5 * 60 * 1000,
   } as const;
