@@ -6,8 +6,11 @@ describe('GET /api/leaderboard/:boss', () => {
   it('returns an empty array when nobody has synced that boss', async () => {
     const res = await app.request('/api/leaderboard/zulrah?limit=25');
     expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
-    expect(res.headers.get('cdn-cache-control')).toBe(
+    expect(res.headers.get('vercel-cdn-cache-control')).toBe(
       'public, max-age=86400, stale-while-revalidate=604800'
+    );
+    expect(res.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=60, stale-while-revalidate=300'
     );
     expect(res.headers.get('vercel-cache-tag')).toBe('boss:zulrah');
     expect(await res.json()).toEqual([]);

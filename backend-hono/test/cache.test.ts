@@ -69,6 +69,48 @@ describe('cache tags', () => {
     expect(response.headers.get('vercel-cache-tag')?.split(',')).toHaveLength(128);
   });
 
+  it('keeps the long tag-purged TTL on this edge and a short TTL for downstream proxies', async () => {
+    // The website's /api/* rewrite caches responses in a separate Vercel
+    // project that never sees our tag purges (e.g. a new boss appearing in
+    // /api/bosses), so it must only ever receive the short lifetime.
+    const app = new Hono();
+    app.get('/public', (c) => {
+      setSharedCache(c, cachePolicies.publicData, ['boss-list']);
+      return c.text('ok');
+    });
+    app.get('/missing', (c) => {
+      setSharedCache(c, cachePolicies.notFound);
+      return c.text('missing', 404);
+    });
+
+    const publicResponse = await app.request('/public');
+    expect(publicResponse.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    expect(publicResponse.headers.get('vercel-cdn-cache-control')).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800'
+    );
+    expect(publicResponse.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=60, stale-while-revalidate=300'
+    );
+
+    const missingResponse = await app.request('/missing');
+    expect(missingResponse.headers.get('vercel-cdn-cache-control')).toBe(
+      'public, max-age=3600, stale-while-revalidate=86400'
+    );
+    expect(missingResponse.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=60, stale-while-revalidate=300'
+    );
+  });
+
+  it('never lets a downstream cache outlive this edge cache', () => {
+    for (const policy of Object.values(cachePolicies)) {
+      expect(policy.downstream.maxAgeSeconds).toBeLessThanOrEqual(300);
+      expect(policy.downstream.maxAgeSeconds).toBeLessThan(policy.maxAgeSeconds);
+      expect(
+        policy.downstream.maxAgeSeconds + policy.downstream.staleWhileRevalidateSeconds
+      ).toBeLessThanOrEqual(policy.maxAgeSeconds);
+    }
+  });
+
   it('assigns each boss to one stable dependency bucket', () => {
     const tag = profileBossBucketCacheTag('Zulrah');
     expect(profileBossBucketCacheTag(' zulrah ')).toBe(tag);
