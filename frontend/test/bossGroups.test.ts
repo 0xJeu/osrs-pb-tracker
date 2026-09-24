@@ -10,6 +10,123 @@ import {
   isGroupedVariant,
 } from '../src/lib/bossGroups';
 
+const DOOM_KEYS_SHUFFLED = [
+  'doom of mokhaiotl - delve 8+',
+  'doom of mokhaiotl - delve 3',
+  'doom of mokhaiotl - delve 1',
+  'doom of mokhaiotl - delve 7',
+  'doom of mokhaiotl - delve 5',
+  'doom of mokhaiotl - delve 8',
+  'doom of mokhaiotl - delve 2',
+  'doom of mokhaiotl - delve 6',
+  'doom of mokhaiotl - delve 4',
+];
+const DOOM_LABELS_IN_ORDER = ['Delve 1', 'Delve 2', 'Delve 3', 'Delve 4', 'Delve 5', 'Delve 6', 'Delve 7', 'Delve 8', 'Delve 8+'];
+
+describe('Doom of Mokhaiotl delves', () => {
+  it('collapses every delve tier into one Bosses entry, ordered Delve 1-8 then 8+', () => {
+    const bosses = groupBosses([...DOOM_KEYS_SHUFFLED, 'zulrah']).find((g) => g.category === 'Bosses');
+    expect(bosses?.raidGroups?.map((r) => r.heading)).toEqual(['Doom Of Mokhaiotl']);
+    expect(bosses?.raidGroups?.[0].variants.map((v) => v.label)).toEqual(DOOM_LABELS_IN_ORDER);
+    expect(bosses?.raidGroups?.[0].variants.map((v) => v.key)).toEqual([
+      'doom of mokhaiotl - delve 1',
+      'doom of mokhaiotl - delve 2',
+      'doom of mokhaiotl - delve 3',
+      'doom of mokhaiotl - delve 4',
+      'doom of mokhaiotl - delve 5',
+      'doom of mokhaiotl - delve 6',
+      'doom of mokhaiotl - delve 7',
+      'doom of mokhaiotl - delve 8',
+      'doom of mokhaiotl - delve 8+',
+    ]);
+    expect(bosses?.items?.map((i) => i.key)).toEqual(['zulrah']);
+  });
+
+  it('keeps the stored key casing the plugin sent', () => {
+    const variants = groupBosses(['Doom of Mokhaiotl - Delve 8+', 'Doom of Mokhaiotl - Delve 2'])[0].raidGroups?.[0].variants;
+    expect(variants).toEqual([
+      { key: 'Doom of Mokhaiotl - Delve 2', label: 'Delve 2' },
+      { key: 'Doom of Mokhaiotl - Delve 8+', label: 'Delve 8+' },
+    ]);
+  });
+
+  it('groups only the tracked delve tiers, leaving unsupported Doom keys as flat items', () => {
+    expect(isGroupedVariant('doom of mokhaiotl - delve 1')).toBe(true);
+    expect(isGroupedVariant('Doom of Mokhaiotl - Delve 8+')).toBe(true);
+    expect(isGroupedVariant('doom of mokhaiotl')).toBe(false);
+    expect(isGroupedVariant('doom of mokhaiotl - delve 9')).toBe(false);
+    expect(isGroupedVariant('doom of mokhaiotl deepest delve')).toBe(false);
+  });
+
+  it('exposes one Doom base and a single-mode picker, like The Nightmare', () => {
+    expect(getRaidBases(DOOM_KEYS_SHUFFLED)).toEqual([{ base: 'doom of mokhaiotl', label: 'Doom Of Mokhaiotl' }]);
+    expect(groupedBaseForKey('doom of mokhaiotl - delve 8+')).toBe('doom of mokhaiotl');
+
+    const modes = getRaidModes(DOOM_KEYS_SHUFFLED, 'doom of mokhaiotl');
+    expect(modes.map((m) => m.modeLabel)).toEqual(['Normal']);
+    const kinds = groupVariantsByKind(modes[0].variants);
+    expect(kinds.map((k) => k.kind)).toEqual(['Other']);
+    expect(kinds[0].variants.map((v) => v.sizeLabel)).toEqual(DOOM_LABELS_IN_ORDER);
+  });
+
+  it('groups a player profile\'s delve PBs under one heading in delve order', () => {
+    const pbs = DOOM_KEYS_SHUFFLED.map((boss, i) => ({ boss, timeSeconds: 60 + i, updatedAt: '2026-09-22T00:00:00Z', rank: i + 1 }));
+    const { groups, flat } = groupPlayerRaidPbs([...pbs, { boss: 'zulrah', timeSeconds: 50, updatedAt: '2026-09-22T00:00:00Z', rank: 1 }]);
+    expect(flat.map((pb) => pb.boss)).toEqual(['zulrah']);
+    expect(groups.map((g) => g.heading)).toEqual(['Doom Of Mokhaiotl']);
+    expect(groups[0].variants.map((v) => v.label)).toEqual(DOOM_LABELS_IN_ORDER);
+  });
+
+  it('handles only some tiers existing (Delve 1-4 synced, nothing for 5-8 or 8+)', () => {
+    const keys = ['doom of mokhaiotl - delve 4', 'doom of mokhaiotl - delve 2', 'doom of mokhaiotl - delve 1', 'doom of mokhaiotl - delve 3'];
+    const modes = getRaidModes(keys, 'doom of mokhaiotl');
+    expect(modes).toHaveLength(1);
+    expect(modes[0].variants.map((v) => v.label)).toEqual(['Delve 1', 'Delve 2', 'Delve 3', 'Delve 4']);
+
+    const pbs = [
+      { boss: 'doom of mokhaiotl - delve 1', timeSeconds: 49, updatedAt: '2026-09-23T00:00:00Z', rank: 1 },
+      { boss: 'doom of mokhaiotl - delve 2', timeSeconds: 55, updatedAt: '2026-09-23T00:00:00Z', rank: 1 },
+      { boss: 'doom of mokhaiotl - delve 3', timeSeconds: 96, updatedAt: '2026-09-23T00:00:00Z', rank: 1 },
+      { boss: 'doom of mokhaiotl - delve 4', timeSeconds: 113, updatedAt: '2026-09-23T00:00:00Z', rank: 1 },
+    ];
+    const [group] = groupPlayerRaidPbs(pbs).groups;
+    expect(group.variants.map((v) => v.label)).toEqual(['Delve 1', 'Delve 2', 'Delve 3', 'Delve 4']);
+    expect(group.summary).toMatchObject({ key: 'doom of mokhaiotl - delve 4', label: 'Delve 4', timeSeconds: 113 });
+  });
+
+  it('summarizes the collapsed row with the deepest delve, counting 8+ as deeper than 8', () => {
+    const pb = (tier: string, timeSeconds: number, rank = 1) => ({
+      boss: `doom of mokhaiotl - delve ${tier}`, timeSeconds, updatedAt: `2026-09-2${rank}T00:00:00Z`, rank,
+    });
+    const summaryOf = (pbs: ReturnType<typeof pb>[]) => groupPlayerRaidPbs(pbs).groups[0].summary;
+
+    expect(summaryOf([pb('8+', 30, 7), pb('8', 20, 3), pb('1', 10, 1)]))
+      .toEqual({ key: 'doom of mokhaiotl - delve 8+', label: 'Delve 8+', kind: 'Other', timeSeconds: 30, rank: 7, updatedAt: '2026-09-27T00:00:00Z' });
+    expect(summaryOf([pb('2', 55), pb('8', 20), pb('7', 10)]).label).toBe('Delve 8');
+    expect(summaryOf([pb('3', 96)]).label).toBe('Delve 3');
+  });
+
+  it('keeps the fastest-time summary for raids and The Nightmare', () => {
+    const pb = (boss: string, timeSeconds: number) => ({ boss, timeSeconds, updatedAt: '2026-09-22T00:00:00Z', rank: 1 });
+    const { groups } = groupPlayerRaidPbs([
+      pb('the nightmare - fastest overall (solo)', 600),
+      pb('the nightmare - fastest overall (6+ players)', 190),
+      pb('chambers of xeric - fastest overall (solo)', 1100),
+      pb('chambers of xeric - fastest overall (24+ players)', 1500),
+    ]);
+    expect(groups.find((g) => g.heading === 'The Nightmare')?.summary.label).toBe('6+');
+    expect(groups.find((g) => g.heading === 'Chambers Of Xeric')?.summary.label).toBe('Solo');
+  });
+
+  it('produces no Doom entry, and no errors, when no Doom records exist yet', () => {
+    const keys = ['zulrah', 'the nightmare - fastest overall (solo)'];
+    expect(groupBosses(keys).flatMap((g) => g.raidGroups ?? []).map((r) => r.heading)).toEqual(['The Nightmare']);
+    expect(getRaidModes(keys, 'doom of mokhaiotl')).toEqual([]);
+    expect(getRaidModes([], 'doom of mokhaiotl')).toEqual([]);
+    expect(groupPlayerRaidPbs([])).toEqual({ groups: [], flat: [] });
+  });
+});
+
 describe('awakened DT2 bosses', () => {
   it('collapses the base and awakened forms into one entry with a Normal/Awakened toggle', () => {
     const keys = ['duke sucellus', 'duke sucellus (awakened)', 'zulrah'];
@@ -79,6 +196,9 @@ const ALL_KEYS = [
   "tzhaar-ket-rak's fourth challenge",
   "tzhaar-ket-rak's fifth challenge",
   "tzhaar-ket-rak's sixth challenge",
+  'doom of mokhaiotl - delve 1',
+  'doom of mokhaiotl - delve 8',
+  'doom of mokhaiotl - delve 8+',
 ];
 
 describe('categorize', () => {

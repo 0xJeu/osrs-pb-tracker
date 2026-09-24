@@ -31,7 +31,7 @@ export function compactAliasSuggestions(query: string, bosses: string[]): Search
   return modes.map((mode) => ({
     type: 'boss',
     value: mode.variants[0].key,
-    label: `${raidLabel} — ${mode.modeLabel}`,
+    label: modes.length === 1 && !alias.modeLabel ? raidLabel : `${raidLabel} — ${mode.modeLabel}`,
   }));
 }
 

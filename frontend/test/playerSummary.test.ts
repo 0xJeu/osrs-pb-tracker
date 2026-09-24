@@ -16,4 +16,17 @@ describe('player summary', () => {
       numberOneBosses: ['Theatre Of Blood', 'Tombs Of Amascut'],
     });
   });
+
+  it('lists Doom of Mokhaiotl once however many delve tiers are rank one', () => {
+    const pbs = ['1', '4', '8', '8+'].map((tier) => ({
+      boss: `doom of mokhaiotl - delve ${tier}`,
+      timeSeconds: 60,
+      updatedAt: '2026-09-22T00:00:00Z',
+      rank: 1,
+    }));
+    expect(summarizePlayerRecords(pbs)).toEqual({
+      numberOneRecords: 4,
+      numberOneBosses: ['Doom Of Mokhaiotl'],
+    });
+  });
 });

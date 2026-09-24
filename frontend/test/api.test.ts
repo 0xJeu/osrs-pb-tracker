@@ -262,6 +262,27 @@ describe('request coalescing and session caching', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it('refetches the boss list once its session cache expires so newly synced bosses appear', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const fetchFn = vi.fn()
+        .mockResolvedValueOnce(jsonResponse(['zulrah']))
+        .mockResolvedValueOnce(jsonResponse(['doom of mokhaiotl - delve 1', 'zulrah']));
+      const api = createApiClient('', fetchFn);
+
+      expect(await api.getBosses()).toEqual(['zulrah']);
+      nowSpy.mockReturnValue(1_000_000 + 9 * 60 * 1000);
+      expect(await api.getBosses()).toEqual(['zulrah']);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+
+      nowSpy.mockReturnValue(1_000_000 + 10 * 60 * 1000 + 1);
+      expect(await api.getBosses()).toEqual(['doom of mokhaiotl - delve 1', 'zulrah']);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('coalesces concurrent player lookups and reuses the successful profile cache', async () => {
     let resolveFetch: (res: Response) => void;
     const fetchFn = vi.fn().mockImplementation(

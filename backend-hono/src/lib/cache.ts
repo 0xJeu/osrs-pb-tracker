@@ -4,20 +4,34 @@ import type { Context } from 'hono';
 const MAX_CACHE_TAGS = 128;
 const MAX_CACHE_TAG_BYTES = 256;
 
-interface SharedCachePolicy {
+interface CacheLifetime {
   maxAgeSeconds: number;
   staleWhileRevalidateSeconds: number;
 }
+
+interface SharedCachePolicy extends CacheLifetime {
+  // Caches in front of this backend (the website's `/api/*` rewrite is its
+  // own Vercel project cache) never receive our tag purges, so they must
+  // expire on their own. Their refreshes land on this backend's edge cache,
+  // not on the function or Neon.
+  downstream: CacheLifetime;
+}
+
+const downstreamCache: CacheLifetime = { maxAgeSeconds: 60, staleWhileRevalidateSeconds: 300 };
 
 export const cachePolicies = {
   // Public data is identical for every visitor. Keep it at the edge for a
   // full day and invalidate the affected tags when a real sync changes data.
   // This makes read volume depend on writes, not page views.
-  publicData: { maxAgeSeconds: 86400, staleWhileRevalidateSeconds: 604800 },
+  publicData: { maxAgeSeconds: 86400, staleWhileRevalidateSeconds: 604800, downstream: downstreamCache },
   // Negative lookups are safe to retain, but use a shorter fallback in case
   // an invalidation request ever fails after a player first syncs.
-  notFound: { maxAgeSeconds: 3600, staleWhileRevalidateSeconds: 86400 },
+  notFound: { maxAgeSeconds: 3600, staleWhileRevalidateSeconds: 86400, downstream: downstreamCache },
 } as const satisfies Record<string, SharedCachePolicy>;
+
+function cacheControlValue(lifetime: CacheLifetime) {
+  return `public, max-age=${lifetime.maxAgeSeconds}, stale-while-revalidate=${lifetime.staleWhileRevalidateSeconds}`;
+}
 
 export const cacheTags = {
   bossList: 'boss-list',
@@ -105,13 +119,13 @@ export function playerNameCacheTag(displayName: string) {
 
 export function setSharedCache(c: Context, policy: SharedCachePolicy, tags: readonly string[] = []) {
   // Browsers revalidate so they see the newest response available at the CDN.
-  // The targeted header lets Vercel share safe public responses without every
-  // request invoking the function and querying Neon.
+  // Vercel-CDN-Cache-Control is consumed by this project's edge (the long,
+  // tag-purged cache that keeps requests off the function and Neon) and is
+  // stripped before the response leaves it. CDN-Cache-Control is what
+  // downstream caches such as the website's rewrite proxy then honor.
   c.header('Cache-Control', 'public, max-age=0, must-revalidate');
-  c.header(
-    'CDN-Cache-Control',
-    `public, max-age=${policy.maxAgeSeconds}, stale-while-revalidate=${policy.staleWhileRevalidateSeconds}`
-  );
+  c.header('Vercel-CDN-Cache-Control', cacheControlValue(policy));
+  c.header('CDN-Cache-Control', cacheControlValue(policy.downstream));
 
   const uniqueTags = [...new Set(tags)].slice(0, MAX_CACHE_TAGS);
   if (uniqueTags.length > 0) {

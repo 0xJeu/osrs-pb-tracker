@@ -5,8 +5,11 @@ import { insertTestPlayerWithPb } from './helpers.js';
 describe('GET /api/search', () => {
   it('returns an empty array with no query', async () => {
     const res = await app.request('/api/search');
-    expect(res.headers.get('cdn-cache-control')).toBe(
+    expect(res.headers.get('vercel-cdn-cache-control')).toBe(
       'public, max-age=86400, stale-while-revalidate=604800'
+    );
+    expect(res.headers.get('cdn-cache-control')).toBe(
+      'public, max-age=60, stale-while-revalidate=300'
     );
     expect(res.headers.get('vercel-cache-tag')).toBe('player-search');
     expect(await res.json()).toEqual([]);
