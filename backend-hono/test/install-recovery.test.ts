@@ -77,7 +77,7 @@ describe('install credential recovery', () => {
     expect(body).toMatchObject({
       code: 'RECOVERY_PENDING',
       recoveryId: expect.any(Number),
-      retryAfterSeconds: 900,
+      retryAfterSeconds: 3600,
     });
 
     const [candidate] = await db.select().from(installRecoveryCandidates);
