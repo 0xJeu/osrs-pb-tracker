@@ -30,6 +30,13 @@ import {
 
 const sync = new Hono();
 
+// Retry hint for a quarantined install waiting on an admin decision. Every
+// automatic retry wakes the scale-to-zero database, and a candidate can sit
+// in review for weeks (one pending candidate retried 1,000+ times at 900s).
+// An hour is the plugin's own upper clamp; a player can still force an
+// immediate attempt with a manual sync.
+const RECOVERY_RETRY_AFTER_SECONDS = 3600;
+
 interface SyncBody {
   accountHash?: unknown;
   displayName?: unknown;
@@ -599,7 +606,7 @@ sync.post('/', async (c) => {
         error: 'This installation is not yet authorized for this account.',
         code,
         recoveryId: recoveryCandidate?.id ?? null,
-        retryAfterSeconds: recoveryCandidate ? 900 : null,
+        retryAfterSeconds: recoveryCandidate ? RECOVERY_RETRY_AFTER_SECONDS : null,
         syncAttemptId,
       },
       409
