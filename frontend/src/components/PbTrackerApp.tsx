@@ -128,6 +128,16 @@ export function PbTrackerApp() {
       <div className="pbt-footer">
         <div className="pbt-footer-inner">
           <span>PB Tracker by Zenyte Labs — community boss personal-best leaderboards.</span>
+          <span className="pbt-footer-credit">
+            Boss and pet icons from the{' '}
+            <a href="https://oldschool.runescape.wiki/" target="_blank" rel="noreferrer">OSRS Wiki</a>
+            {' '}(CC BY-NC-SA 3.0). Game art © Jagex Ltd. Running something that talks to us, or
+            seeing traffic you'd like us to stop?{' '}
+            <a href="https://github.com/0xJeu/osrs-pb-tracker/issues" target="_blank" rel="noreferrer">
+              Open an issue
+            </a>
+            {' '}— a human reads them.
+          </span>
           {DONATE_URL && (
             <a className="pbt-donate" href={DONATE_URL} target="_blank" rel="noreferrer">Donate</a>
           )}
