@@ -18,7 +18,9 @@ local function is_greater(left, right)
   return left > right
 end
 local current = redis.call('GET', KEYS[1])
-if current and not is_greater(ARGV[1], current) then
+-- Equal revisions are safe to replace and must remain repairable when the
+-- snapshot value is missing or corrupt but the revision key survived.
+if current and is_greater(current, ARGV[1]) then
   return 0
 end
 redis.call('SET', KEYS[2], ARGV[2])

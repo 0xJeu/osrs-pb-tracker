@@ -3,7 +3,10 @@ import {
   decodePublicSnapshot,
   encodePublicSnapshot,
 } from '../src/lib/public-read-model/codec.js';
-import type { PublicSnapshotV1 } from '../src/lib/public-read-model/schema.js';
+import {
+  isPublicSnapshotV1,
+  type PublicSnapshotV1,
+} from '../src/lib/public-read-model/schema.js';
 
 const snapshot: PublicSnapshotV1 = {
   schemaVersion: 1,
@@ -45,5 +48,17 @@ describe('public snapshot codec', () => {
     const stored = await encodePublicSnapshot(snapshot);
     stored.uncompressedBytes = 20_000_001;
     await expect(decodePublicSnapshot(stored)).rejects.toThrow('safe decode limits');
+  });
+
+  it('rejects inconsistent profile keys, lookup references, and revisions', () => {
+    expect(isPublicSnapshotV1({ ...snapshot, revision: 'not-a-revision' })).toBe(false);
+    expect(isPublicSnapshotV1({
+      ...snapshot,
+      profilesByPlayerId: { '2': snapshot.profilesByPlayerId['1'] },
+    })).toBe(false);
+    expect(isPublicSnapshotV1({
+      ...snapshot,
+      playerIdsByLookupName: { blitzen: [999] },
+    })).toBe(false);
   });
 });
