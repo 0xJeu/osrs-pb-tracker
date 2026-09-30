@@ -5,3 +5,4 @@ dist/
 .env.test
 .env.staging
 .env.local
+.vercel/

@@ -13,6 +13,10 @@ import {
   profileBossExactCacheTag,
   setSharedCache,
 } from '../lib/cache.js';
+import {
+  readPrimaryPublicSnapshot,
+  schedulePublicSnapshotRepair,
+} from '../lib/public-read-model/service.js';
 
 const playersRoute = new Hono();
 
@@ -63,7 +67,7 @@ async function playerWithPbs(player: PublicPlayer) {
 // sync.ts's invalidation path pushes BOTH the exact and bucket tag for every
 // changed boss precisely so this fallback stays correct across a rolling
 // deploy and for any profile currently using either scheme.
-function profileCacheTags(payload: Awaited<ReturnType<typeof playerWithPbs>>) {
+function profileCacheTags(payload: { id: number; pbs: Array<{ boss: string }> }) {
   const useExactTags = fitsExactProfileTags(payload.pbs.length);
   if (!useExactTags) {
     noteProfileBucketFallback();
@@ -82,12 +86,24 @@ playersRoute.get('/by-id/:id', async (c) => {
     return c.json({ error: 'Player not found' }, 404);
   }
 
+  const snapshot = await readPrimaryPublicSnapshot();
+  const cachedProfile = snapshot?.profilesByPlayerId[String(id)];
+  if (cachedProfile) {
+    setSharedCache(c, cachePolicies.publicData, profileCacheTags(cachedProfile));
+    return c.json(cachedProfile);
+  }
+  if (!snapshot) schedulePublicSnapshotRepair();
+
   const rows = await db.select(publicPlayerColumns).from(players).where(eq(players.id, id)).limit(1);
   const player = rows[0];
   if (!player) {
     setSharedCache(c, cachePolicies.notFound, [playerIdCacheTag(id)]);
     return c.json({ error: 'Player not found' }, 404);
   }
+
+  // A database hit for an ID absent from an otherwise valid snapshot proves
+  // the snapshot is stale; rebuild it. Genuine unknown IDs do not rebuild.
+  if (snapshot && !cachedProfile) schedulePublicSnapshotRepair();
 
   const payload = await playerWithPbs(player);
   setSharedCache(c, cachePolicies.publicData, profileCacheTags(payload));
@@ -96,6 +112,41 @@ playersRoute.get('/by-id/:id', async (c) => {
 
 playersRoute.get('/:name', async (c) => {
   const nameLower = c.req.param('name').trim().toLowerCase();
+  const snapshot = await readPrimaryPublicSnapshot();
+  const snapshotIds = snapshot?.playerIdsByLookupName[nameLower];
+  let snapshotHasBrokenReferences = false;
+  if (snapshotIds && snapshotIds.length > 0) {
+    const matches = snapshotIds
+      .map((id) => snapshot.profilesByPlayerId[String(id)])
+      .filter((profile) => profile !== undefined);
+    if (matches.length === snapshotIds.length) {
+      if (matches.length > 1) {
+        setSharedCache(c, cachePolicies.publicData, [
+          playerNameCacheTag(nameLower),
+          ...matches.map((player) => playerIdCacheTag(player.id)),
+        ]);
+        return c.json({
+          ambiguous: true,
+          matches: matches.map((player) => ({
+            id: player.id,
+            displayName: player.displayName,
+            updatedAt: player.updatedAt,
+          })),
+        });
+      }
+      const payload = matches[0];
+      setSharedCache(c, cachePolicies.publicData, [
+        playerNameCacheTag(nameLower),
+        ...profileCacheTags(payload),
+      ]);
+      return c.json(payload);
+    }
+    snapshotHasBrokenReferences = true;
+  }
+  // Snapshot misses deliberately fall back to Neon. This prevents a snapshot
+  // that predates a newly-created player from producing a false 404.
+  if (!snapshot || snapshotHasBrokenReferences) schedulePublicSnapshotRepair();
+
   const currentRows = await db
     .select(publicPlayerColumns)
     .from(players)
@@ -117,6 +168,10 @@ playersRoute.get('/:name', async (c) => {
     setSharedCache(c, cachePolicies.notFound, [playerNameCacheTag(nameLower)]);
     return c.json({ error: 'Player not found' }, 404);
   }
+
+  // A real database match missing from a valid snapshot means publication is
+  // behind. Legitimate unknown-name traffic must not rebuild the snapshot.
+  if (snapshot && !snapshotIds) schedulePublicSnapshotRepair();
 
   if (rows.length > 1) {
     setSharedCache(c, cachePolicies.publicData, [
