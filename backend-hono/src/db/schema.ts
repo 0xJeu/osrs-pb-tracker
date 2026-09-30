@@ -1,4 +1,13 @@
-import { pgTable, serial, integer, text, real, timestamp, unique, index, jsonb } from 'drizzle-orm/pg-core';
+import { bigint, pgTable, serial, integer, text, real, timestamp, unique, index, jsonb } from 'drizzle-orm/pg-core';
+
+// A trigger-maintained revision for the public read model. Statement-level
+// triggers on players, player_name_history, and personal_bests increment this
+// row in the same transaction as every public-data mutation.
+export const publicReadModelState = pgTable('public_read_model_state', {
+  id: integer('id').primaryKey(),
+  revision: bigint('revision', { mode: 'bigint' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+});
 
 export const players = pgTable(
   'players',

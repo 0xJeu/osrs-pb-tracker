@@ -27,6 +27,8 @@ import {
   isRedundantDuplicateKey,
   isTrackedBoss,
 } from '../lib/trackedBosses.js';
+import { getPublicReadModelConfig } from '../lib/public-read-model/config.js';
+import { publishPublicSnapshot } from '../lib/public-read-model/service.js';
 
 const sync = new Hono();
 
@@ -708,7 +710,21 @@ sync.post('/', async (c) => {
     );
   }
 
-  await invalidateSharedCache(invalidationTags);
+  const snapshotPublishResult = meaningfulChange
+    ? await publishPublicSnapshot()
+    : 'disabled';
+  const canInvalidateForPrimarySnapshot = snapshotPublishResult === 'published'
+    || snapshotPublishResult === 'stale-rejected'
+    || snapshotPublishResult === 'disabled';
+  if (getPublicReadModelConfig().mode !== 'primary' || canInvalidateForPrimarySnapshot) {
+    await invalidateSharedCache(invalidationTags);
+  } else {
+    // Keep the last known-good CDN response instead of invalidating it into a
+    // known stale Redis snapshot. The durable PB write has already succeeded.
+    console.warn('Skipped public cache invalidation after snapshot publication failure', {
+      result: snapshotPublishResult,
+    });
+  }
   await rememberSuccessfulSync(replayKey, {
     playerId,
     received: entries.length,
