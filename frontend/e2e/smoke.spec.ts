@@ -240,6 +240,49 @@ test('shared URLs restore player and boss views', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Zulrah' })).toBeVisible();
 });
 
+test('player-linked boss leaderboards can paginate past the highlighted player', async ({ page }) => {
+  const rankedPlayer = {
+    ...player,
+    pbs: [{ ...player.pbs[0], rank: 51 }],
+  };
+  const leaderboardRequests: string[] = [];
+
+  await page.route('**/api/players/blitzen', (route) => route.fulfill({ json: rankedPlayer }));
+  await page.route('**/api/leaderboard/zulrah**', (route) => {
+    const url = new URL(route.request().url());
+    leaderboardRequests.push(url.search);
+    const requestedOffset = Number(url.searchParams.get('offset'));
+    const offset = url.searchParams.has('highlight') ? 50 : requestedOffset;
+    return route.fulfill({
+      json: {
+        rows: [{
+          displayName: offset === 50 ? 'Blitzen' : `Player${offset + 1}`,
+          timeSeconds: 80 + offset,
+          updatedAt: '2026-07-04T18:00:00.000Z',
+        }],
+        total: 150,
+        limit: 50,
+        offset,
+      },
+    });
+  });
+
+  await page.goto('/player/Blitzen');
+  await page.getByRole('button', { name: /Zulrah/ }).click();
+
+  await expect(page).toHaveURL(/\/boss\/zulrah\?highlight=Blitzen/);
+  await expect(page.getByRole('button', { name: 'Page 2' })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Page 2' }).first()).toHaveAttribute('aria-current', 'page');
+  expect(leaderboardRequests.at(-1)).toContain('highlight=blitzen');
+
+  await page.getByRole('navigation', { name: 'Leaderboard pages (top)' }).getByRole('button', { name: 'Next' }).click();
+
+  await expect(page.getByText('Player101')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 3' }).first()).toHaveAttribute('aria-current', 'page');
+  expect(leaderboardRequests.at(-1)).toContain('offset=100');
+  expect(leaderboardRequests.at(-1)).not.toContain('highlight=');
+});
+
 test('raid variants collapse into one expandable row on a player page', async ({ page }) => {
   const raidPlayer = {
     id: 1,

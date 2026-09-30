@@ -39,7 +39,15 @@ export function PbTrackerApp() {
   const profileState = usePlayerProfile(route);
 
   const bossLeaderboard = useBossLeaderboard(route, bosses);
-  const { selectedBoss, leaderboard, rows, leaderboardOffset, setLeaderboardOffset, titleParts, highlight } = bossLeaderboard;
+  const {
+    selectedBoss,
+    leaderboard,
+    isPageLoading,
+    rows,
+    setLeaderboardOffset,
+    titleParts,
+    highlight,
+  } = bossLeaderboard;
 
   const lookupPlayer = (name: string) => {
     const trimmed = name.trim();
@@ -113,6 +121,7 @@ export function PbTrackerApp() {
             goToBoss={goToBoss}
             navigate={navigate}
             leaderboard={leaderboard}
+            isPageLoading={isPageLoading}
             setLeaderboardOffset={setLeaderboardOffset}
             rows={rows}
             lookupPlayer={lookupPlayer}
