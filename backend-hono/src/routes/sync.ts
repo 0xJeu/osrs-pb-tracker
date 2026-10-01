@@ -1,5 +1,9 @@
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
+import {
+  beginNegativeCacheFill, invalidateNegativeCache, publishNegativeCache, readCachedSyncDenial,
+  type CachedSyncDenial,
+} from '../lib/negativeCache.js';
 import { db } from '../db/client.js';
 import { personalBests, playerInstallCredentials, players, syncAttempts } from '../db/schema.js';
 import {
@@ -497,6 +501,13 @@ sync.post('/', async (c) => {
     secretHash,
     entries,
   });
+  const cachedDenial = await readCachedSyncDenial(replayKey);
+  if (cachedDenial) {
+    if (isRateLimited(accountHash)) {
+      return c.json({ error: 'Too many sync requests for this account, slow down.', syncAttemptId: null }, 429);
+    }
+    return c.json(cachedDenial, 409);
+  }
   const replay = await getSuccessfulSyncReplay(replayKey);
 
   if (replay && await isSuccessfulSyncReplayAuthorized({
@@ -521,6 +532,16 @@ sync.post('/', async (c) => {
     return c.json({ error: 'Too many sync requests for this account, slow down.', syncAttemptId: null }, 429);
   }
 
+  const denialGeneration = await beginNegativeCacheFill('sync-denial');
+  async function deny(payload: Omit<CachedSyncDenial, 'syncAttemptId'> & { syncAttemptId: number | null }) {
+    // Only stable, explicit denials are replayable. Incomplete invalidation
+    // and capture failures must be retried through the existing guarded path.
+    if (['RECOVERY_PENDING', 'RECOVERY_CONTESTED', 'RECOVERY_REJECTED'].includes(payload.code)) {
+      await publishNegativeCache('sync-denial', replayKey, denialGeneration, { ...payload, syncAttemptId: null });
+    }
+    return c.json(payload, 409);
+  }
+
   const {
     playerId,
     authorized,
@@ -540,15 +561,14 @@ sync.post('/', async (c) => {
         receivedCount: entries.length,
         eligibleCount: pbsByBoss.size,
       });
-      return c.json(
+      return deny(
         {
           error: 'This installation has been revoked for this account.',
           code: 'RECOVERY_REJECTED',
           recoveryId: null,
           retryAfterSeconds: 900,
           syncAttemptId,
-        },
-        409
+        }
       );
     }
 
@@ -596,15 +616,14 @@ sync.post('/', async (c) => {
           ? 'RECOVERY_REJECTED'
           : 'RECOVERY_PENDING'
       : 'INSTALL_SECRET_MISMATCH';
-    return c.json(
+    return deny(
       {
         error: 'This installation is not yet authorized for this account.',
         code,
         recoveryId: recoveryCandidate?.id ?? null,
         retryAfterSeconds: recoveryCandidate ? 900 : null,
         syncAttemptId,
-      },
-      409
+      }
     );
   }
 
@@ -658,6 +677,7 @@ sync.post('/', async (c) => {
   const changedBosses = [...insertedBosses, ...improvedBosses];
   const globallyNewBosses = new Set(insertedBosses.filter((boss) => !alreadyKnownBosses.has(boss)));
   const meaningfulChange = created || finalMetadataChanged || changedBosses.length > 0;
+  if (created || finalMetadataChanged) await invalidateNegativeCache('player-missing');
   const syncAttemptId = meaningfulChange
     ? await recordSyncAttempt({
         playerId,

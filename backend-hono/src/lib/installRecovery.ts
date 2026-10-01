@@ -7,6 +7,28 @@ import {
   playerInstallCredentials,
 } from '../db/schema.js';
 import { invalidatePlayerSyncReplay } from './syncReplay.js';
+import { withDenialCacheInvalidation } from './negativeCache.js';
+
+// Rotate both before and after each operator decision, including failures.
+// This is denial-only invalidation; positive authorization still uses Neon.
+export function promoteInstallRecoveryCandidate(...args: Parameters<typeof promoteInstallRecoveryCandidateInternal>) {
+  return withDenialCacheInvalidation(() => promoteInstallRecoveryCandidateInternal(...args));
+}
+export function revokePlayerInstallCredential(...args: Parameters<typeof revokePlayerInstallCredentialInternal>) {
+  return withDenialCacheInvalidation(() => revokePlayerInstallCredentialInternal(...args));
+}
+export function reactivatePlayerInstallCredential(...args: Parameters<typeof reactivatePlayerInstallCredentialInternal>) {
+  return withDenialCacheInvalidation(() => reactivatePlayerInstallCredentialInternal(...args));
+}
+export function rejectInstallRecoveryCandidate(...args: Parameters<typeof rejectInstallRecoveryCandidateInternal>) {
+  return withDenialCacheInvalidation(() => rejectInstallRecoveryCandidateInternal(...args));
+}
+export function reopenRejectedInstallRecoveryCandidate(...args: Parameters<typeof reopenRejectedInstallRecoveryCandidateInternal>) {
+  return withDenialCacheInvalidation(() => reopenRejectedInstallRecoveryCandidateInternal(...args));
+}
+export function resolveInstallRecoveryContest(...args: Parameters<typeof resolveInstallRecoveryContestInternal>) {
+  return withDenialCacheInvalidation(() => resolveInstallRecoveryContestInternal(...args));
+}
 
 const MAX_CANDIDATES_PER_CREDENTIAL_EPOCH = 5;
 const RECOVERY_CANDIDATE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -337,7 +359,7 @@ export class RecoveryDecisionConflictError extends Error {}
 
 export class RecoveryCandidateLimitError extends Error {}
 
-export async function promoteInstallRecoveryCandidate(
+async function promoteInstallRecoveryCandidateInternal(
   candidateId: number,
   actor: string,
   reason?: string,
@@ -481,7 +503,7 @@ export async function promoteInstallRecoveryCandidate(
   };
 }
 
-export async function revokePlayerInstallCredential(
+async function revokePlayerInstallCredentialInternal(
   credentialId: number,
   actor: string,
   reason: string
@@ -547,7 +569,7 @@ export async function revokePlayerInstallCredential(
   return { credentialId: revoked.credential_id, playerId: revoked.player_id };
 }
 
-export async function reactivatePlayerInstallCredential(
+async function reactivatePlayerInstallCredentialInternal(
   credentialId: number,
   actor: string,
   reason: string
@@ -625,7 +647,7 @@ export async function reactivatePlayerInstallCredential(
   };
 }
 
-export async function rejectInstallRecoveryCandidate(candidateId: number, actor: string, reason?: string) {
+async function rejectInstallRecoveryCandidateInternal(candidateId: number, actor: string, reason?: string) {
   const [, rejectedRows] = await db.$client.transaction((txn) => [
     txn(
       `SELECT player.id
@@ -672,7 +694,7 @@ export async function rejectInstallRecoveryCandidate(candidateId: number, actor:
  * currently active in the queue, the reopened candidate becomes contested so
  * the ordinary contest-resolution gate still applies.
  */
-export async function reopenRejectedInstallRecoveryCandidate(
+async function reopenRejectedInstallRecoveryCandidateInternal(
   candidateId: number,
   actor: string,
   reason: string
@@ -761,7 +783,7 @@ export async function reopenRejectedInstallRecoveryCandidate(
  * from an already-authorized installation is normal in the multi-install
  * model.
  */
-export async function resolveInstallRecoveryContest(
+async function resolveInstallRecoveryContestInternal(
   candidateId: number,
   actor: string,
   reason: string
