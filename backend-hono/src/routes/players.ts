@@ -1,6 +1,7 @@
 import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
+import { beginNegativeCacheFill, missingPlayerFingerprint, publishNegativeCache, readNegativeCache } from '../lib/negativeCache.js';
 import { db } from '../db/client.js';
 import { personalBests, playerNameHistory, players } from '../db/schema.js';
 import {
@@ -94,9 +95,17 @@ playersRoute.get('/by-id/:id', async (c) => {
   }
   if (!snapshot) schedulePublicSnapshotRepair();
 
+  const missingKey = missingPlayerFingerprint('id', String(id));
+  if (await readNegativeCache('player-missing', missingKey) === true) {
+    setSharedCache(c, cachePolicies.notFound, [playerIdCacheTag(id)]);
+    return c.json({ error: 'Player not found' }, 404);
+  }
+  const missingGeneration = await beginNegativeCacheFill('player-missing');
+
   const rows = await db.select(publicPlayerColumns).from(players).where(eq(players.id, id)).limit(1);
   const player = rows[0];
   if (!player) {
+    await publishNegativeCache('player-missing', missingKey, missingGeneration, true);
     setSharedCache(c, cachePolicies.notFound, [playerIdCacheTag(id)]);
     return c.json({ error: 'Player not found' }, 404);
   }
@@ -147,6 +156,13 @@ playersRoute.get('/:name', async (c) => {
   // that predates a newly-created player from producing a false 404.
   if (!snapshot || snapshotHasBrokenReferences) schedulePublicSnapshotRepair();
 
+  const missingKey = missingPlayerFingerprint('name', nameLower);
+  if (await readNegativeCache('player-missing', missingKey) === true) {
+    setSharedCache(c, cachePolicies.notFound, [playerNameCacheTag(nameLower)]);
+    return c.json({ error: 'Player not found' }, 404);
+  }
+  const missingGeneration = await beginNegativeCacheFill('player-missing');
+
   const currentRows = await db
     .select(publicPlayerColumns)
     .from(players)
@@ -165,6 +181,7 @@ playersRoute.get('/:name', async (c) => {
   );
 
   if (rows.length === 0) {
+    await publishNegativeCache('player-missing', missingKey, missingGeneration, true);
     setSharedCache(c, cachePolicies.notFound, [playerNameCacheTag(nameLower)]);
     return c.json({ error: 'Player not found' }, 404);
   }
