@@ -33,7 +33,7 @@ local generation = redis.call('GET', KEYS[1])
 local raw = redis.call('GET', KEYS[2])
 if not generation or not raw then return nil end
 local ok, entry = pcall(cjson.decode, raw)
-if not ok or entry.generation ~= generation then return nil end
+if not ok or type(entry) ~= 'table' or entry.generation ~= generation then return nil end
 return raw`,
   publish: `
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end

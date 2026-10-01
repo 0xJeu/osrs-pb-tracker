@@ -32,15 +32,12 @@ completed revocation. No successful Redis fast path is enabled in this change.
 Do not remove `isSuccessfulSyncReplayAuthorized`, extend the successful replay
 TTL, or remove the guarded write transaction as a shortcut.
 
-A concrete alternative to investigate for that next stage is an account-scoped
-Cloudflare SQLite Durable Object: its [documented storage](https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/)
-is transactional and strongly consistent, and [SQLite objects are available
-on the Free plan](https://developers.cloudflare.com/durable-objects/platform/pricing/).
-This is an architectural proposal, not a provisioned service. Its endpoint
-authentication, mutation gating, owner fencing, interrupted-commit recovery,
-direct-maintenance protocol, usage limits, and latency must be designed and
-tested before it can replace the database authorization check. Retain Upstash
-for public snapshots; replacing that healthy system is unnecessary.
+The approved infrastructure remains Neon, Vercel, and Upstash Redis. No
+additional provider or credential coordinator is part of this change. The
+unapproved separate-provider implementation has been removed at Steph's request.
+Successful unchanged syncs still use the existing Neon authorization check;
+their safe Redis-only optimization remains unfinished. Do not describe this
+negative-cache phase as eliminating those successful-sync wakeups.
 
 ## Implemented request behavior
 
@@ -100,12 +97,14 @@ Reuse the backend-only Redis URL/token adapter and explicit
 `PUBLIC_READ_MODEL_NAMESPACE`. Keys are under
 `<namespace>:negative:v1:sync-denial:*` and
 `<namespace>:negative:v1:player-missing:*`, separate from the public snapshot.
-Preview/test must use separate credentials and a separate namespace. Never
+Preview/test must use a separate namespace and explicit test credentials;
+provider checks may use disposable synthetic keys on the existing approved Redis
+resource without accessing snapshot/player keys. Never
 connect the frontend or plugin to Redis.
 
 1. Validate offline/unit tests and guarded database integration tests.
-2. Run `scripts/check-negative-cache-store.ts` against a dedicated scratch
-   database using `NEGATIVE_CACHE_TEST_REDIS_URL` and
+2. Run `scripts/check-negative-cache-store.ts` against UUID-isolated scratch keys
+   using explicitly selected Redis credentials in `NEGATIVE_CACHE_TEST_REDIS_URL` and
    `NEGATIVE_CACHE_TEST_REDIS_TOKEN`. The script uses only synthetic records
    and deletes its exact keys. It verifies two-client publication, cardinality,
    delayed-fill rejection, malformed records, and missing control.
@@ -118,11 +117,26 @@ connect the frontend or plugin to Redis.
 
 ## Remaining work
 
-The main target remains successful unchanged syncs. Resolve provider guarantees,
-implement the durable mutation coordinator and generation-bound success replay,
+The main target remains successful unchanged syncs. Design and validate revocation-safe
+Redis-only credential caching within the approved infrastructure,
 then move last-seen activity to cache and flush it only while Neon is already
 awake for legitimate work. Do not add a scheduled flush that wakes Neon.
 Keep real PB/name writes guarded in the existing database transaction.
 
 This branch has no production configuration changes or migration. Plan changes
 still require representative actual CU-hour usage, not only active-time estimates.
+
+
+## Release validation checkpoint
+
+The Redis-only release branch is `codex/redis-negative-release`, based directly
+on `fork/dev`, with none of the removed provider commits in its ancestry.
+Actual two-client Upstash validation passed all six checks against disposable
+UUID-isolated keys on the existing approved resource; exact keys were deleted.
+That validation found a Lua JSON-scalar corruption edge case, fixed by checking
+`type(entry) == 'table'` before accessing its generation.
+An opt-in guarded test (`NEGATIVE_CACHE_LIVE_TEST=true`) uses an isolated Redis
+namespace and the verified Neon test branch to verify warm zero-query denials,
+reject/reopen/promote invalidation and missing-name creation invalidation. It
+must never run against a production Neon branch. Default CI skips live-provider
+cases; ordinary guarded/unit tests remain required.
