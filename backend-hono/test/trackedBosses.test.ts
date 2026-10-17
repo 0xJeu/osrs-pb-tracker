@@ -59,6 +59,14 @@ describe('isReasonablePersonalBestTime', () => {
     expect(isReasonablePersonalBestTime('inferno', 2384.4)).toBe(true);
   });
 
+  it('rejects impossible Yama times leaked from Doom delve messages', () => {
+    expect(isReasonablePersonalBestTime('yama', 45.6)).toBe(false);
+    expect(isReasonablePersonalBestTime('Yama', 86.4)).toBe(false);
+    expect(isReasonablePersonalBestTime('yama', 89.9)).toBe(false);
+    expect(isReasonablePersonalBestTime('yama', 90)).toBe(true);
+    expect(isReasonablePersonalBestTime('yama', 124.2)).toBe(true);
+  });
+
   it('keeps ordinary positive PBs unconstrained unless an activity has a floor', () => {
     expect(isReasonablePersonalBestTime('zulrah', 12)).toBe(true);
     expect(isReasonablePersonalBestTime('zulrah', 0)).toBe(false);

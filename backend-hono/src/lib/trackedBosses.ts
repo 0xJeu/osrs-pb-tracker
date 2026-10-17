@@ -83,10 +83,17 @@ export function isTrackedBoss(boss: string): boolean {
  * displaced by a legitimate run. The 300-second floor applies only to the
  * bare full-completion key; room and labelled variant records remain
  * unconstrained because they represent different measurements.
+ *
+ * Yama's claimed world record is about 2:04. Values of 45.6s, 84.6s and 86.4s
+ * reached the leaderboard because RuneLite's Chat Commands plugin holds an
+ * unpaired "duration: ... personal best" time (Doom of Mokhaiotl delve lines
+ * match its pattern but Doom sends no kill-count message) and assigns it to
+ * the next boss killed. 90s leaves ~27% headroom under the record.
  */
 const MIN_REASONABLE_SECONDS_BY_BOSS = new Map<string, number>([
   ['inferno', 60],
   ['theatre of blood', 300],
+  ['yama', 90],
 ]);
 
 export function isReasonablePersonalBestTime(boss: string, timeSeconds: number): boolean {
