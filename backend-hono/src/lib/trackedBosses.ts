@@ -89,11 +89,17 @@ export function isTrackedBoss(boss: string): boolean {
  * unpaired "duration: ... personal best" time (Doom of Mokhaiotl delve lines
  * match its pattern but Doom sends no kill-count message) and assigns it to
  * the next boss killed. 90s leaves ~27% headroom under the record.
+ *
+ * Phosani's Nightmare: the same leak produced 60.6s and 61.2s rows, each
+ * exactly equal to that player's Doom delve PB. The fastest real time on
+ * the board is 246s, so 180s leaves ample headroom. Group "The Nightmare"
+ * variants stay unconstrained.
  */
 const MIN_REASONABLE_SECONDS_BY_BOSS = new Map<string, number>([
   ['inferno', 60],
   ['theatre of blood', 300],
   ['yama', 90],
+  ["phosani's nightmare", 180],
 ]);
 
 export function isReasonablePersonalBestTime(boss: string, timeSeconds: number): boolean {

@@ -67,6 +67,14 @@ describe('isReasonablePersonalBestTime', () => {
     expect(isReasonablePersonalBestTime('yama', 124.2)).toBe(true);
   });
 
+  it("rejects impossible Phosani's Nightmare times without constraining The Nightmare", () => {
+    expect(isReasonablePersonalBestTime("phosani's nightmare", 60.6)).toBe(false);
+    expect(isReasonablePersonalBestTime("Phosani's Nightmare", 179.9)).toBe(false);
+    expect(isReasonablePersonalBestTime("phosani's nightmare", 180)).toBe(true);
+    expect(isReasonablePersonalBestTime("phosani's nightmare", 246)).toBe(true);
+    expect(isReasonablePersonalBestTime('the nightmare - fastest overall (6+ players)', 98.4)).toBe(true);
+  });
+
   it('keeps ordinary positive PBs unconstrained unless an activity has a floor', () => {
     expect(isReasonablePersonalBestTime('zulrah', 12)).toBe(true);
     expect(isReasonablePersonalBestTime('zulrah', 0)).toBe(false);
