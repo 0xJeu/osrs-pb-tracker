@@ -274,6 +274,7 @@ test('player-linked boss leaderboards can paginate past the highlighted player',
   await expect(page.getByRole('button', { name: 'Page 2' })).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Page 2' }).first()).toHaveAttribute('aria-current', 'page');
   expect(leaderboardRequests.at(-1)).toContain('highlight=blitzen');
+  expect(leaderboardRequests.at(-1)).toContain('limit=25');
 
   await page.getByRole('navigation', { name: 'Leaderboard pages (top)' }).getByRole('button', { name: 'Next' }).click();
 
