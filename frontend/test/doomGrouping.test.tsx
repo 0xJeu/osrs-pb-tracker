@@ -24,6 +24,7 @@ function renderBossView(bosses: string[], selectedBoss: string) {
       navigate={vi.fn()}
       leaderboard={{ s: 'loaded', data: { rows: [], total: 0, limit: 50, offset: 0 } }}
       setLeaderboardOffset={vi.fn()}
+      isPageLoading={false}
       rows={[]}
       lookupPlayer={vi.fn()}
     />
