@@ -5,7 +5,7 @@ import { isLoaded, type LoadState } from '../lib/loadState';
 import { bossTitleParts } from '../lib/format';
 import type { Route } from './useRoute';
 
-const LEADERBOARD_PAGE_SIZE = 50;
+const LEADERBOARD_PAGE_SIZE = 25;
 const preferredBosses = [
   'chambers of xeric - challenge mode - fastest overall (3 players)',
   'chambers of xeric',
