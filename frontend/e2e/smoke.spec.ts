@@ -150,15 +150,15 @@ test('ambiguous names show the matching-profile state', async ({ page }) => {
   await expect(page.getByText('2 matching profiles found for')).toBeVisible();
 });
 
-test('boss leaderboard loads via the combobox', async ({ page }) => {
+test('boss leaderboard loads from the leaderboards landing', async ({ page }) => {
   await page.route('**/api/leaderboard/zulrah**', (route) =>
     route.fulfill({ json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 } })
   );
   await page.goto('/');
 
   await page.getByRole('button', { name: 'Leaderboards' }).click();
-  await page.locator('.combobox-trigger').click();
-  await page.getByRole('option', { name: 'Zulrah' }).click();
+  await page.getByRole('button', { name: /^Bosses/ }).click();
+  await page.getByRole('button', { name: 'Zulrah' }).click();
 
   await expect(page.getByRole('heading', { name: 'Zulrah' })).toBeVisible();
   await expect(page.getByText('Fast')).toBeVisible();
@@ -183,8 +183,8 @@ test('grouped boss picker opens raid variants and restores the selected mode fro
     json: { rows: leaderboardRows, total: leaderboardRows.length, limit: 50, offset: 0 },
   }));
 
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Leaderboards' }).click();
+  // The combobox lives on boss pages; the Leaderboards nav opens the category landing instead.
+  await page.goto('/boss/zulrah');
   await page.locator('.combobox-trigger').click();
 
   await expect(page.getByText('Raids')).toBeVisible();
